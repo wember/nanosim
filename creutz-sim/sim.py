@@ -29,7 +29,7 @@ folder = "/Users/winry/Documents/ASU/thesis/dev/data/"
 
 host = socket.gethostname()
 if host == 'sol-login02':
-  data_path = '/home/wember/2025thesis/nanosim/data'
+  folder = '/home/wember/2025thesis/nanosim/data/'
 
 file_names = [f'{folder}r0/sim_data',
               f'{folder}r1/sim_data_r1',
