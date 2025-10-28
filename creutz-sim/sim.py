@@ -26,8 +26,9 @@ m = 5
 
 folder = "/Users/winry/Documents/ASU/thesis/dev/data/"
 
-if host == 'socsw':
-  data_path = '/Users/socsw/Documents/dev/FIELDS/'
+host = socket.gethostname()
+if host == 'wember':
+  data_path = '/home/wember/2025thesis/nanosim/data'
 
 file_names = [f'{folder}r0/sim_data',
               f'{folder}r1/sim_data_r1',
