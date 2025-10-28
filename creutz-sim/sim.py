@@ -3,6 +3,7 @@ import numpy as np
 import csv
 from scipy.special import loggamma as logg
 import math
+import socket
 
 def add_row(filename, row_data):    # appends a new row to csv file
     try:
@@ -27,7 +28,7 @@ m = 5
 folder = "/Users/winry/Documents/ASU/thesis/dev/data/"
 
 host = socket.gethostname()
-if host == 'wember':
+if host == 'sol-login02':
   data_path = '/home/wember/2025thesis/nanosim/data'
 
 file_names = [f'{folder}r0/sim_data',
