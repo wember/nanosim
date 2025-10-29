@@ -3,6 +3,7 @@ import numpy as np
 import csv
 from scipy.special import loggamma as logg
 import math
+import socket
 
 def add_row(filename, row_data):    # appends a new row to csv file
     try:
