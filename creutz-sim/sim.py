@@ -19,7 +19,7 @@ Su = lambda N, N0, Nx, N0_exp: logg(N+1) + math.log(2**N0_exp) - (logg(N-N0-Nx+1
 # lattice size
 n=100
 # sweeps
-s = 100
+s = 20
 # max bond-demon couple radius
 r = 11
 # number of sims
@@ -28,7 +28,7 @@ m = 5
 folder = "/Users/winry/Documents/ASU/thesis/dev/data/"
 
 host = socket.gethostname()
-if host == 'sol-login02':
+if host != 'Luli.local':
   folder = '/home/wember/2025thesis/nanosim/data/'
 
 file_names = [f'{folder}r0/sim_data',
@@ -107,6 +107,8 @@ for M in range(m):
             new_row = [s+i, np.mean(data[:, 0]), np.mean(data[:, 1]), np.mean(data[:, 2]), np.mean(data[:, 3]), np.mean(data[:, 4]), np.mean(data[:, 5])/1000, n]
             add_row(file_path, new_row)
 
+        print(f"R{R} complete")
+    print(f'############################## Sim #{M} complete #################################### ')
 
         # final = np.array([x.lattice])
         # print(init, final)
