@@ -16,9 +16,9 @@ Sk = lambda N, K: logg(K + N) - logg(K+1) - logg(N) # N == lattice size, K == ki
 Su = lambda N, N0, Nx, N0_exp: logg(N+1) + math.log(2**N0_exp) - (logg(N-N0-Nx+1) + logg(N0+1) + logg(Nx+1)) # N == lattice size, N0 == broken bonds, Nx == bonds between anti-aligned spins
 
 # lattice size
-n=100
+n=1000000
 # sweeps
-s = 20
+s = 10000
 # max bond-demon couple radius
 r = 11
 # number of sims
@@ -26,8 +26,9 @@ m = 5
 
 folder = "/Users/winry/Documents/ASU/thesis/dev/data/"
 
-if host == 'socsw':
-  data_path = '/Users/socsw/Documents/dev/FIELDS/'
+host = socket.gethostname()
+if host != 'Luli.local':
+  folder = '/home/wember/2025thesis/nanosim/data/'
 
 file_names = [f'{folder}irr/r0/irr_sim_data',
               f'{folder}irr/r1/irr_sim_data_r1',
@@ -104,3 +105,5 @@ for M in range(m):
                 data = np.array(list(reader), dtype=float)
             new_row = [s+i, np.mean(data[:, 0]), np.mean(data[:, 1]), np.mean(data[:, 2]), np.mean(data[:, 3]), np.mean(data[:, 4]), np.mean(data[:, 5])/1000, n]
             add_row(file_path, new_row)
+        print(f"R{R} complete")
+    print(f'############################## Sim #{M+1} complete #################################### ')
