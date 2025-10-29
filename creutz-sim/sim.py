@@ -17,9 +17,9 @@ Sk = lambda N, K: logg(K + N) - logg(K+1) - logg(N) # N == lattice size, K == ki
 Su = lambda N, N0, Nx, N0_exp: logg(N+1) + math.log(2**N0_exp) - (logg(N-N0-Nx+1) + logg(N0+1) + logg(Nx+1)) # N == lattice size, N0 == broken bonds, Nx == bonds between anti-aligned spins
 
 # lattice size
-n=100
+n=1000000
 # sweeps
-s = 20
+s = 10000
 # max bond-demon couple radius
 r = 11
 # number of sims
