@@ -108,7 +108,7 @@ for M in range(m):
             add_row(file_path, new_row)
 
         print(f"R{R} complete")
-    print(f'############################## Sim #{M} complete #################################### ')
+    print(f'############################## Sim #{M+1} complete #################################### ')
 
         # final = np.array([x.lattice])
         # print(init, final)
