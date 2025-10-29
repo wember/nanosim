@@ -17,9 +17,9 @@ Sk = lambda N, K: logg(K + N) - logg(K+1) - logg(N) # N == lattice size, K == ki
 Su = lambda N, N0, Nx, N0_exp: logg(N+1) + math.log(2**N0_exp) - (logg(N-N0-Nx+1) + logg(N0+1) + logg(Nx+1)) # N == lattice size, N0 == broken bonds, Nx == bonds between anti-aligned spins
 
 # lattice size
-n=1000000
+n=100
 # sweeps
-s = 10000
+s = 10
 # max bond-demon couple radius
 r = 11
 # number of sims
@@ -56,12 +56,12 @@ for M in range(m):
 
         data_types = ['t', 'K', 'U', 'E', 'N0', 'Nx', 'S/nk', 'n'] # step counter, lattice energy, demon energy, total energy, broken bonds, anti-aligned spins, lattice size
         for files in [file_path]:
-            with open(files, 'w', newline='') as file:
+            with open(files, 'w+', newline='') as file:
                 writer = csv.writer(file)
                 writer.writerow(data_types)
 
         for i in range(s):
-            with open(temp_file, 'w', newline='') as file:
+            with open(temp_file, 'w+', newline='') as file:
                 writer = csv.writer(file)
                 writer.writerow(['K', 'U', 'E', 'N0', 'Nx', 'S/nk', 'Smax'])
             # Attempt to flip each spin in lattice
@@ -85,7 +85,7 @@ for M in range(m):
 
         ### Reverse simulation
         for i in range(s):
-            with open(temp_rev, 'w', newline='') as file:
+            with open(temp_rev, 'w+', newline='') as file:
                 writer = csv.writer(file)
                 writer.writerow(['K', 'U', 'E', 'N0', 'Nx', 'S/nk', 'Smax'])
             # Attempt to flip each spin in lattice
