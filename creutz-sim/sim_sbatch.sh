@@ -14,6 +14,6 @@
 source /home/wember/2025thesis/my_venv/bin/activate
 
 python /home/wember/2025thesis/nanosim/creutz-sim/sim.py
-python /home/wember/2025thesis/nanosim/creutz-sim/irr_sim.py
 
 /home/wember/2025thesis/nanosim/data
+
