@@ -107,9 +107,6 @@ for M in range(m):
             new_row = [s+i, np.mean(data[:, 0]), np.mean(data[:, 1]), np.mean(data[:, 2]), np.mean(data[:, 3]), np.mean(data[:, 4]), np.mean(data[:, 5])/1000, n]
             add_row(file_path, new_row)
 
-        print(f"R{R} complete")
-    print(f'############################## Sim #{M+1} complete #################################### ')
-
         # final = np.array([x.lattice])
         # print(init, final)
         # if (np.array_equal(init, final)):
