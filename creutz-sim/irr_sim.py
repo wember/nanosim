@@ -79,7 +79,7 @@ for M in range(m):
             with open(temp_file, 'r') as f:
                 reader = csv.reader(f)
                 next(reader)  # Skip the header row
-                print(list(reader))
+                print(list(reader).size)
                 data = np.array(list(reader), dtype=float)
             new_row = [i+1, np.mean(data[:, 0]), np.mean(data[:, 1]), np.mean(data[:, 2]), np.mean(data[:, 3]), np.mean(data[:, 4]), np.mean(data[:, 5])/1000, n]
             add_row(file_path, new_row)
