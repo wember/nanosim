@@ -74,7 +74,8 @@ for M in range(m):
                 total_entropy = (Sk(n, sum(x.E_demon)) + Su(n, x.bond_count[0], x.bond_count[1], N0e))/n
                 # Write results to temp file
                 new_row = [sum(x.E_demon), x.E_lattice, sum(x.E_demon) + x.E_lattice, x.bond_count[0]/n, x.bond_count[1]/n, int(total_entropy*1000)]
-                add_row(temp_file, new_row)
+                if isinstance(new_row[0], int):
+                    add_row(temp_file, new_row)
             # write avg sweep results to csv
             with open(temp_file, 'r') as f:
                 reader = csv.reader(f)
@@ -98,7 +99,8 @@ for M in range(m):
                 total_entropy = (Sk(n, sum(x.E_demon)) + Su(n, x.bond_count[0], x.bond_count[1], N0_exp))/n
                 # Write results to temp file
                 new_row = [sum(x.E_demon), x.E_lattice, sum(x.E_demon) + x.E_lattice, x.bond_count[0]/n, x.bond_count[1]/n, int(total_entropy*1000)]
-                add_row(temp_rev, new_row)
+                if isinstance(new_row[0], int):
+                    add_row(temp_rev, new_row)
             # write avg sweep results to csv
             with open(temp_rev, 'r') as f:
                 reader = csv.reader(f)
