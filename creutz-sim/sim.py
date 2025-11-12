@@ -30,7 +30,7 @@ s = 10000
 # max bond-demon couple radius
 r = 11
 # number of sims
-m = 5
+m = 1
 
 folder = "/Users/winry/Documents/ASU/thesis/dev/data/"
 
