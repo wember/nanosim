@@ -70,7 +70,7 @@ for M in range(m):
         for i in range(s):
             with open(temp_file, 'w+', newline='') as file:
                 writer = csv.writer(file)
-                writer.writerow(['K', 'U', 'E', 'N0', 'Nx', 'S/nk', 'Smax'])
+                writer.writerow(['K', 'U', 'E', 'N0', 'Nx', 'S/nk'])
             # Attempt to flip each spin in lattice
             for j in range(n):
                 x.demon_move()
@@ -95,7 +95,7 @@ for M in range(m):
         for i in range(s):
             with open(temp_rev, 'w+', newline='') as file:
                 writer = csv.writer(file)
-                writer.writerow(['K', 'U', 'E', 'N0', 'Nx', 'S/nk', 'Smax'])
+                writer.writerow(['K', 'U', 'E', 'N0', 'Nx', 'S/nk'])
             # Attempt to flip each spin in lattice
             for j in range(n):
                 x.demon_reverse()
