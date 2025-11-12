@@ -13,6 +13,13 @@ def add_row(filename, row_data):    # appends a new row to csv file
     except Exception as e:
          print(f"An error occurred: {e}")
 
+def fix_null_bytes(stream):
+    """
+    A generator that replaces null bytes in a stream with empty strings.
+    """
+    for line in stream:
+        yield line.replace('\0', '')
+
 Sk = lambda N, K: logg(K + N) - logg(K+1) - logg(N) # N == lattice size, K == kinetic energy
 Su = lambda N, N0, Nx, N0_exp: logg(N+1) + math.log(2**N0_exp) - (logg(N-N0-Nx+1) + logg(N0+1) + logg(Nx+1)) # N == lattice size, N0 == broken bonds, Nx == bonds between anti-aligned spins
 
@@ -78,7 +85,7 @@ for M in range(m):
                     add_row(temp_file, new_row)
             # write avg sweep results to csv
             with open(temp_file, 'r') as f:
-                reader = csv.reader(f)
+                reader = csv.reader(fix_null_bytes(f))
                 next(reader)  # Skip the header row
                 data = np.array(list(reader), dtype=float)
             new_row = [i+1, np.mean(data[:, 0]), np.mean(data[:, 1]), np.mean(data[:, 2]), np.mean(data[:, 3]), np.mean(data[:, 4]), np.mean(data[:, 5])/1000, n]
@@ -103,7 +110,7 @@ for M in range(m):
                     add_row(temp_rev, new_row)
             # write avg sweep results to csv
             with open(temp_rev, 'r') as f:
-                reader = csv.reader(f)
+                reader = csv.reader(fix_null_bytes(f))
                 next(reader)  # Skip the header row
                 data = np.array(list(reader), dtype=float)
             new_row = [s+i, np.mean(data[:, 0]), np.mean(data[:, 1]), np.mean(data[:, 2]), np.mean(data[:, 3]), np.mean(data[:, 4]), np.mean(data[:, 5])/1000, n]
