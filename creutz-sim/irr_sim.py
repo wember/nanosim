@@ -63,12 +63,12 @@ for M in range(m):
 
         data_types = ['t', 'K', 'U', 'E', 'N0', 'Nx', 'S/nk', 'n'] # step counter, lattice energy, demon energy, total energy, broken bonds, anti-aligned spins, lattice size
         for files in [file_path]:
-            with open(files, 'w', newline='') as file:
+            with open(files, 'w+', newline='') as file:
                 writer = csv.writer(file)
                 writer.writerow(data_types)
 
         for i in range(s):
-            with open(temp_file, 'w', newline='') as file:
+            with open(temp_file, 'w+', newline='') as file:
                 writer = csv.writer(file)
                 writer.writerow(['K', 'U', 'E', 'N0', 'Nx', 'S/nk'])
             # Attempt to flip each spin in lattice
@@ -92,7 +92,7 @@ for M in range(m):
 
         ### Reverse simulation
         for i in range(s):
-            with open(temp_rev, 'w', newline='') as file:
+            with open(temp_rev, 'w+', newline='') as file:
                 writer = csv.writer(file)
                 writer.writerow(['K', 'U', 'E', 'N0', 'Nx', 'S/nk'])
             # Attempt to flip each spin in lattice
