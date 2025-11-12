@@ -50,8 +50,8 @@ for M in range(m):
 
         init = np.array([x.lattice])
 
-        temp_file = 'temp_sim.csv'
-        temp_rev = 'temp_rev.csv'
+        temp_file = f'{folder}temp_sim.csv'
+        temp_rev = f'{folder}temp_rev.csv'
         file_path = f"{file_names[R]}_{M}.csv"
 
         data_types = ['t', 'K', 'U', 'E', 'N0', 'Nx', 'S/nk', 'n'] # step counter, lattice energy, demon energy, total energy, broken bonds, anti-aligned spins, lattice size
