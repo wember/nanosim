@@ -68,7 +68,8 @@ for M in range(m):
                 # Add results to totals
                 data += [float(sum(x.E_demon)), float(x.E_lattice), x.bond_count[1]/n, x.bond_count[2]/n, total_entropy]
             # write avg sweep results to csv
-            new_row = np.array([i, data[0]/n, data[1]/n, data[2]/n, data[3]/n, data[4]/n, n])
+            print(new_row)
+            new_row = np.array([i+1, data[0]/n, data[1]/n, data[2]/n, data[3]/n, data[4]/n, n])
             add_row(filename, new_row)
 
         ### Reverse simulation
@@ -85,5 +86,5 @@ for M in range(m):
                 # Add results to totals
                 data += [float(sum(x.E_demon)), float(x.E_lattice), x.bond_count[1]/n, x.bond_count[2]/n, total_entropy]
             # write avg sweep results to csv
-            new_row = np.array([s+i, data[0]/n, data[1]/n, data[2]/n, data[3]/n, data[4]/n, n])
+            new_row = np.array([s+i+1, data[0]/n, data[1]/n, data[2]/n, data[3]/n, data[4]/n, n])
             add_row(filename, new_row)
