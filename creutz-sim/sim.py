@@ -49,7 +49,7 @@ file_names = [f'{folder}r0/sim_data',
 with open(status_file, 'w+', newline='') as file:
     writer = csv.writer(file)
 
-add_row(status_file, f"{datetime.now()\t Begin sim}")
+add_row(status_file, f"{datetime.now()}\t Begin sim")
 
 for M in range(m):
     for R in range(r):
@@ -78,7 +78,7 @@ for M in range(m):
             # write avg sweep results to csv
             new_row = np.array([i+1, data[0]/n, data[1]/n, data[2]/n, data[3]/n, data[4]/n, n])
             add_row(filename, new_row)
-            add_row(status_file, f"datetime.now()\t sweep {i} complete.")
+            add_row(status_file, f"{datetime.now()}\t sweep {i} complete.")
 
         ### Reverse simulation
         for i in range(s):
