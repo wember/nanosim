@@ -17,13 +17,13 @@ Sk = lambda N, K: logg(K + N) - logg(K+1) - logg(N) # N == lattice size, K == ki
 Su = lambda N, N0, Nx, N0_exp: logg(N+1) + math.log(2**N0_exp) - (logg(N-N0-Nx+1) + logg(N0+1) + logg(Nx+1)) # N == lattice size, N0 == broken bonds, Nx == bonds between anti-aligned spins
 
 # lattice size
-n=1000000
+n=100
 # sweeps
-s = 10000
+s = 20
 # max bond-demon couple radius
 r = 11
 # number of sims
-m = 1
+m = 5
 
 folder = "/Users/winry/Documents/ASU/thesis/dev/data/"
 
@@ -68,7 +68,7 @@ for M in range(m):
                 # Add results to totals
                 data += [float(sum(x.E_demon)), float(x.E_lattice), x.bond_count[1]/n, x.bond_count[2]/n, total_entropy]
             # write avg sweep results to csv
-            new_row = np.array([s, data[0]/s, data[1]/s, data[2]/s, data[3]/s, data[4]/s, n])
+            new_row = np.array([i, data[0]/n, data[1]/n, data[2]/n, data[3]/n, data[4]/n, n])
             add_row(filename, new_row)
 
         ### Reverse simulation
@@ -85,5 +85,5 @@ for M in range(m):
                 # Add results to totals
                 data += [float(sum(x.E_demon)), float(x.E_lattice), x.bond_count[1]/n, x.bond_count[2]/n, total_entropy]
             # write avg sweep results to csv
-            new_row = np.array([s, data[0]/s, data[1]/s, data[2]/s, data[3]/s, data[4]/s, n])
+            new_row = np.array([s+i, data[0]/n, data[1]/n, data[2]/n, data[3]/n, data[4]/n, n])
             add_row(filename, new_row)
