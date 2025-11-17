@@ -4,6 +4,7 @@ import csv
 from scipy.special import loggamma as logg
 import math
 import socket
+from datetime import datetime
 
 def add_row(filename, row_data):    # appends a new row to csv file
     try:
@@ -17,7 +18,7 @@ Sk = lambda N, K: logg(K + N) - logg(K+1) - logg(N) # N == lattice size, K == ki
 Su = lambda N, N0, Nx, N0_exp: logg(N+1) + math.log(2**N0_exp) - (logg(N-N0-Nx+1) + logg(N0+1) + logg(Nx+1)) # N == lattice size, N0 == broken bonds, Nx == bonds between anti-aligned spins
 
 # lattice size
-n=1000000
+n=10000
 # sweeps
 s = 10000
 # max bond-demon couple radius
@@ -31,6 +32,7 @@ host = socket.gethostname()
 if host != 'Luli.local':
   folder = '/home/wember/2025thesis/nanosim/data/'
 
+status_file = f"{folder}sim_status.csv"
 file_names = [f'{folder}r0/sim_data',
               f'{folder}r1/sim_data_r1',
               f'{folder}r2/sim_data_r2',
@@ -42,6 +44,12 @@ file_names = [f'{folder}r0/sim_data',
               f'{folder}r8/sim_data_r8',
               f'{folder}r9/sim_data_r9',
               f'{folder}r10/sim_data_r10']
+
+
+with open(status_file, 'w+', newline='') as file:
+    writer = csv.writer(file)
+
+add_row(status_file, f"{datetime.now()\t Begin sim}")
 
 for M in range(m):
     for R in range(r):
@@ -55,7 +63,6 @@ for M in range(m):
             writer = csv.writer(file)
             writer.writerow(data_types)
 
-        print("begin sim")
         for i in range(s):
             data = np.array([0.0,0.0,0.0,0.0,0.0])
             # Attempt to flip each spin in lattice
@@ -69,10 +76,9 @@ for M in range(m):
                 # Add results to totals
                 data += [float(sum(x.E_demon)), float(x.E_lattice), x.bond_count[1]/n, x.bond_count[2]/n, total_entropy]
             # write avg sweep results to csv
-            print(new_row)
             new_row = np.array([i+1, data[0]/n, data[1]/n, data[2]/n, data[3]/n, data[4]/n, n])
             add_row(filename, new_row)
-        print("finish forward sweeps")
+            add_row(status_file, f"datetime.now()\t sweep {i} complete.")
 
         ### Reverse simulation
         for i in range(s):
