@@ -55,6 +55,7 @@ for M in range(m):
             writer = csv.writer(file)
             writer.writerow(data_types)
 
+        print("begin sim")
         for i in range(s):
             data = np.array([0.0,0.0,0.0,0.0,0.0])
             # Attempt to flip each spin in lattice
@@ -71,6 +72,7 @@ for M in range(m):
             print(new_row)
             new_row = np.array([i+1, data[0]/n, data[1]/n, data[2]/n, data[3]/n, data[4]/n, n])
             add_row(filename, new_row)
+        print("finish forward sweeps")
 
         ### Reverse simulation
         for i in range(s):
