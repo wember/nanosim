@@ -20,7 +20,7 @@ Su = lambda N, N0, Nx, N0_exp: logg(N+1) + math.log(2**N0_exp) - (logg(N-N0-Nx+1
 # lattice size
 n=10000
 # sweeps
-s = 10000
+s = 1000
 # max bond-demon couple radius
 r = 11
 # number of sims
