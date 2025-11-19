@@ -24,7 +24,7 @@ Sk = lambda N, K: logg(K + N) - logg(K+1) - logg(N) # N == lattice size, K == ki
 Su = lambda N, N0, Nx, N0_exp: logg(N+1) + math.log(2**N0_exp) - (logg(N-N0-Nx+1) + logg(N0+1) + logg(Nx+1)) # N == lattice size, N0 == broken bonds, Nx == bonds between anti-aligned spins
 
 # lattice size
-n=10000
+n=100
 # sweeps
 s = 1000
 # max bond-demon couple radius
@@ -74,7 +74,7 @@ for M in range(m):
                     N0e = 1
                 total_entropy = (Sk(n, sum(x.E_demon)) + Su(n, x.bond_count[1], x.bond_count[2], N0e))/n
                 # Add results to totals
-                data += [float(sum(x.E_demon)), float(x.E_lattice), x.bond_count[1]/n, x.bond_count[2]/n, total_entropy]
+                data += [sum(x.E_demon), x.E_lattice, x.bond_count[1], x.bond_count[2], total_entropy]
             # write avg sweep results to csv
             new_row = np.array([i+1, data[0]/n, data[1]/n, data[2]/n, data[3]/n, data[4]/n, n])
             add_row(filename, new_row)
@@ -91,7 +91,7 @@ for M in range(m):
                     N0_exp = 1
                 total_entropy = (Sk(n, sum(x.E_demon)) + Su(n, x.bond_count[1], x.bond_count[2], N0_exp))/n
                 # Add results to totals
-                data += [float(sum(x.E_demon)), float(x.E_lattice), x.bond_count[1]/n, x.bond_count[2]/n, total_entropy]
+                data += [sum(x.E_demon), x.E_lattice, x.bond_count[1], x.bond_count[2], total_entropy]
             # write avg sweep results to csv
             new_row = np.array([s+i+1, data[0]/n, data[1]/n, data[2]/n, data[3]/n, data[4]/n, n])
             add_row(filename, new_row)
