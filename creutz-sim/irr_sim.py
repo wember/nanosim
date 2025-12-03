@@ -19,7 +19,7 @@ def Su_stable(N, N0, Nx, N0_exp):
 # lattice size
 n = 1000
 # sweeps
-s = 100
+s = 1000
 # max bond-demon couple radius
 r = 11
 # number of sims
