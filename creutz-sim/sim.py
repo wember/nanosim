@@ -19,9 +19,9 @@ def Su_stable(N, N0, Nx, N0_exp):
     return logg(N + 1) + log_2_term - (logg(N - N0 - Nx + 1) + logg(N0 + 1) + logg(Nx + 1))
 
 # lattice size
-n = 1000
+n = 1000000
 # sweeps
-s = 1000
+s = 10000
 # max bond-demon couple radius
 r = 11
 # number of sims
