@@ -38,6 +38,90 @@ class TestInfernoInitialization:
         assert np.all(x.E_demon >= 0)
 
 
+class TestInfernoEnergyConservation:
+    """Test energy conservation during simulation."""
+    
+    def test_energy_conservation_forward(self):
+        """Test energy conservation during forward moves."""
+        x = Inferno(100, 5)
+        initial_energy = x.E_total
+        
+        # Run 1000 forward moves
+        for _ in range(1000):
+            x.demon_move()
+        
+        assert np.abs(x.E_total - initial_energy) < 1e-10
+    
+    def test_energy_conservation_reverse(self):
+        """Test energy conservation during reverse moves."""
+        x = Inferno(100, 5)
+        initial_energy = x.E_total
+        
+        # Run 1000 reverse moves
+        for _ in range(1000):
+            x.demon_reverse()
+        
+        assert np.abs(x.E_total - initial_energy) < 1e-10
+    
+    def test_energy_conservation_forward_reverse(self):
+        """Test energy conservation through forward and reverse."""
+        x = Inferno(100, 5)
+        initial_energy = x.E_total
+        
+        # Run forward then reverse
+        for _ in range(500):
+            x.demon_move()
+        for _ in range(500):
+            x.demon_reverse()
+        
+        assert np.abs(x.E_total - initial_energy) < 1e-10
+
+
+class TestInfernoReversibility:
+    """Test reversibility of dynamics."""
+    
+    def test_reversibility_small(self):
+        """Test that forward-reverse returns to initial state."""
+        x = Inferno(50, 3)
+        
+        # Store initial state
+        initial_lattice = x.lattice.copy()
+        initial_E_demon = x.E_demon.copy()
+        initial_bonds = x.bonds.copy()
+        
+        # Run forward then reverse
+        sweeps = 10
+        for _ in range(sweeps):
+            for _ in range(x.N):
+                x.demon_move()
+        
+        for _ in range(sweeps):
+            for _ in range(x.N):
+                x.demon_reverse()
+        
+        # Check if state is restored
+        np.testing.assert_array_equal(x.lattice, initial_lattice)
+        np.testing.assert_array_equal(x.E_demon, initial_E_demon)
+        np.testing.assert_array_equal(x.bonds, initial_bonds)
+    
+    def test_reversibility_different_radii(self):
+        """Test reversibility with different coupling radii."""
+        for R in [1, 3, 5, 10]:
+            x = Inferno(30, R)
+            initial_lattice = x.lattice.copy()
+            
+            # Short simulation
+            for _ in range(5):
+                for _ in range(x.N):
+                    x.demon_move()
+            for _ in range(5):
+                for _ in range(x.N):
+                    x.demon_reverse()
+            
+            np.testing.assert_array_equal(x.lattice, initial_lattice,
+                err_msg=f"Reversibility failed for R={R}")
+
+
 class TestInfernoStateMethods:
     """Test state inspection methods."""
     

@@ -104,6 +104,66 @@ class TestStressTests:
         assert np.abs(x.E_total - initial_energy) < 1e-10
 
 
+class TestValidationMechanisms:
+    """Test the validation and error detection mechanisms."""
+    
+    def test_validation_catches_errors(self):
+        """Test that validate_energy_conservation detects problems."""
+        x = Inferno(100, 5)
+        
+        # Validation should pass initially
+        assert x.validate_energy_conservation() == True
+        
+        # Artificially introduce drift
+        x.E_lattice += 1
+        
+        # Validation should detect and fix (returns False)
+        assert x.validate_energy_conservation() == False
+        
+        # Should be fixed now
+        assert x.validate_energy_conservation() == True
+    
+    def test_bond_count_validation(self):
+        """Test that validate_bond_counts detects problems."""
+        x = Inferno(100, 5)
+        
+        # Validation should pass initially
+        assert x.validate_bond_counts() == True
+        
+        # Artificially corrupt bond counts
+        x.bond_count[0] += 1
+        x.bond_count[1] -= 1
+        
+        # Validation should detect and fix
+        assert x.validate_bond_counts() == False
+        
+        # Should be fixed now
+        assert x.validate_bond_counts() == True
+    
+    def test_get_validated_state_accuracy(self):
+        """Test that get_validated_state returns accurate values."""
+        x = Inferno(100, 5)
+        
+        # Run some moves
+        for _ in range(50):
+            for _ in range(x.N):
+                x.demon_move()
+        
+        # Get validated state
+        state = x.get_validated_state()
+        
+        # Manually calculate values
+        actual_lattice = np.sum(x.bonds, dtype=np.int64)
+        actual_demon = np.sum(x.E_demon, dtype=np.int64)
+        actual_bonds = np.bincount(x.bonds + 1, minlength=3).astype(np.int64)
+        
+        # Should match exactly
+        assert state['E_lattice'] == actual_lattice
+        assert state['E_demon_sum'] == actual_demon
+        assert state['E_total'] == actual_lattice + actual_demon
+        assert np.array_equal(state['bond_count'], actual_bonds)
+
+
 class TestIndexCycling:
     """Test that index cycling works correctly."""
     
@@ -185,6 +245,69 @@ class TestBondOperations:
         
         # Energy should still be conserved
         assert x.E_total == initial_total
+
+
+class TestEntropyCalculations:
+    """Test entropy calculation functions."""
+    
+    def test_Sk_positive(self):
+        """Test that Sk (kinetic entropy) is positive."""
+        from inferno import Sk
+        
+        # Test various N and K values
+        for N in [10, 100, 1000]:
+            for K in [10, 100, 1000]:
+                s = Sk(N, K)
+                assert s >= 0, f"Sk should be non-negative for N={N}, K={K}"
+    
+    def test_Su_positive(self):
+        """Test that Su (configurational entropy) is positive."""
+        from inferno import Su
+        
+        # Test various configurations
+        # Note: N0 can't be too large or 2**N0 overflows
+        N = 100
+        for N0 in [0, 10, 20, 30]:  # Keep N0 reasonable to avoid overflow
+            for Nx in [0, 5, 10]:
+                if N0 + Nx <= N:
+                    s = Su(N, N0, Nx)
+                    assert not np.isnan(s), f"Su should not be NaN for N={N}, N0={N0}, Nx={Nx}"
+    
+    def test_Su0_edge_case(self):
+        """Test Su0 for N0=0 edge case."""
+        from inferno import Su0
+        
+        N = 100
+        s = Su0(N, 0, 0)
+        assert not np.isnan(s), "Su0 should handle N0=0"
+        assert s >= 0
+
+
+class TestComparisonMetrics:
+    """Test metrics used for comparing reversible vs irreversible."""
+    
+    def test_entropy_difference(self):
+        """Test that reversible and irreversible have different entropy evolution."""
+        x_rev = Inferno(100, 5)
+        x_irr = irrInferno(100, 5)
+        
+        # Run same number of sweeps
+        sweeps = 50
+        for _ in range(sweeps):
+            for _ in range(x_rev.N):
+                x_rev.demon_move()
+                x_irr.demon_move()
+        
+        # States should be different
+        assert not np.array_equal(x_rev.lattice, x_irr.lattice)
+        
+        # Get states
+        state_rev = x_rev.get_validated_state()
+        state_irr = x_irr.get_validated_state()
+        
+        # Both should conserve energy
+        assert state_rev['E_total'] == x_rev._initial_total_energy
+        assert state_irr['E_total'] == x_irr._initial_total_energy
 
 
 if __name__ == '__main__':
