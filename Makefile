@@ -33,6 +33,16 @@ run-irr-sim:  ## Run irreversible simulation (full: n=1000000, s=5000)
 	@echo "Running irreversible simulation (full parameters)..."
 	@./venv/bin/python creutz-sim/irr_sim.py
 
+run-parallel-sim:  ## Run parallel reversible simulation (auto-detect cores)
+	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
+	@echo "Running parallel reversible simulation..."
+	@./venv/bin/python creutz-sim/parallel_sim.py
+
+run-parallel-irr-sim:  ## Run parallel irreversible simulation (auto-detect cores)
+	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
+	@echo "Running parallel irreversible simulation..."
+	@./venv/bin/python creutz-sim/parallel_irr_sim.py
+
 run-sim-small:  ## Run reversible simulation (small: n=1000, s=100, r=3, m=2)
 	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
 	@./venv/bin/python creutz-sim/sim.py --n 1000 --s 100 --r 3 --m 2
@@ -49,6 +59,14 @@ run-irr-sim-test:  ## Run irreversible simulation (test: n=100, s=10, r=2, m=1)
 	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
 	@./venv/bin/python creutz-sim/irr_sim.py --n 100 --s 10 --r 2 --m 1
 
+run-parallel-sim-test:  ## Run parallel reversible simulation (test: n=100, s=10, r=3, m=6)
+	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
+	@./venv/bin/python creutz-sim/parallel_sim.py --n 100 --s 10 --r 3 --m 6
+
+run-parallel-irr-sim-test:  ## Run parallel irreversible simulation (test: n=100, s=10, r=3, m=6)
+	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
+	@./venv/bin/python creutz-sim/parallel_irr_sim.py --n 100 --s 10 --r 3 --m 6
+
 sbatch-sim:  ## Submit reversible simulation to SLURM cluster
 	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
 	@echo "Submitting reversible simulation to SLURM..."
@@ -58,6 +76,16 @@ sbatch-irr-sim:  ## Submit irreversible simulation to SLURM cluster
 	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
 	@echo "Submitting irreversible simulation to SLURM..."
 	cd creutz-sim/batch_jobs && sbatch irr_sim_sbatch.sh
+
+sbatch-parallel-sim:  ## Submit parallel reversible simulation to SLURM cluster
+	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
+	@echo "Submitting parallel reversible simulation to SLURM..."
+	cd creutz-sim/batch_jobs && sbatch parallel_sim_sbatch.sh
+
+sbatch-parallel-irr-sim:  ## Submit parallel irreversible simulation to SLURM cluster
+	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
+	@echo "Submitting parallel irreversible simulation to SLURM..."
+	cd creutz-sim/batch_jobs && sbatch parallel_irr_sim_sbatch.sh
 
 plot:  ## Run plotting script (requires sim_data.csv)
 	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi

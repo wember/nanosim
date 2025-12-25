@@ -37,6 +37,9 @@ data/
 logs/
 *.log
 
+# Profiling data
+*.stats
+
 # Metadata
 *_metadata.json
 
