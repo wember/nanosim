@@ -1,4 +1,4 @@
-.PHONY: help setup clean test run-sim run-irr-sim run-sim-small run-irr-sim-small sbatch-sim sbatch-irr-sim plot activate
+.PHONY: help setup clean test run-sim run-irr-sim run-sim-small run-irr-sim-small run-sim-test run-irr-sim-test sbatch-sim sbatch-irr-sim plot activate run-tests run-examples
 
 help:  ## Show this help message
 	@echo 'Usage: make [target]'
@@ -35,13 +35,19 @@ run-irr-sim:  ## Run irreversible simulation (full: n=1000000, s=5000)
 
 run-sim-small:  ## Run reversible simulation (small: n=1000, s=100, r=3, m=2)
 	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
-	@echo "Running reversible simulation (small parameters: n=1000, s=100, r=3, m=2)..."
-	@./venv/bin/python creutz-sim/sim_small.py
+	@./venv/bin/python creutz-sim/sim.py --n 1000 --s 100 --r 3 --m 2
 
 run-irr-sim-small:  ## Run irreversible simulation (small: n=1000, s=100, r=3, m=2)
 	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
-	@echo "Running irreversible simulation (small parameters: n=1000, s=100, r=3, m=2)..."
-	@./venv/bin/python creutz-sim/irr_sim_small.py
+	@./venv/bin/python creutz-sim/irr_sim.py --n 1000 --s 100 --r 3 --m 2
+
+run-sim-test:  ## Run reversible simulation (test: n=100, s=10, r=2, m=1)
+	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
+	@./venv/bin/python creutz-sim/sim.py --n 100 --s 10 --r 2 --m 1
+
+run-irr-sim-test:  ## Run irreversible simulation (test: n=100, s=10, r=2, m=1)
+	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
+	@./venv/bin/python creutz-sim/irr_sim.py --n 100 --s 10 --r 2 --m 1
 
 sbatch-sim:  ## Submit reversible simulation to SLURM cluster
 	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
@@ -56,6 +62,20 @@ sbatch-irr-sim:  ## Submit irreversible simulation to SLURM cluster
 plot:  ## Run plotting script (requires sim_data.csv)
 	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
 	@./venv/bin/python creutz-sim/sim_plot.py
+
+run-tests:  ## Run unit tests with pytest
+	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
+	@echo "Running unit tests..."
+	@./venv/bin/python -m pytest tests/ -v
+
+run-examples:  ## Run all example scripts
+	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
+	@echo "Running quick_test.py..."
+	@./venv/bin/python examples/quick_test.py
+	@echo "\nRunning custom_parameters.py..."
+	@./venv/bin/python examples/custom_parameters.py
+	@echo "\nRunning analysis_pipeline.py..."
+	@./venv/bin/python examples/analysis_pipeline.py
 
 activate:  ## Show command to activate virtual environment
 	@echo "Run this command to activate the virtual environment:"

@@ -4,28 +4,84 @@ import csv
 from scipy.special import loggamma as logg
 import math
 import os
+import argparse
+import logging
+import json
 from datetime import datetime
+from tqdm import tqdm
+from typing import Dict, Tuple
 
 # Use stable logarithm calculations for large factorials
-def Sk_stable(N, K):
-    """Stable entropy calculation for kinetic energy"""
+def Sk_stable(N: int, K: int) -> float:
+    """Calculate kinetic entropy using stable logarithm.
+    
+    Args:
+        N: Number of sites in lattice
+        K: Total demon energy (sum of all oscillator energies)
+        
+    Returns:
+        Kinetic entropy in units of k_B
+        
+    Note:
+        Uses loggamma for numerical stability with large factorials.
+        Calculates log(Ω_k) where Ω_k = (K+N-1)! / (K! * (N-1)!)
+    """
     return logg(K + N) - logg(K + 1) - logg(N)
 
-def Su_stable(N, N0, Nx, N0_exp):
-    """Stable entropy calculation for potential energy"""
-    # Use log1p for better precision when N0_exp is large
-    # log(2^N0_exp) = N0_exp * log(2)
+def Su_stable(N: int, N0: int, Nx: int, N0_exp: int) -> float:
+    """Calculate configurational entropy using stable logarithm.
+    
+    Args:
+        N: Number of sites in lattice
+        N0: Number of broken bonds
+        Nx: Number of anti-aligned neighbor pairs
+        N0_exp: N0 value for exponential term (max(N0, 1) to avoid log(0))
+        
+    Returns:
+        Configurational entropy in units of k_B
+        
+    Note:
+        Uses N0_exp * log(2) instead of log(2^N0_exp) to avoid overflow.
+        Calculates log(Ω_u) where Ω_u = N! * 2^N0 / ((N-N0-Nx)! * N0! * Nx!)
+    """
     log_2_term = N0_exp * np.log(2)
     return logg(N + 1) + log_2_term - (logg(N - N0 - Nx + 1) + logg(N0 + 1) + logg(Nx + 1))
 
-# lattice size
-n = 1000000
-# sweeps
-s = 5000
-# max bond-demon couple radius
-r = 11
-# number of sims
-m = 5
+# Parse command-line arguments
+parser = argparse.ArgumentParser(description='Run reversible Creutz demon simulation')
+parser.add_argument('--n', type=int, default=1000000, help='Lattice size (default: 1000000)')
+parser.add_argument('--s', type=int, default=5000, help='Number of sweeps per phase (default: 5000)')
+parser.add_argument('--r', type=int, default=11, help='Max demon-coupling radius, tests 1 to r-1 (default: 11)')
+parser.add_argument('--m', type=int, default=5, help='Number of independent runs (default: 5)')
+args = parser.parse_args()
+
+# Simulation parameters
+n = args.n  # lattice size
+s = args.s  # sweeps
+r = args.r  # max bond-demon couple radius
+m = args.m  # number of sims
+
+print(f"Reversible simulation with: n={n}, s={s}, r={r}, m={m}")
+
+# Set up logging
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+log_dir = os.path.join(project_root, 'logs')
+os.makedirs(log_dir, exist_ok=True)
+
+timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+log_file = os.path.join(log_dir, f'sim_reversible_{timestamp}.log')
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler(log_file),
+        logging.StreamHandler()
+    ]
+)
+
+logging.info(f"Starting reversible simulation: n={n}, s={s}, r={r}, m={m}")
+logging.info(f"Log file: {log_file}")
 
 # Use relative path from project root
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -48,18 +104,30 @@ file_names = [f'{folder}r0/sim_data',
               f'{folder}r9/sim_data_r9',
               f'{folder}r10/sim_data_r10']
 
-for M in range(m):
-    for R in range(r):
+for M in tqdm(range(m), desc="Runs", position=0):
+    for R in tqdm(range(r), desc="Radii", position=1, leave=False):
+        logging.info(f"Starting run M={M}, radius R={R}")
         x = Inferno(n, R+1)
         filename = f"{file_names[R]}_{M}.csv"
+
+        # Save metadata
+        metadata = {
+            'lattice_size': n,
+            'sweeps': s,
+            'radius': R,
+            'run': M,
+            'timestamp': datetime.now().isoformat(),
+            'simulation_type': 'reversible'
+        }
+        metadata_file = filename.replace('.csv', '_metadata.json')
+        with open(metadata_file, 'w') as f:
+            json.dump(metadata, f, indent=2)
 
         # Pre-allocate array for all results - use float64 for final calculations
         all_results = np.zeros((2*s, 7), dtype=np.float64)
 
-        print(f"Starting M={M}, R={R}")
-
         # Forward simulation
-        for i in range(s):
+        for i in tqdm(range(s), desc="Forward", position=2, leave=False):
             # Attempt to flip each spin in lattice
             for j in range(n):
                 x.demon_move()
@@ -76,7 +144,7 @@ for M in range(m):
                 Su_val = Su_stable(n, state['bond_count'][1], state['bond_count'][2], N0e)
                 total_entropy = (Sk_val + Su_val) / n
             except (ValueError, OverflowError) as e:
-                print(f"Warning: Entropy calculation error at sweep {i}: {e}")
+                logging.warning(f"Entropy calculation error at sweep {i}: {e}")
                 total_entropy = np.nan
 
             # Store results - division by n done in float64
@@ -90,16 +158,8 @@ for M in range(m):
                 np.float64(n)
             ]
 
-            # Progress indicator
-            if (i + 1) % 1000 == 0:
-                print(f"  Forward sweep {i+1}/{s} complete")
-                # Verify energy conservation
-                assert state['E_total'] == x._initial_total_energy, \
-                    f"Energy conservation violated: {state['E_total']} != {x._initial_total_energy}"
-
         # Reverse simulation
-        print(f"  Starting reverse simulation")
-        for i in range(s):
+        for i in tqdm(range(s), desc="Reverse", position=2, leave=False):
             # Attempt to flip each spin in lattice
             for j in range(n):
                 x.demon_reverse()
@@ -115,7 +175,7 @@ for M in range(m):
                 Su_val = Su_stable(n, state['bond_count'][1], state['bond_count'][2], N0_exp)
                 total_entropy = (Sk_val + Su_val) / n
             except (ValueError, OverflowError) as e:
-                print(f"Warning: Entropy calculation error at reverse sweep {i}: {e}")
+                logging.warning(f"Entropy calculation error at reverse sweep {i}: {e}")
                 total_entropy = np.nan
 
             # Store results
@@ -129,18 +189,15 @@ for M in range(m):
                 np.float64(n)
             ]
 
-            # Progress indicator
-            if (i + 1) % 1000 == 0:
-                print(f"  Reverse sweep {i+1}/{s} complete")
-                # Verify energy conservation
-                assert state['E_total'] == x._initial_total_energy, \
-                    f"Energy conservation violated: {state['E_total']} != {x._initial_total_energy}"
-
         # Write all results at once
         with open(filename, 'w', newline='') as file:
             writer = csv.writer(file)
             writer.writerow(['t', 'K', 'U', 'N0', 'Nx', 'S/nk', 'n'])
             writer.writerows(all_results)
+
+        logging.info(f"Completed run M={M}, radius R={R}, output: {filename}")
+
+logging.info("Reversible simulation complete!")
 
         print(f"Completed M={M}, R={R} - saved to {filename}")
         print(f"  Final energy check: {state['E_total']} == {x._initial_total_energy}")

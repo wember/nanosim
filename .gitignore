@@ -33,6 +33,13 @@ wheels/
 data/
 *.csv
 
+# Logs
+logs/
+*.log
+
+# Metadata
+*_metadata.json
+
 # IDE
 .vscode/
 .idea/
@@ -48,5 +55,11 @@ Thumbs.db
 .ipynb_checkpoints/
 
 # SLURM output files
+slurm-*.out
+
+# Pytest
+.pytest_cache/
+.coverage
+htmlcov/
 slurm.*.out
 slurm.*.err

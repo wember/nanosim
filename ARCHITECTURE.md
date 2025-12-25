@@ -390,6 +390,54 @@ final_state = x.lattice, x.E_demon
 
 ## References
 
-- Creutz, M. (1983). "Microcanonical Monte Carlo Simulation"
-- 1D Ising model thermodynamics
-- Statistical mechanics entropy formulas
+### Primary Algorithm
+
+**Creutz's Demon Algorithm:**
+
+- Creutz, M. (1983). "Microcanonical Monte Carlo Simulation." _Physical Review Letters_, 50(19), 1411-1414. DOI: [10.1103/PhysRevLett.50.1411](https://doi.org/10.1103/PhysRevLett.50.1411)
+
+  - Original paper introducing the demon algorithm for microcanonical simulation
+  - Key innovation: Using an auxiliary "demon" particle to enable Monte Carlo moves while conserving total energy
+
+- Creutz, M., & Freedman, B. (1981). "A statistical approach to quantum mechanics." _Annals of Physics_, 132(2), 427-462.
+  - Earlier work developing the theoretical foundation
+
+### Statistical Physics Background
+
+**Ising Model:**
+
+- Ising, E. (1925). "Beitrag zur Theorie des Ferromagnetismus." _Zeitschrift für Physik_, 31(1), 253-258.
+  - Original formulation of the Ising model for magnetic systems
+
+**Microcanonical Ensemble:**
+
+- Huang, K. (2008). _Statistical Mechanics_ (2nd ed.). Wiley.
+  - Comprehensive treatment of microcanonical ensembles (Chapter 7)
+
+**Monte Carlo Methods:**
+
+- Newman, M. E. J., & Barkema, G. T. (1999). _Monte Carlo Methods in Statistical Physics_. Oxford University Press.
+
+  - Chapter 3: Microcanonical methods including Creutz demon
+  - Practical implementation details and examples
+
+- Landau, D. P., & Binder, K. (2014). _A Guide to Monte Carlo Simulations in Statistical Physics_ (4th ed.). Cambridge University Press.
+  - Section 2.4: Microcanonical Monte Carlo
+
+### Entropy Calculations
+
+**Statistical Mechanics Formulas:**
+
+- Boltzmann entropy: S = k_B ln(Ω)
+- Multiplicity calculations for microcanonical ensembles
+- Configurational and kinetic entropy decomposition
+
+### Implementation Notes
+
+This codebase is an **original implementation** of the Creutz demon algorithm, developed to study:
+
+- Comparison of reversible vs. irreversible dynamics
+- Entropy production in microcanonical ensembles
+- Time-reversal symmetry in Monte Carlo simulations
+
+While the algorithm itself (Creutz, 1983) is standard, the specific research focus and all code are original contributions.
