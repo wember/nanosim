@@ -51,7 +51,7 @@ class TestParallelWorkerFunction:
     def test_reversible_worker_runs(self):
         """Test that reversible worker function completes."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            args = (0, 0, 50, 5, 'off', tmpdir)
+            args = (0, 0, 50, 5, 'off', tmpdir, False)
             result = run_single_sim_rev(args)
             
             assert 'R' in result
@@ -68,7 +68,7 @@ class TestParallelWorkerFunction:
             # Create irr subdirectory
             os.makedirs(os.path.join(tmpdir, 'data', 'irr', 'r0'), exist_ok=True)
             
-            args = (0, 0, 50, 5, 'off', tmpdir)
+            args = (0, 0, 50, 5, 'off', tmpdir, False)
             result = run_single_sim_irr(args)
             
             assert 'R' in result
@@ -82,7 +82,7 @@ class TestParallelWorkerFunction:
     def test_worker_energy_conservation(self):
         """Verify worker maintains energy conservation."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            args = (1, 0, 100, 10, 'off', tmpdir)
+            args = (1, 0, 100, 10, 'off', tmpdir, False)
             result = run_single_sim_rev(args)
             
             # Energy should be conserved
@@ -92,7 +92,7 @@ class TestParallelWorkerFunction:
     def test_worker_creates_output_files(self):
         """Verify worker creates CSV and metadata files."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            args = (1, 0, 50, 5, 'off', tmpdir)
+            args = (1, 0, 50, 5, 'off', tmpdir, False)
             result = run_single_sim_rev(args)
             
             csv_file = result['filename']
@@ -127,10 +127,10 @@ class TestParallelVsSequential:
     def test_single_worker_matches_direct_call(self):
         """Single worker should produce same results as direct simulation."""
         n, s, R = 50, 5, 1
-        
+
         with tempfile.TemporaryDirectory() as tmpdir:
             # Run via worker function
-            args = (R, 0, n, s, 'off', tmpdir)
+            args = (R, 0, n, s, 'off', tmpdir, False)
             worker_result = run_single_sim_rev(args)
             
             # Read worker output
@@ -153,8 +153,8 @@ class TestParallelVsSequential:
         
         with tempfile.TemporaryDirectory() as tmpdir:
             # Run two workers with same parameters but different run numbers
-            args1 = (R, 0, n, s, 'off', tmpdir)
-            args2 = (R, 1, n, s, 'off', tmpdir)
+            args1 = (R, 0, n, s, 'off', tmpdir, False)
+            args2 = (R, 1, n, s, 'off', tmpdir, False)
             
             result1 = run_single_sim_rev(args1)
             result2 = run_single_sim_rev(args2)
@@ -188,7 +188,7 @@ class TestParallelOutputStructure:
             results = []
             for R in range(2):
                 for M in range(2):
-                    args = (R, M, 30, 3, 'off', tmpdir)
+                    args = (R, M, 30, 3, 'off', tmpdir, False)
                     result = run_single_sim_rev(args)
                     results.append(result)
             
@@ -213,7 +213,7 @@ class TestParallelOutputStructure:
             results = []
             for R in range(2):
                 for M in range(2):
-                    args = (R, M, 30, 3, 'off', tmpdir)
+                    args = (R, M, 30, 3, 'off', tmpdir, False)
                     result = run_single_sim_irr(args)
                     results.append(result)
             
@@ -230,7 +230,7 @@ class TestParallelResourceManagement:
     def test_worker_handles_small_lattice(self):
         """Workers should handle edge cases like small lattices."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            args = (1, 0, 10, 2, 'off', tmpdir)  # Very small: n=10, s=2
+            args = (1, 0, 10, 2, 'off', tmpdir, False)  # Very small: n=10, s=2
             result = run_single_sim_rev(args)
             
             assert result['E_total'] == result['E_initial'] == 20, "Small lattice energy"
@@ -240,7 +240,7 @@ class TestParallelResourceManagement:
         """Workers should handle various radii correctly."""
         with tempfile.TemporaryDirectory() as tmpdir:
             for R in [0, 1, 3, 5]:
-                args = (R, 0, 40, 3, 'off', tmpdir)
+                args = (R, 0, 40, 3, 'off', tmpdir, False)
                 result = run_single_sim_rev(args)
                 
                 assert result['R'] == R
@@ -250,7 +250,7 @@ class TestParallelResourceManagement:
         """Workers should support all validation modes."""
         with tempfile.TemporaryDirectory() as tmpdir:
             for mode in ['off', 'periodic', 'frequent']:
-                args = (1, 0, 30, 3, mode, tmpdir)
+                args = (1, 0, 30, 3, mode, tmpdir, False)
                 result = run_single_sim_rev(args)
                 
                 # All modes should conserve energy
@@ -267,7 +267,7 @@ class TestParallelCorrectness:
             results = []
             for R in range(3):
                 for M in range(3):
-                    args = (R, M, 40, 5, 'off', tmpdir)
+                    args = (R, M, 40, 5, 'off', tmpdir, False)
                     result = run_single_sim_rev(args)
                     results.append(result)
             
@@ -280,7 +280,7 @@ class TestParallelCorrectness:
     def test_entropy_calculations_valid(self):
         """Verify entropy values are physically reasonable."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            args = (1, 0, 100, 10, 'off', tmpdir)
+            args = (1, 0, 100, 10, 'off', tmpdir, False)
             result = run_single_sim_rev(args)
             
             # Read CSV and check entropy column
@@ -295,7 +295,7 @@ class TestParallelCorrectness:
     def test_reversible_forward_reverse_symmetry(self):
         """Reversible simulation should show time-reversal properties."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            args = (2, 0, 50, 20, 'off', tmpdir)
+            args = (2, 0, 50, 20, 'off', tmpdir, False)
             result = run_single_sim_rev(args)
             
             # Read data
@@ -332,7 +332,7 @@ class TestParallelCorrectness:
             start = time.time()
             cores = min(4, mp.cpu_count())
             with mp.Pool(processes=cores) as pool:
-                params = [(0, i, n, s, 'off', tmpdir) for i in range(num_sims)]
+                params = [(0, i, n, s, 'off', tmpdir, False) for i in range(num_sims)]
                 results = pool.map(run_single_sim_rev, params)
             parallel_time = time.time() - start
             
@@ -346,7 +346,7 @@ class TestParallelCorrectness:
         """Workers should not consume excessive memory."""
         with tempfile.TemporaryDirectory() as tmpdir:
             # Even with larger lattice, should complete without issues
-            args = (1, 0, 1000, 10, 'off', tmpdir)
+            args = (1, 0, 1000, 10, 'off', tmpdir, False)
             result = run_single_sim_rev(args)
             
             assert os.path.exists(result['filename'])
@@ -360,7 +360,7 @@ class TestParallelEdgeCases:
         """Parallel with just one simulation should work."""
         with tempfile.TemporaryDirectory() as tmpdir:
             with mp.Pool(processes=1) as pool:
-                params = [(0, 0, 30, 3, 'off', tmpdir)]
+                params = [(0, 0, 30, 3, 'off', tmpdir, False)]
                 results = pool.map(run_single_sim_rev, params)
             
             assert len(results) == 1
@@ -373,7 +373,7 @@ class TestParallelEdgeCases:
             num_sims = 3
             
             with mp.Pool(processes=num_cores) as pool:
-                params = [(0, i, 30, 3, 'off', tmpdir) for i in range(num_sims)]
+                params = [(0, i, 30, 3, 'off', tmpdir, False) for i in range(num_sims)]
                 results = pool.map(run_single_sim_rev, params)
             
             assert len(results) == num_sims
@@ -383,7 +383,7 @@ class TestParallelEdgeCases:
     def test_r0_special_case(self):
         """R=0 should use different filename pattern."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            args = (0, 0, 30, 3, 'off', tmpdir)
+            args = (0, 0, 30, 3, 'off', tmpdir, False)
             result = run_single_sim_rev(args)
             
             # R=0 uses 'sim_data_0.csv' not 'sim_data_r0_0.csv'

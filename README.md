@@ -8,8 +8,29 @@ A Python implementation of microcanonical ensemble Monte Carlo simulation for a 
 
 - **[ARCHITECTURE.md](ARCHITECTURE.md)** - Comprehensive technical documentation covering physics concepts, implementation details, and algorithm specifics
 - **[OPTIMIZATIONS.md](OPTIMIZATIONS.md)** - Detailed explanations of all performance optimizations with benchmarks and rationale
+- **[JIT_BEST_PRACTICES.md](JIT_BEST_PRACTICES.md)** - Guide for using Numba JIT optimization in production (70-106x speedup)
 - **[BEST_PRACTICES.md](BEST_PRACTICES.md)** - Summary of implemented improvements and development practices
 - **[CHANGELOG.md](CHANGELOG.md)** - Version history and changelog
+
+## Performance
+
+**Production scale simulations are now ~1400x faster!**
+
+| Configuration      | Time (n=1M, s=10k, r=11, m=5) | Speedup    |
+| ------------------ | ----------------------------- | ---------- |
+| Original           | ~27 hours                     | 1x         |
+| JIT only           | ~15-23 minutes                | 70-106x    |
+| Parallel only      | ~2 hours                      | 13-14x     |
+| **JIT + Parallel** | **~1.2 minutes**              | **~1400x** |
+
+**Quick Start - Maximum Performance:**
+
+```bash
+make run-parallel-sim-jit        # Reversible with JIT (fastest)
+make run-parallel-irr-sim-jit    # Irreversible with JIT (fastest)
+```
+
+See [OPTIMIZATIONS.md](OPTIMIZATIONS.md) for implementation details and [JIT_BEST_PRACTICES.md](JIT_BEST_PRACTICES.md) for usage guide.
 
 ## Installation
 
@@ -86,10 +107,15 @@ make run-sim-small     # Small test (n=1000, s=100, ~minutes)
 make run-sim           # Full simulation (n=1000000, s=5000, ~hours)
 make run-irr-sim       # Irreversible simulation (full parameters)
 
-# Parallel execution (NEW - uses all CPU cores)
-make run-parallel-sim-test      # Quick parallel test
-make run-parallel-sim           # Full parallel reversible simulation
-make run-parallel-irr-sim       # Full parallel irreversible simulation
+# Parallel execution with JIT (RECOMMENDED - fastest)
+make run-parallel-sim-jit           # Full parallel + JIT reversible (~1.2 min)
+make run-parallel-irr-sim-jit       # Full parallel + JIT irreversible (~1.2 min)
+make run-parallel-sim-jit-test      # Quick test with JIT
+
+# Parallel execution without JIT (fast, but not maximum performance)
+make run-parallel-sim-test          # Quick parallel test
+make run-parallel-sim               # Full parallel reversible simulation (~2 hours)
+make run-parallel-irr-sim           # Full parallel irreversible simulation (~2 hours)
 
 make run-tests         # Run unit tests
 make run-examples      # Run all example scripts
@@ -97,11 +123,38 @@ make plot              # Run plotting script
 make clean             # Remove virtual environment and cache files
 ```
 
-### Parallel Execution (Recommended)
+### Maximum Performance: JIT + Parallel (Recommended)
 
-**New in v2.0:** Parallel versions of the simulation scripts can run multiple independent simulations simultaneously across all available CPU cores, significantly reducing total execution time.
+**New in v3.0:** Numba JIT compilation provides **70-106x speedup** on top of parallel processing, reducing production runs from 27 hours to just **1.2 minutes**.
 
-**Performance gains:**
+**Quick start (fastest):**
+
+```bash
+# Run with JIT optimization (recommended for production)
+make run-parallel-sim-jit          # Reversible (~1.2 minutes for full run)
+make run-parallel-irr-sim-jit      # Irreversible (~1.2 minutes for full run)
+
+# Or use command line directly
+python creutz-sim/parallel_sim.py --jit
+python creutz-sim/parallel_irr_sim.py --jit
+```
+
+**Performance comparison:**
+
+| Cores | Without JIT | With JIT (Rev) | With JIT (Irr) |
+| ----- | ----------- | -------------- | -------------- |
+| 1     | 1x          | 70x            | 106x           |
+| 4     | 3-4x        | 280x           | 424x           |
+| 8     | 6-8x        | 560x           | 848x           |
+| 16    | 13-14x      | ~1000x         | ~1400x         |
+
+See [JIT_BEST_PRACTICES.md](JIT_BEST_PRACTICES.md) for detailed usage guide.
+
+### Parallel Execution
+
+Parallel versions can run multiple independent simulations simultaneously across all available CPU cores.
+
+**Performance gains (without JIT):**
 
 - **16-core system**: ~10-14x speedup
 - **8-core system**: ~6-8x speedup
@@ -110,13 +163,16 @@ make clean             # Remove virtual environment and cache files
 **Quick start:**
 
 ```bash
-# Run with auto-detected CPU cores
+# Run with auto-detected CPU cores (no JIT)
 make run-parallel-sim          # Reversible
 make run-parallel-irr-sim      # Irreversible
 
 # Or specify core count manually (useful for HPC SLURM jobs)
 python creutz-sim/parallel_sim.py --cores 16
 python creutz-sim/parallel_irr_sim.py --cores 8
+
+# Add --jit for maximum performance
+python creutz-sim/parallel_sim.py --jit --cores 16
 ```
 
 **When to use parallel vs sequential:**
@@ -125,26 +181,30 @@ python creutz-sim/parallel_irr_sim.py --cores 8
   - Multiple radii (r > 2) and/or multiple runs (m > 2)
   - Multi-core system available (laptop, workstation, HPC node)
   - Time-critical analysis for thesis deadlines
+  - **Always add --jit for production runs**
 - **Use sequential** (`sim.py`):
   - Single radius, single run (r=2, m=1)
   - Limited memory systems
-  - Debugging or testing
+  - Debugging or testing (original classes easier to debug)
 
 The parallel implementation uses Python's `multiprocessing` module and automatically detects available CPU cores. On HPC clusters, it respects SLURM's `--cpus-per-task` allocation.
 
 ### Command-Line Arguments
 
-Both simulation scripts now accept command-line arguments:
+All simulation scripts accept command-line arguments:
 
 ```bash
 # Default parameters (n=1000000, s=5000, r=11, m=5)
-python creutz-sim/sim.py
+python creutz-sim/parallel_sim.py --jit
 
 # Custom parameters
-python creutz-sim/sim.py --n 1000 --s 100 --r 3 --m 2
+python creutz-sim/parallel_sim.py --jit --n 100000 --s 1000 --r 5 --m 10
+
+# Quick test
+python creutz-sim/parallel_sim.py --jit --n 1000 --s 100 --r 3 --m 2
 
 # Get help
-python creutz-sim/sim.py --help
+python creutz-sim/parallel_sim.py --help
 ```
 
 **Parameters:**

@@ -67,6 +67,24 @@ run-parallel-irr-sim-test:  ## Run parallel irreversible simulation (test: n=100
 	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
 	@./venv/bin/python creutz-sim/parallel_irr_sim.py --n 100 --s 10 --r 3 --m 6
 
+run-parallel-sim-jit:  ## Run parallel reversible simulation with JIT (70x faster per core)
+	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
+	@echo "Running parallel reversible simulation with JIT optimization..."
+	@./venv/bin/python creutz-sim/parallel_sim.py --jit
+
+run-parallel-irr-sim-jit:  ## Run parallel irreversible simulation with JIT (106x faster per core)
+	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
+	@echo "Running parallel irreversible simulation with JIT optimization..."
+	@./venv/bin/python creutz-sim/parallel_irr_sim.py --jit
+
+run-parallel-sim-jit-test:  ## Run parallel reversible simulation with JIT (test: n=100, s=10, r=3, m=6)
+	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
+	@./venv/bin/python creutz-sim/parallel_sim.py --jit --n 100 --s 10 --r 3 --m 6
+
+run-parallel-irr-sim-jit-test:  ## Run parallel irreversible simulation with JIT (test: n=100, s=10, r=3, m=6)
+	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
+	@./venv/bin/python creutz-sim/parallel_irr_sim.py --jit --n 100 --s 10 --r 3 --m 6
+
 sbatch-sim:  ## Submit reversible simulation to SLURM cluster
 	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
 	@echo "Submitting reversible simulation to SLURM..."

@@ -157,3 +157,4 @@ CSV columns: `['t', 'K', 'U', 'N0', 'Nx', 'S/nk', 'n']`
 - **Reversed dynamics**: The `rev_order` and reversed radius arrays must mirror `order` exactly for reversibility tests
 - **Bond updates**: Bond state updates happen after spin flips in `spin_flip()` method
 - **Entropy edge case**: N0=0 handled specially (uses 2^(N0+1) instead of 2^N0 in Su calculation)
+- **Testing**: ALWAYS use `make run-tests` for running tests (uses pytest-xdist for ~3x faster parallel execution), never run `pytest` directly for full test suite
