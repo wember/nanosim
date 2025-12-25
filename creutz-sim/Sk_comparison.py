@@ -28,8 +28,10 @@ colors = ['#301934',
 
 
 ######### Plot irreversible sim
+# Use relative path from project root
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 for R in range(r):
-    folder_path = f'/Users/winry/Documents/ASU/thesis/dev/data/irr/r{R}'
+    folder_path = os.path.join(project_root, 'data', 'irr', f'r{R}')
     all_csv_files = glob.glob(os.path.join(folder_path, '*.csv'))
 
     # Create an empty list to store individual DataFrames
@@ -65,7 +67,7 @@ for R in range(r):
     fig.add_trace(go.Scatter(x=zoom['t'].rolling(window=bin_size).mean(), y=zoom['S/nk'].rolling(window=bin_size).mean(), name=f"radius {R}", line=dict(color=colors[R])),row=2, col=1)
 ########### Reversible sims with radius 0 to r
 for R in range(r):
-    folder_path = f'/Users/winry/Documents/ASU/thesis/dev/data/r{R}'
+    folder_path = os.path.join(project_root, 'data', f'r{R}')
     all_csv_files = glob.glob(os.path.join(folder_path, '*.csv'))
 
     # Create an empty list to store individual DataFrames

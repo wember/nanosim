@@ -11,8 +11,8 @@
 #SBATCH --mail-type=ALL # Send an e-mail when a job starts, stops, or fails
 ##SBATCH --mail-user=wember@asu.edu # Mail-to address
 
-source /home/wember/2025thesis/my_venv/bin/activate
+# Activate virtual environment (relative to project root)
+source ../../venv/bin/activate
 
-python /home/wember/2025thesis/nanosim/creutz-sim/irr_sim.py
-
-/home/wember/2025thesis/nanosim/data
+# Run simulation
+python ../irr_sim.py
