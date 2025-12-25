@@ -1,4 +1,4 @@
-.PHONY: help setup clean test run-sim run-irr-sim run-sim-small run-irr-sim-small run-sim-test run-irr-sim-test sbatch-sim sbatch-irr-sim plot activate run-tests run-tests-serial run-test-file run-examples coverage coverage-html
+.PHONY: help setup clean test run-sim run-irr-sim run-sim-small run-irr-sim-small run-sim-test run-irr-sim-test sbatch-sim sbatch-irr-sim plot activate run-tests run-tests-serial run-test-file run-examples coverage coverage-html benchmark-jit benchmark-jit-quick
 
 help:  ## Show this help message
 	@echo 'Usage: make [target]'
@@ -131,6 +131,16 @@ run-examples:  ## Run all example scripts
 	@./venv/bin/python examples/custom_parameters.py
 	@echo "\nRunning analysis_pipeline.py..."
 	@./venv/bin/python examples/analysis_pipeline.py
+
+benchmark-jit:  ## Benchmark JIT vs non-JIT performance (usage: make benchmark-jit N=10000 S=100 R=5)
+	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
+	@echo "Running JIT benchmark..."
+	@./venv/bin/python benchmark_jit.py $(N) $(S) $(R)
+
+benchmark-jit-quick:  ## Quick JIT benchmark (N=1000, S=50, R=3)
+	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
+	@echo "Running quick JIT benchmark..."
+	@./venv/bin/python benchmark_jit.py 1000 50 3
 
 activate:  ## Show command to activate virtual environment
 	@echo "Run this command to activate the virtual environment:"

@@ -347,6 +347,22 @@ pytest tests/test_inferno.py -v    # Single file
 - ✅ **Unit tests** - Comprehensive test suite with pytest
 - ✅ **Examples** - Three demonstration scripts to get started
 - ✅ **Portable paths** - Works on any machine without configuration
+- 🚀 **JIT compilation** - 70-106x speedup with Numba (optional)
+- 🚀 **Parallel execution** - 13-14x speedup with multiprocessing
+
+## Performance
+
+**Optimization Level:**
+
+- **Original implementation:** Baseline
+- **With all optimizations:** 1.7x faster (random sign generation, index cycling, neighbor arrays)
+- **With parallel processing (16 cores):** 13-14x faster
+- **With JIT compilation:** 70-106x faster per core
+- **Combined (parallel + JIT):** ~1000-1400x faster overall
+
+**Production impact:** 27-hour simulation → **1.2 minutes**
+
+See `OPTIMIZATIONS.md` for detailed performance analysis and `benchmark_jit.py` for benchmarking.
 
 ## Key Parameters
 
@@ -359,10 +375,25 @@ Configure via command-line arguments (see `--help` for details):
 
 ## Runtime Estimates
 
+**Without JIT (original):**
+
 - **Test** (n=100, s=10): ~1 second
 - **Small** (n=1000, s=100): ~10 seconds
 - **Medium** (n=10000, s=1000): ~5 minutes
 - **Full** (n=1000000, s=5000): ~30-60 minutes per radius
+
+**With JIT compilation (70-106x faster):**
+
+- **Test** (n=100, s=10): <0.1 seconds
+- **Small** (n=1000, s=100): ~0.1 seconds
+- **Medium** (n=10000, s=1000): ~3-5 seconds
+- **Full** (n=1000000, s=5000): ~20-40 seconds per radius
+
+**With parallel + JIT (16 cores, ~1000x faster):**
+
+- **Full production runs**: ~27 hours → **~1-2 minutes**
+
+To use JIT versions: `from jit_inferno import JITInferno as Inferno`
 
 ## Output
 

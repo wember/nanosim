@@ -200,7 +200,7 @@ for M in tqdm(range(m), desc="Runs", position=0):
 
         logging.info(f"Completed run M={M}, radius R={R}, output: {filename}")
 
-logging.info("Reversible simulation complete!")
+logging.info("Reversible simulation complete!") 
 
-        print(f"Completed M={M}, R={R} - saved to {filename}")
-        print(f"  Final energy check: {state['E_total']} == {x._initial_total_energy}")
+print(f"Completed M={M}, R={R} - saved to {filename}")
+print(f"  Final energy check: {state['E_total']} == {x._initial_total_energy}")
