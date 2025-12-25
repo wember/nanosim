@@ -1,4 +1,4 @@
-.PHONY: help setup clean test run-sim run-irr-sim run-sim-small run-irr-sim-small run-sim-test run-irr-sim-test sbatch-sim sbatch-irr-sim plot activate run-tests run-examples
+.PHONY: help setup clean test run-sim run-irr-sim run-sim-small run-irr-sim-small run-sim-test run-irr-sim-test sbatch-sim sbatch-irr-sim plot activate run-tests run-tests-serial run-test-file run-examples coverage coverage-html
 
 help:  ## Show this help message
 	@echo 'Usage: make [target]'
@@ -63,10 +63,37 @@ plot:  ## Run plotting script (requires sim_data.csv)
 	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
 	@./venv/bin/python creutz-sim/sim_plot.py
 
-run-tests:  ## Run unit tests with pytest
+run-tests:  ## Run unit tests in parallel (pass ARGS="..." for custom options)
 	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
-	@echo "Running unit tests..."
-	@./venv/bin/python -m pytest tests/ -v
+	@echo "Running unit tests in parallel..."
+	@./venv/bin/python -m pytest tests/ -v -n auto $(ARGS)
+
+run-tests-serial:  ## Run unit tests serially (for debugging race conditions)
+	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
+	@echo "Running unit tests serially..."
+	@./venv/bin/python -m pytest tests/ -v $(ARGS)
+
+run-test-file:  ## Run tests from a single file (usage: make run-test-file FILE=test_inferno.py)
+	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
+	@if [ -z "$(FILE)" ]; then \
+		echo "❌ Error: FILE variable not set. Usage: make run-test-file FILE=test_inferno.py"; \
+		exit 1; \
+	fi
+	@echo "Running tests from $(FILE)..."
+	@./venv/bin/python -m pytest tests/$(FILE) -v
+
+coverage:  ## Run tests with coverage report (parallel execution)
+	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
+	@echo "Running tests with coverage analysis (parallel)..."
+	@COVERAGE_FILE=/tmp/.coverage ./venv/bin/python -m pytest tests/ --cov=creutz-sim --cov-report=term-missing --cov-report=html -n auto $(ARGS)
+	@rm -f .coverage
+	@echo ""
+	@echo "✓ Coverage report generated at htmlcov/index.html"
+
+coverage-html:  ## Run coverage and open HTML report in browser
+	@make coverage
+	@echo "Opening coverage report in browser..."
+	@open htmlcov/index.html || xdg-open htmlcov/index.html 2>/dev/null || echo "Please open htmlcov/index.html manually"
 
 run-examples:  ## Run all example scripts
 	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi

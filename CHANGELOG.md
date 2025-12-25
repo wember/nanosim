@@ -14,17 +14,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Structured logging system with file and console outputs
 - JSON metadata output for each simulation run (includes timestamp, parameters, simulation type)
 - Comprehensive docstrings with type hints for all major functions
-- Unit tests using pytest (test_inferno.py, test_irr_inferno.py)
-- Examples directory with three sample scripts:
-  - `quick_test.py`: Minimal working example
-  - `custom_parameters.py`: Demonstrates parameter customization
-  - `analysis_pipeline.py`: Complete workflow from simulation to analysis
+- Unit tests using pytest (38 tests across test_inferno.py, test_irr_inferno.py, test_performance.py)
+- Performance benchmarks and stress tests (large lattices, long runs, validation mechanisms)
+- Examples directory with sample scripts including benchmark_validation.py
 - Type hints throughout codebase for better IDE support
-- Makefile targets for testing:
-  - `make run-sim-test`: Ultra-fast test run
-  - `make run-irr-sim-test`: Ultra-fast irreversible test
+- Makefile targets for testing
 - Automatic directory creation for data output
 - Logs directory for simulation logs
+- **Performance optimization**: Configurable validation mode (`--validate` option)
+  - `off` (default): No automatic validation, fastest performance
+  - `periodic`: Validation every 100 sweeps for testing
+  - `frequent`: Validation every sweep for debugging
+- Validation overhead reduction: automatic checks are now optional
 
 ### Changed
 

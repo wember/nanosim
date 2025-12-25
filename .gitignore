@@ -60,6 +60,7 @@ slurm-*.out
 # Pytest
 .pytest_cache/
 .coverage
+.coverage.*
 htmlcov/
 slurm.*.out
 slurm.*.err

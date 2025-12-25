@@ -7,6 +7,7 @@ A Python implementation of microcanonical ensemble Monte Carlo simulation for a 
 ## Documentation
 
 - **[ARCHITECTURE.md](ARCHITECTURE.md)** - Comprehensive technical documentation covering physics concepts, implementation details, and algorithm specifics
+- **[OPTIMIZATIONS.md](OPTIMIZATIONS.md)** - Detailed explanations of all performance optimizations with benchmarks and rationale
 - **[BEST_PRACTICES.md](BEST_PRACTICES.md)** - Summary of implemented improvements and development practices
 - **[CHANGELOG.md](CHANGELOG.md)** - Version history and changelog
 
@@ -111,6 +112,10 @@ python creutz-sim/sim.py --help
 - `--s`: Number of sweeps per phase (forward/reverse)
 - `--r`: Max demon-coupling radius (tests R=1 to r-1)
 - `--m`: Number of independent runs for statistics
+- `--validate`: Validation mode (default: `off`)
+  - `off` - No automatic validation (fastest, recommended for production)
+  - `periodic` - Validate every 100 sweeps (for testing)
+  - `frequent` - Validate every sweep (debug mode, slower)
 
 ### Examples
 
@@ -244,17 +249,38 @@ nanosim/
 
 ## Testing
 
-Run the unit tests to verify everything works:
+Run the comprehensive test suite (81 tests):
 
 ```bash
-make run-tests
+make run-tests              # Run in parallel (~30 sec, default)
+make run-tests-serial       # Run serially (~2 min, for debugging)
 ```
 
-Or manually:
+Run specific tests for faster iteration:
+
+```bash
+# Single test file (fast - great for development)
+make run-test-file FILE=test_inferno.py
+
+# Filter tests by name
+make run-tests ARGS="-k energy_conservation"
+
+# Run with verbose output and print statements
+make run-tests ARGS="-v -s"
+
+# Combine options
+make run-tests ARGS="-k validation -v"
+```
+
+**Pro tip:** Use `make run-test-file` when developing/fixing a specific test file, then run `make run-tests` (parallel by default) before committing.
+
+Or run manually:
 
 ```bash
 source venv/bin/activate
-pytest tests/ -v
+pytest tests/ -v -n auto            # Parallel (default)
+pytest tests/ -v                    # Serial
+pytest tests/test_inferno.py -v    # Single file
 ```
 
 ## Features

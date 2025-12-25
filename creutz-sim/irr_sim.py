@@ -45,6 +45,8 @@ parser.add_argument('--n', type=int, default=1000000, help='Lattice size (defaul
 parser.add_argument('--s', type=int, default=5000, help='Number of sweeps per phase (default: 5000)')
 parser.add_argument('--r', type=int, default=11, help='Max demon-coupling radius, tests 1 to r-1 (default: 11)')
 parser.add_argument('--m', type=int, default=5, help='Number of independent runs (default: 5)')
+parser.add_argument('--validate', type=str, default='off', choices=['off', 'periodic', 'frequent'],
+                   help='Validation mode: off (fastest), periodic (every 100 sweeps), frequent (every sweep)')
 args = parser.parse_args()
 
 # Simulation parameters
@@ -52,8 +54,9 @@ n = args.n  # lattice size
 s = args.s  # sweeps
 r = args.r  # max bond-demon couple radius
 m = args.m  # number of sims
+validate_mode = args.validate  # validation mode
 
-print(f"Irreversible simulation with: n={n}, s={s}, r={r}, m={m}")
+print(f"Irreversible simulation with: n={n}, s={s}, r={r}, m={m}, validate={validate_mode}")
 
 # Set up logging
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -97,7 +100,7 @@ file_names = [f'{folder}irr/r0/irr_sim_data',
 for M in tqdm(range(m), desc="Runs", position=0):
     for R in tqdm(range(r), desc="Radii", position=1, leave=False):
         logging.info(f"Starting run M={M}, radius R={R}")
-        x = irrInferno(n, R+1)
+        x = irrInferno(n, R+1, validate_mode=validate_mode)
         filename = f"{file_names[R]}_{M}.csv"
 
         # Save metadata

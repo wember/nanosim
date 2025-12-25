@@ -15,7 +15,18 @@ class irrInferno:
         Uses truly random radius selection (no pre-generated arrays)
     """
 
-    def __init__(self, N, R):
+    def __init__(self, N, R, validate_mode='off'):
+        """
+        Initialize irrInferno simulation.
+        
+        Args:
+            N: Number of lattice sites
+            R: Demon coupling radius
+            validate_mode: Validation frequency
+                'off' - No validation (fastest, production mode)
+                'periodic' - Validate every 100 sweeps (default for testing)
+                'frequent' - Validate every sweep (debug mode, slowest)
+        """
         a = np.arange(N)
         np.random.shuffle(a)
 
@@ -48,8 +59,16 @@ class irrInferno:
 
         # Store initial values for validation
         self._initial_total_energy = np.int64(total_energy)
+        self._validate_mode = validate_mode
         self._check_counter = 0
-        self._check_interval = N  # Check every sweep
+        
+        # Configure validation interval based on mode
+        if validate_mode == 'off':
+            self._check_interval = float('inf')  # Never validate automatically
+        elif validate_mode == 'frequent':
+            self._check_interval = N  # Every sweep (debug mode)
+        else:  # 'periodic' or default
+            self._check_interval = 100 * N  # Every 100 sweeps
 
         # Indices for rolling
         self.order_idx = 0
@@ -203,12 +222,13 @@ class irrInferno:
         # Move to next in order
         self.order_idx = (self.order_idx + 1) % self.N
 
-        # Periodic validation
-        self._check_counter += 1
-        if self._check_counter >= self._check_interval:
-            self._check_counter = 0
-            self.validate_energy_conservation()
-            self.validate_bond_counts()
+        # Periodic validation (only if enabled)
+        if self._validate_mode != 'off':
+            self._check_counter += 1
+            if self._check_counter >= self._check_interval:
+                self._check_counter = 0
+                self.validate_energy_conservation()
+                self.validate_bond_counts()
 
     def demon_reverse(self):
         """
@@ -229,12 +249,13 @@ class irrInferno:
         # Move to next in order
         self.rev_order_idx = (self.rev_order_idx + 1) % self.N
 
-        # Periodic validation
-        self._check_counter += 1
-        if self._check_counter >= self._check_interval:
-            self._check_counter = 0
-            self.validate_energy_conservation()
-            self.validate_bond_counts()
+        # Periodic validation (only if enabled)
+        if self._validate_mode != 'off':
+            self._check_counter += 1
+            if self._check_counter >= self._check_interval:
+                self._check_counter = 0
+                self.validate_energy_conservation()
+                self.validate_bond_counts()
 
     def get_validated_state(self):
         """Return current state with validation"""
