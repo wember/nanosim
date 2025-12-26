@@ -8,6 +8,7 @@ Supports JIT-compiled version via --jit flag for 70x additional speedup.
 
 import numpy as np
 import csv
+import sys
 from scipy.special import loggamma as logg
 import os
 import argparse
@@ -16,7 +17,10 @@ import json
 from datetime import datetime
 from tqdm import tqdm
 import multiprocessing as mp
+from multiprocessing import Manager
 from typing import Dict, Tuple
+import time
+from sim_utils import format_time
 
 
 def Sk_stable(N: int, K: int) -> float:
@@ -56,11 +60,11 @@ def Su_stable(N: int, N0: int, Nx: int, N0_exp: int) -> float:
     return logg(N + 1) + log_2_term - (logg(N - N0 - Nx + 1) + logg(N0 + 1) + logg(Nx + 1))
 
 
-def run_single_simulation(args: Tuple[int, int, int, int, str, str, bool]) -> Dict:
+def run_single_simulation(args: Tuple[int, int, int, int, str, str, bool, int, 'mp.Queue']) -> Dict:
     """Run a single simulation for given parameters.
     
     Args:
-        args: Tuple of (R, M, n, s, validate_mode, project_root, use_jit)
+        args: Tuple of (R, M, n, s, validate_mode, project_root, use_jit, sim_num, progress_queue)
             R: Demon-coupling radius
             M: Run number
             n: Lattice size
@@ -68,11 +72,21 @@ def run_single_simulation(args: Tuple[int, int, int, int, str, str, bool]) -> Di
             validate_mode: Validation mode ('off', 'periodic', 'frequent')
             project_root: Project root directory
             use_jit: Whether to use JIT-compiled version
+            sim_num: Simulation number (1-based)
+            progress_queue: Queue for progress updates
             
     Returns:
         Dictionary with simulation results and metadata
     """
-    R, M, n, s, validate_mode, project_root, use_jit = args
+    R, M, n, s, validate_mode, project_root, use_jit, sim_num, progress_queue = args
+    
+    # Send initial status
+    progress_queue.put({
+        'type': 'start',
+        'sim_num': sim_num,
+        'R': R,
+        'M': M
+    })
     
     # Import appropriate Inferno class
     if use_jit:
@@ -107,6 +121,15 @@ def run_single_simulation(args: Tuple[int, int, int, int, str, str, bool]) -> Di
             for j in range(n):  # Original: N calls per sweep
                 x.demon_move()
         
+        # Send progress update (display refresh is throttled to 1/sec in main loop)
+        progress_queue.put({
+            'type': 'progress',
+            'sim_num': sim_num,
+            'phase': 'forward',
+            'sweep': i + 1,
+            'total_sweeps': s
+        })
+        
         # Get validated state after each sweep
         state = x.get_validated_state()
         
@@ -139,6 +162,15 @@ def run_single_simulation(args: Tuple[int, int, int, int, str, str, bool]) -> Di
         else:
             for j in range(n):  # Original: N calls per sweep
                 x.demon_reverse()
+        
+        # Send progress update (display refresh is throttled to 1/sec in main loop)
+        progress_queue.put({
+            'type': 'progress',
+            'sim_num': sim_num,
+            'phase': 'reverse',
+            'sweep': i + 1,
+            'total_sweeps': s
+        })
         
         # Get validated state
         state = x.get_validated_state()
@@ -182,6 +214,14 @@ def run_single_simulation(args: Tuple[int, int, int, int, str, str, bool]) -> Di
     metadata_file = filename.replace('.csv', '_metadata.json')
     with open(metadata_file, 'w') as f:
         json.dump(metadata, f, indent=2)
+    
+    # Send completion status
+    progress_queue.put({
+        'type': 'complete',
+        'sim_num': sim_num,
+        'R': R,
+        'M': M
+    })
     
     return {
         'R': R,
@@ -231,9 +271,8 @@ if __name__ == '__main__':
     print(f"  Total simulations: {total_sims}")
     print(f"  CPU cores: {num_cores}")
     print(f"  Validation mode: {validate_mode}")
-    print(f"  JIT compilation: {'ENABLED (70x faster)' if use_jit else 'disabled'}")
-    expected_speedup = min(num_cores, total_sims) * (70 if use_jit else 1)
-    print(f"  Expected speedup: ~{expected_speedup}x")
+    print(f"  JIT compilation: {'ENABLED' if use_jit else 'disabled'}")
+    print(f"  Parallelization: {num_cores} cores")
     
     # Set up logging
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -258,21 +297,128 @@ if __name__ == '__main__':
     for R in range(r):
         os.makedirs(os.path.join(project_root, 'data', f'r{R}'), exist_ok=True)
     
-    # Build list of all simulation parameters
+    # Build list of all simulation parameters with simulation numbers
     sim_params = []
+    sim_num = 1
     for M in range(m):
         for R in range(r):
-            sim_params.append((R, M, n, s, validate_mode, project_root, use_jit))
+            sim_params.append((R, M, n, s, validate_mode, project_root, use_jit, sim_num, None))
+            sim_num += 1
     
-    # Run simulations in parallel
+    # Run simulations in parallel with progress monitoring
     start_time = datetime.now()
     
+    # Create manager and progress queue
+    manager = Manager()
+    progress_queue = manager.Queue()
+    
+    # Update sim_params with the actual queue
+    sim_params = [(R, M, n, s, val, root, jit, num, progress_queue) 
+                  for R, M, n, s, val, root, jit, num, _ in sim_params]
+    
+    print(f"\nStarting {total_sims} simulations on {num_cores} cores...\n")
+    
+    # Track active simulations and completion
+    active_sims = {}
+    completed = 0
+    sim_times = []
+    early_eta_shown = False  # Track if we've shown early ETA estimate
+    
     with mp.Pool(processes=num_cores) as pool:
-        results = list(tqdm(
-            pool.imap(run_single_simulation, sim_params),
-            total=len(sim_params),
-            desc="Simulations"
-        ))
+        # Start async processing
+        result = pool.map_async(run_single_simulation, sim_params)
+        
+        # Monitor progress (manually update desc to avoid tqdm's postfix formatting)
+        pbar = tqdm(total=total_sims, unit="sim",
+                   bar_format='{desc}: {percentage:3.0f}%|{bar}| {n}/{total} [{elapsed}]')
+        pbar.set_description("Overall Progress")
+        last_refresh = time.time()
+        
+        try:
+            while not result.ready() or not progress_queue.empty():
+                try:
+                    msg = progress_queue.get(timeout=0.1)
+                        
+                    if msg['type'] == 'start':
+                        active_sims[msg['sim_num']] = {
+                            'R': msg['R'],
+                            'M': msg['M'],
+                            'start_time': time.time(),
+                            'phase': 'forward',
+                            'progress': 0,
+                            'phase_start_time': time.time()  # Initialize for forward phase
+                        }
+                        
+                    elif msg['type'] == 'progress':
+                        if msg['sim_num'] in active_sims:
+                            # Track phase transitions
+                            old_phase = active_sims[msg['sim_num']]['phase']
+                            new_phase = msg['phase']
+                            if old_phase != new_phase:
+                                active_sims[msg['sim_num']]['phase_start_time'] = time.time()
+                            
+                            active_sims[msg['sim_num']]['phase'] = new_phase
+                            active_sims[msg['sim_num']]['progress'] = msg['sweep']
+                            
+                            # Update status message with active simulations
+                            active_count = len(active_sims)
+                            if active_count > 0:
+                                # Show first active simulation as example with percentage
+                                first_sim = list(active_sims.values())[0]
+                                pct = (first_sim['progress'] / s) * 100
+                                
+                                # Only update display if throttle allows (1 second intervals)
+                                now = time.time()
+                                if now - last_refresh >= 1.0:
+                                    # Determine what to display based on available data
+                                    if sim_times:
+                                        # Use actual completion times once available (most accurate)
+                                        avg_time = np.mean(sim_times)
+                                        remaining = total_sims - completed
+                                        eta_minutes = (remaining * avg_time / num_cores) / 60
+                                        desc = f"Overall Progress (Running {active_count} | Ex: R={first_sim['R']}, M={first_sim['M']}, {first_sim['phase']} {first_sim['progress']}/{s} {pct:.0f}% | ETA: ~{format_time(eta_minutes)} remaining)"
+                                    elif first_sim['progress'] >= s * 0.01 and 'phase_start_time' in first_sim:
+                                        # Calculate ETA if we have 1%+ progress
+                                        phase_elapsed = time.time() - first_sim['phase_start_time']
+                                        phase_time_estimate = (phase_elapsed / first_sim['progress']) * s
+                                        sim_time_estimate = phase_time_estimate * 2  # forward + reverse
+                                        total_eta_minutes = (total_sims * sim_time_estimate / num_cores) / 60
+                                        desc = f"Overall Progress (Running {active_count} | Ex: R={first_sim['R']}, M={first_sim['M']}, {first_sim['phase']} {first_sim['progress']}/{s} {pct:.0f}% | Est: ~{format_time(total_eta_minutes)} remaining)"
+                                    else:
+                                        # Show running status with example (before 1% threshold)
+                                        desc = f"Overall Progress (Running {active_count} | Ex: R={first_sim['R']}, M={first_sim['M']}, {first_sim['phase']} {first_sim['progress']}/{s} {pct:.0f}%)"
+                                    
+                                    pbar.set_description(desc)
+                                    last_refresh = now
+                    
+                    elif msg['type'] == 'complete':
+                        if msg['sim_num'] in active_sims:
+                            elapsed = time.time() - active_sims[msg['sim_num']]['start_time']
+                            sim_times.append(elapsed)
+                            del active_sims[msg['sim_num']]
+                            
+                            completed += 1
+                            pbar.update(1)
+                            # ETA now handled in progress section for continuous updates
+                                
+                except Exception:
+                    pass
+                
+                # Force refresh display every second to show current status
+                if time.time() - last_refresh > 1.0:
+                    pbar.refresh()
+                    last_refresh = time.time()
+        
+        except KeyboardInterrupt:
+            pbar.close()
+            pool.terminate()
+            pool.join()
+            print("\n\nSimulation interrupted by user (Ctrl-C)")
+            print(f"Completed {completed}/{total_sims} simulations before interruption")
+            sys.exit(130)
+        
+        pbar.close()
+        results = result.get()
     
     end_time = datetime.now()
     elapsed = (end_time - start_time).total_seconds()

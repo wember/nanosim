@@ -16,6 +16,29 @@ Su = lambda N, N0, Nx: logg(N+1) + np.log(2**(N0)) - (logg(N-N0-Nx+1) + logg(N0+
 Su0 = lambda N, N0, Nx: logg(N+1) + np.log(2**(N0+1)) - (logg(N-N0-Nx+1) + logg(N0+1) + logg(Nx+1))
 
 
+def format_time(minutes):
+    """
+    Format time duration in minutes to human-readable string.
+    
+    Args:
+        minutes: Time duration in minutes
+        
+    Returns:
+        str: Formatted time string (e.g., "45 min", "1h 52min", "2d 5h 30min")
+    """
+    if minutes >= 1440:  # 24 hours
+        days = int(minutes // 1440)
+        hours = int((minutes % 1440) // 60)
+        mins = int(minutes % 60)
+        return f"{days}d {hours}h {mins} min"
+    elif minutes >= 60:
+        hours = int(minutes // 60)
+        mins = int(minutes % 60)
+        return f"{hours}h {mins} min"
+    else:
+        return f"{int(minutes)} min"
+
+
 class SimulationBase:
     """
     Base class for Monte Carlo simulations with common validation and

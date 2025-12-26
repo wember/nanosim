@@ -796,7 +796,7 @@ Access patterns should be cache-friendly:
 **Complexity:** Medium  
 **Status:** ✅ Complete
 
-**Implementation Date:** December 25, 2024  
+**Implementation Date:** December 25, 2025  
 **Files Modified:** NEW `parallel_sim.py`, NEW `parallel_irr_sim.py`, `Makefile`, `README.md`
 
 Multiple independent runs (different radii, different random seeds) can run in parallel across CPU cores. The sequential simulation scripts run all 50 simulations (R=0-10, M=0-4) one at a time. Parallel versions distribute work across available cores.

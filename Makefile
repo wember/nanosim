@@ -1,10 +1,10 @@
-.PHONY: help setup clean activate test-env run-sim run-irr-sim run-sim-small run-irr-sim-small sbatch-sim sbatch-irr-sim plot plot-radii plot-comparison run-examples benchmark-jit profile profile-inferno profile-irr view-profile run-tests run-tests-serial run-test-file coverage coverage-html
+.PHONY: help setup clean activate test-env compile run-sim run-irr-sim run-sim-small run-irr-sim-small sbatch-sim sbatch-irr-sim plot plot-radii plot-comparison run-examples benchmark-jit profile profile-inferno profile-irr view-profile run-tests run-tests-serial run-test-file coverage coverage-html
 
 help:  ## Show this help message
 	@echo 'Usage: make [target]'
 	@echo ''
 	@printf '\033[1mEnvironment Setup:\033[0m\n'
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; /^(setup|clean|activate|test-env):/ {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; /^(setup|clean|activate|test-env|compile):/ {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
 	@echo ''
 	@printf '\033[1mSimulations:\033[0m\n'
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; /^(run-sim|run-irr-sim|run-sim-small|run-irr-sim-small):/ {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
@@ -30,8 +30,11 @@ help:  ## Show this help message
 # Environment Setup
 # =============================================================================
 
-setup:  ## Create virtual environment and install dependencies
+setup:  ## Create virtual environment, install dependencies, and compile JIT functions
 	@./setup.sh
+	@echo ""
+	@echo "Compiling JIT functions (one-time setup, ~15-20 seconds)..."
+	@make compile
 
 clean:  ## Remove virtual environment and cached files
 	@echo "Cleaning up..."
@@ -50,6 +53,11 @@ test-env:  ## Test that the environment is properly configured
 	@cd creutz-sim && ../venv/bin/python -c "from inferno import Inferno; x = Inferno(100, 5); assert x.E_total == 200, 'Energy conservation failed'; print('✓ Inferno class works correctly')"
 	@cd creutz-sim && ../venv/bin/python -c "from irr_inferno import irrInferno; x = irrInferno(100, 5); assert x.E_total == 200, 'Energy conservation failed'; print('✓ irrInferno class works correctly')"
 	@echo "✅ All tests passed!"
+
+compile:  ## Warm up JIT compilation (run once after installation)
+	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
+	@./venv/bin/python creutz-sim/parallel_sim.py --jit --n 100 --s 5 --r 3 --m 2 > /dev/null 2>&1
+	@echo "✓ JIT compilation complete (cached for future runs)"
 
 # =============================================================================
 # Simulations

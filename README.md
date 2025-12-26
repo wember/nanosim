@@ -2,259 +2,204 @@
 
 A Python implementation of microcanonical ensemble Monte Carlo simulation for a 1D Ising lattice using **Creutz's demon algorithm** (Creutz, 1983). This project explores thermodynamic irreversibility by comparing reversible and irreversible dynamics.
 
-> **Note**: The Creutz demon algorithm is a well-established computational physics method. This implementation focuses on the novel comparison of reversible vs. irreversible dynamics using the algorithm.
+## What Does This Simulate?
 
-## Documentation
+This code simulates a **1D chain of magnetic spins** (an Ising model) that can flip up or down while conserving total energy. Think of it like a row of tiny magnets that influence their neighbors.
 
-- **[ARCHITECTURE.md](docs/ARCHITECTURE.md)** - Comprehensive technical documentation covering physics concepts, implementation details, and algorithm specifics
-- **[OPTIMIZATIONS.md](docs/OPTIMIZATIONS.md)** - Detailed explanations of all performance optimizations with benchmarks and rationale
-- **[JIT_BEST_PRACTICES.md](docs/JIT_BEST_PRACTICES.md)** - Guide for using Numba JIT optimization in production (70-106x speedup)
-- **[BEST_PRACTICES.md](docs/BEST_PRACTICES.md)** - Summary of implemented improvements and development practices
-- **[CHANGELOG.md](CHANGELOG.md)** - Version history and changelog
+**The Physics:**
 
-## Performance
+- **Microcanonical ensemble**: Total energy is fixed (isolated system)
+- **Creutz's demon**: An energy "bookkeeper" that allows spins to flip by borrowing/returning energy
+- **Reversible vs Irreversible**: We test whether running dynamics backward produces the same entropy evolution
 
-**Production scale simulations are now ~1400x faster!**
+**Why It Matters:**
 
-| Configuration      | Time (n=1M, s=10k, r=11, m=5) | Speedup    |
-| ------------------ | ----------------------------- | ---------- |
-| Original           | ~27 hours                     | 1x         |
-| JIT only           | ~15-23 minutes                | 70-106x    |
-| Parallel only      | ~2 hours                      | 13-14x     |
-| **JIT + Parallel** | **~1.2 minutes**              | **~1400x** |
+- Explores fundamental questions about thermodynamic irreversibility
+- Tests whether microscopic reversibility affects macroscopic entropy production
+- Relevant to statistical mechanics, thermodynamics, and computational physics
 
-**Quick Start - Maximum Performance:**
+> **Note**: The Creutz demon algorithm is a well-established computational physics method (Creutz, 1983). This implementation focuses on the novel comparison of reversible vs. irreversible dynamics using the algorithm.
 
-```bash
-make run-sim        # Reversible with parallel JIT (fastest, ~1.2 min)
-make run-irr-sim    # Irreversible with parallel JIT (fastest, ~1.2 min)
-```
+## Quick Start
 
-See [OPTIMIZATIONS.md](docs/OPTIMIZATIONS.md) for implementation details and [JIT_BEST_PRACTICES.md](docs/JIT_BEST_PRACTICES.md) for usage guide.
+Get running in under 2 minutes!
 
-**Why Not GPU/CUDA?** We evaluated GPU acceleration (ASU HPC has 290+ NVIDIA GPUs) but determined it would only provide 1.5-2x additional speedup at the cost of significant complexity. The sequential nature of energy-conserving Monte Carlo limits GPU effectiveness. See [Section 9 in OPTIMIZATIONS.md](docs/OPTIMIZATIONS.md#9-gpucuda-acceleration-not-implemented) for detailed analysis.
+### 1. Installation
 
-## Installation
-
-### Prerequisites
-
-- Python 3.11 or higher
-- pip
-
-### Quick Setup (Recommended)
-
-Use the Makefile for automated setup:
-
-```bash
-make setup    # Create virtual environment and install dependencies
-make test-env # Verify installation
-```
-
-This will:
-
-- Create a virtual environment in `venv/`
-- Upgrade pip
-- Install all dependencies from `requirements.txt`
-- Verify the installation
-
-**Alternative:** Run `./setup.sh` directly if Make is not available.
-
-### Manual Setup
-
-If you prefer manual setup:
-
-1. Clone the repository:
+Clone and set up the environment:
 
 ```bash
 git clone <repository-url>
 cd nanosim
+make setup    # Automated setup (creates venv, installs dependencies, compiles JIT)
+make test-env # Verify installation works
 ```
 
-2. Create and activate a virtual environment:
+This will install all dependencies and compile the JIT functions (~15-20 seconds one-time compilation). All subsequent runs will be fast.
+
+**Requirements:** Python 3.11+, pip
+
+**Alternative:** Run `./setup.sh` then `make compile` if Make is unavailable, or see [Manual Installation](#manual-installation) below.
+
+### 2. Run Your First Simulation
+
+Test with a small, fast simulation (completes in ~5 seconds):
 
 ```bash
-# Create virtual environment
-python3 -m venv venv
-
-# Activate on macOS/Linux
-source venv/bin/activate
-
-# Activate on Windows
-# venv\Scripts\activate
+make run-sim-small
 ```
 
-3. Install dependencies:
+This runs a reversible simulation with n=100 spins, s=10 sweeps. You should see:
+
+- Progress bars showing forward and reverse phases
+- Output: `data/r*/sim_data_*.csv` files with entropy and energy data
+
+> **Note:** Since JIT functions were compiled during `make setup`, this runs at full speed immediately!
+
+### 3. View Results
+
+Generate plots of entropy evolution:
 
 ```bash
-pip install -r requirements.txt
+make plot
 ```
 
-### Verify Installation
+Opens interactive plots showing how entropy changes during forward vs reverse dynamics.
+
+### 4. Try Different Parameters
+
+Run with custom settings:
 
 ```bash
-make test-env
+# Medium-sized simulation (30 seconds)
+make run-sim ARGS="--n 10000 --s 1000"
+
+# Full production run (1-2 minutes with JIT)
+# Uses: n=1000000, s=5000, r=11 (tests R=1-10), m=5 runs
+make run-sim
 ```
 
-## Usage
+**Common parameters:**
 
-### Quick Start
+- `--n`: Number of spins (default: 1000000)
+- `--s`: Sweeps per phase (default: 5000)
+- `--r`: Max radius to test (default: 11, tests R=1-10)
+- `--m`: Independent runs for averaging (default: 5)
 
-Use the Makefile for all common tasks:
+### 5. Explore Examples
+
+See complete workflows in `examples/`:
 
 ```bash
-make help              # Show all available commands
-make test-env          # Verify environment setup
-make run-sim-small     # Quick test (n=100, s=10, < 5 seconds)
-make run-sim           # Production run (parallel JIT, ~1.2 min)
-make run-irr-sim       # Irreversible (parallel JIT, ~1.2 min)
+make run-examples    # Run all three examples
 
-# Custom parameters
-make run-sim ARGS="--n 50000 --s 5000"     # Custom size
-make run-sim ARGS="--cores 1"              # Single-core
-
-make run-tests         # Run unit tests
-make run-examples      # Run all example scripts
-make plot              # Run plotting script
-make clean             # Remove virtual environment and cache files
+# Or individually:
+python examples/quick_test.py          # Minimal working example
+python examples/custom_parameters.py   # Parameter customization
+python examples/analysis_pipeline.py   # Full analysis workflow
 ```
 
-### Maximum Performance: Parallel JIT (Default)
+## Performance
 
-**Parallel JIT is now enabled by default** for all simulations, providing **~1400x speedup** over the original implementation (27 hours → 1.2 minutes).
+**Full production runs** (`make run-sim`: n=1M, s=5k, r=11, m=5 = 55 simulations):
 
-**Quick start (fastest):**
+| Configuration                   | Total Time     | Speedup  |
+| ------------------------------- | -------------- | -------- |
+| Original (no optimization)      | ~87 hours      | 1x       |
+| **Production (JIT + Parallel)** | **~1.8 hours** | **~48x** |
 
-```bash
-# Run with JIT optimization (recommended for production)
-make run-sim           # Reversible (~1.2 minutes for full run)
-make run-irr-sim       # Irreversible (~1.2 minutes for full run)
+> **Benchmark System:** Apple M3 Max (16 cores). Performance will vary on different hardware.
 
-# Or use command line directly
-python creutz-sim/parallel_sim.py --jit
-python creutz-sim/parallel_irr_sim.py --jit
-```
+**All production commands use parallel JIT by default** (`make run-sim`, `make run-irr-sim`).
 
-**Performance comparison:**
+> **First-Time Setup Note:** Running `make setup` compiles all JIT functions once (~15-20 seconds). After that, all simulations run at full speed immediately. If you skip `make setup` and run a simulation directly, the first run will include compilation time.
 
-| Cores | Without JIT | With JIT (Rev) | With JIT (Irr) |
-| ----- | ----------- | -------------- | -------------- |
-| 1     | 1x          | 70x            | 106x           |
-| 4     | 3-4x        | 280x           | 424x           |
-| 8     | 6-8x        | 560x           | 848x           |
-| 16    | 13-14x      | ~1000x         | ~1400x         |
+**Why Not GPU?** We evaluated GPU acceleration but determined it would only add 1.5-2x speedup at significant complexity cost. The sequential nature of energy-conserving Monte Carlo limits GPU effectiveness. See [OPTIMIZATIONS.md](docs/OPTIMIZATIONS.md#9-gpucuda-acceleration-not-implemented) for analysis.
 
-See [JIT_BEST_PRACTICES.md](docs/JIT_BEST_PRACTICES.md) for detailed usage guide.
+## Documentation
 
-### Parallel Execution
+### Core Documentation
 
-Parallel versions can run multiple independent simulations simultaneously across all available CPU cores.
+Start here for understanding the physics and implementation:
 
-**Performance gains (without JIT):**
+- **[ARCHITECTURE.md](docs/ARCHITECTURE.md)** - Physics concepts, algorithm details, implementation specifics
+- **[JIT_BEST_PRACTICES.md](docs/JIT_BEST_PRACTICES.md)** - Using Numba JIT optimization (70-106x speedup)
+- **[BEST_PRACTICES.md](docs/BEST_PRACTICES.md)** - Development practices and code patterns
+- **[CHANGELOG.md](CHANGELOG.md)** - Version history
 
-- **16-core system**: ~10-14x speedup
-- **8-core system**: ~6-8x speedup
-- **4-core system**: ~3-4x speedup
+### Reference Documents
 
-**Quick start:**
+Historical context explaining design decisions:
 
-```bash
-# Run with auto-detected CPU cores (JIT enabled by default)
-make run-sim           # Reversible
-make run-irr-sim       # Irreversible
+- **[OPTIMIZATIONS.md](docs/OPTIMIZATIONS.md)** - Detailed performance optimization journey with benchmarks
+- **[JIT_OPTIMIZATION_SUMMARY.md](docs/JIT_OPTIMIZATION_SUMMARY.md)** - Benchmark results proving JIT effectiveness
+- **[JIT_TEST_SUMMARY.md](docs/JIT_TEST_SUMMARY.md)** - Test methodology ensuring correctness
+- **[PRODUCTION_REFINEMENTS.md](docs/PRODUCTION_REFINEMENTS.md)** - Workflow improvements
+- **[PROFILE_RESULTS.md](docs/PROFILE_RESULTS.md)** - Profiling data
 
-# Specify core count manually (useful for HPC SLURM jobs)
-make run-sim ARGS="--cores 8"
-python creutz-sim/parallel_sim.py --jit --cores 16
+## Advanced Usage
 
-# Single-core execution if needed
-make run-sim ARGS="--cores 1"
-```
+### Command-Line Options
 
-**When to use parallel vs sequential:**
-
-- **Use parallel** (`parallel_sim.py`):
-  - Multiple radii (r > 2) and/or multiple runs (m > 2)
-  - Multi-core system available (laptop, workstation, HPC node)
-  - Time-critical analysis for thesis deadlines
-  - **Always add --jit for production runs**
-- **Use sequential** (`sim.py`):
-  - Single radius, single run (r=2, m=1)
-  - Limited memory systems
-  - Debugging or testing (original classes easier to debug)
-
-The parallel implementation uses Python's `multiprocessing` module and automatically detects available CPU cores. On HPC clusters, it respects SLURM's `--cpus-per-task` allocation.
-
-### Command-Line Arguments
-
-All simulation scripts accept command-line arguments:
+All simulation scripts accept these arguments:
 
 ```bash
-# Default parameters (n=1000000, s=5000, r=11, m=5)
-python creutz-sim/parallel_sim.py --jit
-
-# Custom parameters
-python creutz-sim/parallel_sim.py --jit --n 100000 --s 1000 --r 5 --m 10
-
-# Quick test
-python creutz-sim/parallel_sim.py --jit --n 1000 --s 100 --r 3 --m 2
-
-# Get help
+# See all available options
 python creutz-sim/parallel_sim.py --help
+
+# Common patterns
+make run-sim ARGS="--n 50000 --s 2000"           # Custom size
+make run-sim ARGS="--cores 8"                    # Specify cores
+make run-sim ARGS="--n 10000 --s 1000 --r 5"     # Test fewer radii
 ```
 
 **Parameters:**
 
-- `--n`: Lattice size (number of spins)
-- `--s`: Number of sweeps per phase (forward/reverse)
-- `--r`: Max demon-coupling radius (tests R=1 to r-1)
-- `--m`: Number of independent runs for statistics
-- `--validate`: Validation mode (default: `off`)
-  - `off` - No automatic validation (fastest, recommended for production)
-  - `periodic` - Validate every 100 sweeps (for testing)
-  - `frequent` - Validate every sweep (debug mode, slower)
+- `--n`: Lattice size (number of spins, default: 1000000)
+- `--s`: Sweeps per phase (forward/reverse, default: 5000)
+- `--r`: Max demon-coupling radius (tests R=1 to r-1, default: 11)
+- `--m`: Independent runs for statistics (default: 5)
+- `--cores`: CPU cores to use (default: auto-detect)
+- `--jit`: Enable JIT compilation (default: enabled via Makefile)
+- `--validate`: Validation mode - `off` (default), `periodic`, `frequent`
 
-### Examples
+### Parallel Execution Details
 
-The `examples/` directory contains three demonstration scripts:
-
-1. **quick_test.py** - Minimal working example
-
-   ```bash
-   python examples/quick_test.py
-   ```
-
-2. **custom_parameters.py** - Parameter customization
-
-   ```bash
-   python examples/custom_parameters.py
-   ```
-
-3. **analysis_pipeline.py** - Complete workflow
-   ```bash
-   python examples/analysis_pipeline.py
-   ```
-
-Or run all at once:
+The parallel implementation automatically distributes work across CPU cores:
 
 ```bash
-make run-examples
+# Auto-detect cores (recommended)
+make run-sim
+
+# Specify core count (useful for HPC)
+make run-sim ARGS="--cores 16"
+
+# Single-core (for debugging)
+make run-sim ARGS="--cores 1"
 ```
 
-### Manual Execution (Advanced)
+**Progress tracking:**
 
-If you need to run commands manually, first activate the virtual environment:
+During execution, you'll see real-time progress with estimated completion time:
 
-```bash
-source venv/bin/activate
+- **ETA is adaptive**: Based on actual completion times of finished simulations on _your_ hardware
+- Shows active parallel workers and current simulation details
+- Updates every 10% of sweeps within each simulation
 
-# Production (parallel JIT, fastest)
-python creutz-sim/parallel_sim.py --jit
-python creutz-sim/parallel_irr_sim.py --jit
+**Performance scaling (with JIT):**
 
-# Legacy single-core (educational purposes only)
-python creutz-sim/legacy/sim.py --n 1000 --s 100
-python creutz-sim/legacy/irr_sim.py --n 1000 --s 100
-```
+| Cores | Speedup vs Original |
+| ----- | ------------------- |
+| 1     | 70-106x             |
+| 4     | 280-424x            |
+| 8     | 560-848x            |
+| 16    | 1000-1400x          |
+
+**When to use what:**
+
+- **Parallel + JIT** (default): Multiple radii/runs, production work, thesis deadlines
+- **Single-core + JIT**: Single radius/run, limited memory, simple testing
+- **Legacy (no JIT)**: Educational reference, debugging core algorithm
 
 ### HPC Cluster (SLURM)
 
@@ -321,134 +266,107 @@ cat slurm.<job_id>.out   # View output logs
 
 ### Visualization
 
+Generate plots from simulation data:
+
 ```bash
-make plot    # Run plotting script
+make plot    # Run default plotting script
 ```
 
-For specific plots, use:
+For specific plots:
 
 ```bash
 source venv/bin/activate
 python creutz-sim/sim_plot.py         # Single simulation plot
 python creutz-sim/Sk_comparison.py    # Compare entropy across radii
+python creutz-sim/sim_plot_r.py       # Radius comparison
+```
+
+### Manual Environment Activation
+
+If you need to run commands manually:
+
+```bash
+source venv/bin/activate   # Activate environment
+
+# Then run any Python script
+python creutz-sim/parallel_sim.py --jit
+python examples/quick_test.py
+pytest tests/ -v
 ```
 
 ## Project Structure
 
 ```
 nanosim/
-├── creutz-sim/           # Main simulation code
-│   ├── inferno.py        # Core reversible simulation class
-│   ├── irr_inferno.py    # Core irreversible simulation class
-│   ├── jit_inferno.py    # JIT-compiled reversible wrapper
-│   ├── jit_irr_inferno.py # JIT-compiled irreversible wrapper
-│   ├── parallel_sim.py   # Production reversible runner (parallel + JIT)
-│   ├── parallel_irr_sim.py # Production irreversible runner (parallel + JIT)
-│   ├── legacy/
-│   │   ├── README.md     # Legacy code documentation
-│   │   ├── sim.py        # Legacy single-core reversible
-│   │   └── irr_sim.py    # Legacy single-core irreversible
-│   ├── sim_plot.py       # Single simulation plotter
-│   ├── sim_plot_r.py     # Radius comparison plotter
-│   ├── Sk_comparison.py  # Entropy comparison plotter
-│   └── batch_jobs/       # SLURM batch scripts
-├── tests/                # Unit tests
-│   ├── test_inferno.py   # Tests for reversible simulation
-│   └── test_irr_inferno.py # Tests for irreversible simulation
-├── examples/             # Example scripts
-│   ├── quick_test.py     # Minimal working example
-│   ├── custom_parameters.py # Parameter customization
-│   └── analysis_pipeline.py # Complete workflow
-├── data/                 # Output data (generated, in .gitignore)
-├── logs/                 # Simulation logs (generated, in .gitignore)
-├── requirements.txt      # Python dependencies
-├── Makefile             # Task automation
-├── CHANGELOG.md         # Version history
-├── docs/                # Documentation
-│   ├── ARCHITECTURE.md
-│   ├── OPTIMIZATIONS.md
-│   ├── JIT_BEST_PRACTICES.md
-│   └── ...
-└── README.md            # This file
+├── creutz-sim/              # Main simulation code
+│   ├── inferno.py           # Core reversible simulation class
+│   ├── irr_inferno.py       # Core irreversible simulation class
+│   ├── jit_inferno.py       # JIT-compiled reversible wrapper
+│   ├── jit_irr_inferno.py   # JIT-compiled irreversible wrapper
+│   ├── parallel_sim.py      # Production reversible (parallel + JIT)
+│   ├── parallel_irr_sim.py  # Production irreversible (parallel + JIT)
+│   ├── sim_plot.py          # Single simulation plotter
+│   ├── sim_plot_r.py        # Radius comparison plotter
+│   ├── Sk_comparison.py     # Entropy comparison plotter
+│   ├── legacy/              # Original single-core implementations
+│   └── batch_jobs/          # SLURM HPC batch scripts
+├── tests/                   # Comprehensive test suite (135+ tests)
+├── examples/                # Three demonstration scripts
+├── docs/                    # Detailed documentation
+├── data/                    # Output data (auto-generated)
+├── logs/                    # Execution logs (auto-generated)
+├── Makefile                 # Task automation
+└── requirements.txt         # Python dependencies
 ```
 
-## Testing
+## Manual Installation
 
-Run the comprehensive test suite (81 tests):
+If `make setup` doesn't work, install manually:
 
-```bash
-make run-tests              # Run in parallel (~30 sec, default)
-make run-tests-serial       # Run serially (~2 min, for debugging)
-```
+````bash
+# Clone repository
+git clone <repository-url>
+cd nanosim
 
-Run specific tests for faster iteration:
+# Create virtual environment
+python3 -m venv venv
 
-```bash
-# Single test file (fast - great for development)
+# Activate (macOS/Linux)
+source venv/bin/activate
+
+# Activate (Windows)
+# venv\Scripts\activate
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Verify
+python -c "import numpy, scipy, pandas, numba; print('✓ All dependencies installed')"
+```ingle test file (fast)
 make run-test-file FILE=test_inferno.py
 
-# Filter tests by name
+# Filter by test name
 make run-tests ARGS="-k energy_conservation"
 
-# Run with verbose output and print statements
+# Verbose output with print statements
 make run-tests ARGS="-v -s"
+````
 
-# Combine options
-make run-tests ARGS="-k validation -v"
-```
+**Pro tip:** Use `make run-test-file` during development, then `make run-tests` before committing.
 
-**Pro tip:** Use `make run-test-file` when developing/fixing a specific test file, then run `make run-tests` (parallel by default) before committing.
+### Runtime Estimates
 
-Or run manually:
+**Quick reference for planning simulation runs:**
 
-```bash
-source venv/bin/activate
-pytest tests/ -v -n auto            # Parallel (default)
-pytest tests/ -v                    # Serial
-pytest tests/test_inferno.py -v    # Single file
-```
+| Configuration | n      | s     | Time (1 core + JIT) | Time (16 cores + JIT) |
+| ------------- | ------ | ----- | ------------------- | --------------------- |
+| Test          | 100    | 10    | <0.1 sec            | <0.1 sec              |
+| Small         | 1,000  | 100   | ~0.1 sec            | ~0.1 sec              |
+| Medium        | 10,000 | 1,000 | ~3-5 sec            | ~1 sec                |
+| Production    | 1M     | 5,000 | ~20-40 sec/radius   | **~1-2 min total**    |
 
-## Features
+**Without JIT (legacy):** ~60-70x slower (test/educational use only)
 
-- ✅ **Command-line configuration** - No need to edit source files
-- ✅ **Progress bars** - Visual feedback during long simulations
-- ✅ **Structured logging** - Logs saved to `logs/` directory
-- ✅ **Metadata output** - Each run saves JSON metadata alongside CSV data
-- ✅ **Type hints** - Better IDE support and code clarity
-- ✅ **Unit tests** - Comprehensive test suite with pytest
-- ✅ **Examples** - Three demonstration scripts to get started
-- ✅ **Portable paths** - Works on any machine without configuration
-- 🚀 **JIT compilation** - 70-106x speedup with Numba (optional)
-- 🚀 **Parallel execution** - 13-14x speedup with multiprocessing
-
-## Performance
-
-**Optimization Level:**
-
-- **Original implementation:** Baseline
-- **With all optimizations:** 1.7x faster (random sign generation, index cycling, neighbor arrays)
-- **With parallel processing (16 cores):** 13-14x faster
-- **With JIT compilation:** 70-106x faster per core
-- **Combined (parallel + JIT):** ~1000-1400x faster overall
-
-**Production impact:** 27-hour simulation → **1.2 minutes**
-
-See `docs/OPTIMIZATIONS.md` for detailed performance analysis and `benchmark_jit.py` for benchmarking.
-
-## Key Parameters
-
-Configure via command-line arguments (see `--help` for details):
-
-- `--n`: Lattice size (default: 1000000)
-- `--s`: Number of sweeps (default: 5000)
-- `--r`: Maximum demon-coupling radius (default: 11, testing R=1 to R=10)
-- `--m`: Number of simulation runs for averaging (default: 5)
-
-## Runtime Estimates
-
-**Without JIT (original):**
-
-- **Test** (n=100, s=10): ~1 second
 - **Small** (n=1000, s=100): ~10 seconds
 - **Medium** (n=10000, s=1000): ~5 minutes
 - **Full** (n=1000000, s=5000): ~30-60 minutes per radius
@@ -512,3 +430,66 @@ This project implements the Creutz demon algorithm for microcanonical Monte Carl
 
 **This Implementation:**
 The code in this repository is an original implementation developed for studying thermodynamic irreversibility. While the Creutz demon algorithm is a standard technique, the specific focus on comparing reversible vs. irreversible dynamics and the software implementation are original contributions.
+
+## Output Files
+
+Simulations generate three types of output:
+
+### 1. CSV Data Files
+
+Saved in `data/r{R}/sim_data_*.csv` with columns:
+
+| Column | Description                              |
+| ------ | ---------------------------------------- |
+| `t`    | Sweep number (0 to 2s-1)                 |
+| `K`    | Average demon energy per site            |
+| `U`    | Lattice energy per site                  |
+| `N0`   | Broken bonds per site                    |
+| `Nx`   | Anti-aligned neighbor pairs per site     |
+| `S/nk` | Total entropy per site (in units of k_B) |
+| `n`    | Lattice size                             |
+
+### 2. Metadata (JSON)
+
+Each CSV has a companion `*_metadata.json` file with:
+
+- Simulation parameters (n, s, r, m)
+- Timestamp
+- Simulation type (reversible/irreversible)
+
+## Common Commands Reference
+
+Quick reference for daily use:
+
+```bash
+make help              # Show all available commands
+make setup             # Initial installation (includes JIT compilation)
+make compile           # Recompile JIT functions if needed
+make test-env          # Verify environment
+make run-sim-small     # Quick test (~5 sec)
+make run-sim           # Production run (~1-2 min)
+make run-irr-sim       # Irreversible run (~1-2 min)
+make plot              # Generate plots
+make run-tests         # Run test suite (~30 sec)
+make run-examples      # Run all examples
+make clean             # Clean up generated files
+```
+
+## License
+
+[Add your license here]
+
+## Citationecution logs in `logs/` with timestamps, progress updates, and any errors.
+
+## Features
+
+- ✅ **Command-line configuration** - No source file editing needed
+- ✅ **Progress bars** - Visual feedback during long runs
+- ✅ **Structured logging** - Detailed logs in `logs/` directory
+- ✅ **Metadata tracking** - JSON files document each run
+- ✅ **Type hints** - Better IDE support and code clarity
+- ✅ **Comprehensive tests** - 135+ unit tests with pytest
+- ✅ **Example scripts** - Three demos to get started
+- ✅ **Portable paths** - Works anywhere without configuration
+- 🚀 **JIT compilation** - 70-106x speedup with Numba
+- 🚀 **Parallel execution** - 13-14x speedup with multiprocessing
