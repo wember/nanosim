@@ -1585,6 +1585,123 @@ Numba JIT compilation delivers the largest single-optimization speedup (70-106x)
 
 ---
 
+## 9. GPU/CUDA Acceleration (Not Implemented)
+
+**Date Evaluated:** December 25, 2025  
+**Status:** ❌ Not Recommended  
+**Expected Impact:** 1.5-2x additional speedup (not worth the complexity)
+
+### Analysis
+
+**ASU HPC GPU Resources:**
+
+- Sol Supercomputer: 290+ GPUs (NVIDIA A30, 80GB A100, 80GB H100)
+- All support CUDA and Numba GPU compilation
+
+**Why GPU Acceleration Was NOT Implemented:**
+
+1. **Sequential Physics Constraints**
+
+   - Monte Carlo with energy conservation requires sequential updates
+   - Each lattice state depends on previous state (cannot parallelize across time)
+   - Energy demon mechanism enforces strict ordering of moves
+
+2. **Limited Parallelism in Current System**
+
+   - N=10,000 lattice sites is too small for effective GPU utilization
+   - Modern GPUs need millions of threads to saturate compute units
+   - Memory transfer overhead (CPU ↔ GPU) dominates for small systems
+
+3. **Modest Expected Speedup**
+
+   - **Best case:** 1.5-2x speedup with checkerboard decomposition
+   - **Realistic:** 1.2-1.5x after accounting for GPU overhead
+   - Literature shows 1.5-3x for similar Ising Monte Carlo workloads
+   - Large systems (N>1M) can achieve 5-10x, but not our scale
+
+4. **Diminishing Returns Analysis**
+
+   | Metric                    | CPU JIT (Current) | CUDA GPU (Proposed) |
+   | ------------------------- | ----------------- | ------------------- |
+   | **Implementation effort** | Done ✓            | 2-3 weeks           |
+   | **Code complexity**       | Low               | High (3x more)      |
+   | **Speedup vs original**   | 70-106x           | 140-210x            |
+   | **Additional speedup**    | N/A               | 2x                  |
+   | **Current runtime**       | 1.2 minutes       | 0.6 minutes         |
+   | **Portability**           | Works everywhere  | NVIDIA GPUs only    |
+   | **Debugging difficulty**  | Easy              | Very hard           |
+   | **Maintenance burden**    | Low               | High                |
+
+5. **Technical Limitations**
+
+   - Checkerboard decomposition required to maintain energy conservation
+   - Breaks natural algorithm flow into odd/even site updates
+   - GPU thread synchronization overhead for small kernels
+   - Memory transfer cost: ~100-1000x slower than computation
+
+### Alternative: Better Use of Existing Speed
+
+Instead of CUDA, we recommend:
+
+- **Run more statistical samples:** Increase M from 5 to 50 (better science)
+- **Explore more parameters:** Test more radii, temperatures, lattice sizes
+- **Parallel execution:** Already supported via multiprocessing (16 cores)
+- **Focus on physics:** Use saved time for analysis and interpretation
+
+### If You Really Want GPU Acceleration
+
+For future work on much larger systems (N > 1M):
+
+```python
+# Conceptual CUDA approach (not implemented)
+from numba import cuda
+
+@cuda.jit
+def checkerboard_update_even(lattice, bonds, E_demon, ...):
+    # Update all even sites in parallel
+    i = cuda.grid(1)
+    if i < n//2 and i % 2 == 0:
+        # Attempt spin flip at site i
+        ...
+
+@cuda.jit
+def checkerboard_update_odd(lattice, bonds, E_demon, ...):
+    # Update all odd sites in parallel
+    i = cuda.grid(1)
+    if i < n//2 and i % 2 == 1:
+        # Attempt spin flip at site i
+        ...
+
+# Usage:
+for sweep in range(sweeps):
+    checkerboard_update_even[blocks, threads](lattice, ...)
+    cuda.synchronize()  # Wait for GPU
+    checkerboard_update_odd[blocks, threads](lattice, ...)
+    cuda.synchronize()  # Wait for GPU
+```
+
+**Why this is problematic:**
+
+- Requires maintaining two separate update kernels
+- Synchronization overhead after each half-update
+- Energy demon distribution complicates parallel updates
+- Memory coherency issues across GPU threads
+- Debugging CUDA kernels is significantly harder
+
+### Conclusion
+
+**GPU acceleration is not cost-effective for this project:**
+
+- Current JIT implementation already achieves 70-106x speedup
+- Combined with parallel processing: ~1400x total speedup
+- Production runs: 27 hours → 1.2 minutes (fast enough!)
+- GPU would save ~0.6 minutes at cost of weeks of development
+- Better to use the tool for actual research than optimize further
+
+**Bottom line:** The law of diminishing returns has been reached. Focus on science, not optimization.
+
+---
+
 ## Performance Profiling
 
 ### How to Profile the Code

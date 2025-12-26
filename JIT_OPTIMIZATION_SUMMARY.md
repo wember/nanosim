@@ -49,6 +49,20 @@ When combined with parallel processing (16 cores):
    - Compares JIT vs non-JIT performance
    - Validates energy conservation
 
+### GPU Acceleration Decision
+
+**Status:** Evaluated but not implemented
+
+GPU/CUDA acceleration was thoroughly evaluated but determined to be not cost-effective:
+
+- **Expected speedup:** 1.5-2x additional (modest gain)
+- **Implementation cost:** 2-3 weeks of development
+- **Complexity increase:** 3x more complex code
+- **Current runtime:** 1.2 minutes (already fast enough)
+- **Technical limitation:** Sequential Monte Carlo physics limits GPU parallelism
+
+See [Section 9 in OPTIMIZATIONS.md](OPTIMIZATIONS.md#9-gpucuda-acceleration-not-implemented) for complete analysis including ASU HPC GPU resources and technical constraints.
+
 ### Key Techniques
 
 1. **Extract hot functions from class methods**

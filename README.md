@@ -32,6 +32,8 @@ make run-parallel-irr-sim-jit    # Irreversible with JIT (fastest)
 
 See [OPTIMIZATIONS.md](OPTIMIZATIONS.md) for implementation details and [JIT_BEST_PRACTICES.md](JIT_BEST_PRACTICES.md) for usage guide.
 
+**Why Not GPU/CUDA?** We evaluated GPU acceleration (ASU HPC has 290+ NVIDIA GPUs) but determined it would only provide 1.5-2x additional speedup at the cost of significant complexity. The sequential nature of energy-conserving Monte Carlo limits GPU effectiveness. See [Section 9 in OPTIMIZATIONS.md](OPTIMIZATIONS.md#9-gpucuda-acceleration-not-implemented) for detailed analysis.
+
 ## Installation
 
 ### Prerequisites

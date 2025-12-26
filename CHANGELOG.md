@@ -66,7 +66,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Hostname-based path switching (replaced with portable relative paths)
 - Old progress indicator print statements
-- Redundant `sim_small.py` and `irr_sim_small.py` wrapper scripts
+- `sim_small.py` and `irr_sim_small.py` (redundant with command-line args)
 - Deprecated `my_venv/` directory (use `venv/` instead)
 
 ### Fixed
