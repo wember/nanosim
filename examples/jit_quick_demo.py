@@ -22,8 +22,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'creutz-sim'))
 
 from inferno import Inferno
 from jit_inferno import JITInferno
-from irr_inferno import irrInferno
-from jit_irr_inferno import JITirrInferno
+from inferno_irr import irrInferno
+from jit_inferno_irr import JITirrInferno
 
 # Small test parameters
 N = 10000  # Lattice size (large enough to show JIT benefit)
@@ -145,7 +145,7 @@ def main():
     print("    → Total speedup: ~1400x")
     print("    → Production run: 27 hours → 1.2 minutes")
     print("\nUsage:")
-    print("  • Add --jit flag to parallel_sim.py or parallel_irr_sim.py")
+    print("  • Add --jit flag to parallel_sim.py or parallel_sim_irr.py")
     print("  • Or use: make run-sim (parallel JIT is now default!)")
     print("=" * 60)
 

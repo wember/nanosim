@@ -45,7 +45,7 @@ This document summarizes all the best practices that have been implemented in th
 
 ### 7. Unit Tests (pytest)
 
-- **Files**: `tests/test_inferno.py`, `tests/test_irr_inferno.py`
+- **Files**: `tests/test_inferno.py`, `tests/test_inferno_irr.py`
 - **Coverage**: 20 tests across 6 test classes
 - **Tests**: Initialization, energy conservation, reversibility, edge cases
 - **Run**: `make run-tests` or `pytest tests/ -v`

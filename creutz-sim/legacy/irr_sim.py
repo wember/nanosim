@@ -1,4 +1,4 @@
-from irr_inferno import irrInferno
+from inferno_irr import irrInferno
 import numpy as np
 import csv
 from scipy.special import loggamma as logg

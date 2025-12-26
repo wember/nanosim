@@ -8,7 +8,7 @@ Performance comparison:
 - JIT irrInferno: ~1.6-5.3s (expected)
 
 Usage:
-    from jit_irr_inferno import JITirrInferno as irrInferno
+    from jit_inferno_irr import JITirrInferno as irrInferno
 """
 
 import numpy as np

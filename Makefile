@@ -51,7 +51,7 @@ test-env:  ## Test that the environment is properly configured
 	@echo "Testing environment..."
 	@./venv/bin/python -c "import numpy, scipy, pandas, plotly; print('✓ All dependencies imported successfully')"
 	@cd creutz-sim && ../venv/bin/python -c "from inferno import Inferno; x = Inferno(100, 5); assert x.E_total == 200, 'Energy conservation failed'; print('✓ Inferno class works correctly')"
-	@cd creutz-sim && ../venv/bin/python -c "from irr_inferno import irrInferno; x = irrInferno(100, 5); assert x.E_total == 200, 'Energy conservation failed'; print('✓ irrInferno class works correctly')"
+	@cd creutz-sim && ../venv/bin/python -c "from inferno_irr import irrInferno; x = irrInferno(100, 5); assert x.E_total == 200, 'Energy conservation failed'; print('✓ irrInferno class works correctly')"
 	@echo "✅ All tests passed!"
 
 compile:  ## Warm up JIT compilation (run once after installation)
@@ -75,7 +75,7 @@ run-sim:  ## Run reversible simulation with parallel JIT (fastest, use ARGS="--c
 run-irr-sim:  ## Run irreversible simulation with parallel JIT (fastest, use ARGS="--cores 1" for single-core)
 	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
 	@echo "Running irreversible simulation (parallel JIT, ~1400x faster)..."
-	@./venv/bin/python creutz-sim/parallel_irr_sim.py --jit $(ARGS)
+	@./venv/bin/python creutz-sim/parallel_sim_irr.py --jit $(ARGS)
 
 run-sim-small:  ## Quick small-scale reversible simulation (n=100, s=10, r=3, m=6)
 	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
@@ -83,7 +83,7 @@ run-sim-small:  ## Quick small-scale reversible simulation (n=100, s=10, r=3, m=
 
 run-irr-sim-small:  ## Quick small-scale irreversible simulation (n=100, s=10, r=3, m=6)
 	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
-	@./venv/bin/python creutz-sim/parallel_irr_sim.py --jit --n 100 --s 10 --r 3 --m 6
+	@./venv/bin/python creutz-sim/parallel_sim_irr.py --jit --n 100 --s 10 --r 3 --m 6
 
 # =============================================================================
 # HPC / SLURM
@@ -97,7 +97,7 @@ sbatch-sim:  ## Submit reversible simulation to SLURM (parallel JIT, fastest)
 sbatch-irr-sim:  ## Submit irreversible simulation to SLURM (parallel JIT, fastest)
 	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
 	@echo "Submitting irreversible simulation to SLURM (parallel JIT)..."
-	cd creutz-sim/batch_jobs && sbatch irr_sim_sbatch.sh
+	cd creutz-sim/batch_jobs && sbatch sim_sbatch_irr.sh
 
 # =============================================================================
 # Analysis & Visualization
@@ -136,13 +136,13 @@ run-examples:  ## Run all example scripts
 benchmark-jit:  ## Benchmark JIT vs non-JIT performance (shows 70-107x speedup)
 	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
 	@echo "Running JIT benchmark (N=10000, S=100, R=5)..."
-	@./venv/bin/python benchmark_jit.py
+	@./venv/bin/python tools/benchmark_jit.py
 
 profile:  ## Profile simulation to identify bottlenecks (usage: make profile MODE=inferno N=10000 S=100 R=5)
 	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
 	@mkdir -p profiling
 	@echo "Profiling $(or $(MODE),inferno) simulation..."
-	@./venv/bin/python profile_sim.py --mode $(or $(MODE),inferno) --n $(or $(N),10000) --s $(or $(S),100) --r $(or $(R),5)
+	@./venv/bin/python tools/profile_sim.py --mode $(or $(MODE),inferno) --n $(or $(N),10000) --s $(or $(S),100) --r $(or $(R),5)
 
 profile-inferno:  ## Profile Inferno (reversible) simulation
 	@make profile MODE=inferno N=10000 S=100 R=5

@@ -13,7 +13,7 @@ Numba JIT compilation provides **70-106x speedup** by compiling Python functions
 ```bash
 # Enable JIT for parallel runs
 python creutz-sim/parallel_sim.py --jit        # Reversible (70x per core)
-python creutz-sim/parallel_irr_sim.py --jit    # Irreversible (106x per core)
+python creutz-sim/parallel_sim_irr.py --jit    # Irreversible (106x per core)
 
 # Or use Makefile targets
 make run-sim                                   # Production scale (parallel JIT default)
@@ -376,7 +376,7 @@ pytest tests/test_jit_implementation.py::TestJITPerformance -v  # Performance te
 
 ```bash
 # Compare JIT vs original performance
-python benchmark_jit.py
+python tools/benchmark_jit.py
 
 # Profile JIT execution
 python -m cProfile -o jit_profile.stats creutz-sim/parallel_sim.py --jit

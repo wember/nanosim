@@ -36,12 +36,12 @@ Instead of traditional Monte Carlo methods using random thermal fluctuations, th
 nanosim/
 ├── Core Simulation Classes
 │   ├── inferno.py              # Reversible simulation
-│   ├── irr_inferno.py          # Irreversible simulation
+│   ├── inferno_irr.py          # Irreversible simulation
 │   ├── jit_inferno.py          # JIT-compiled reversible
-│   └── jit_irr_inferno.py      # JIT-compiled irreversible
+│   └── jit_inferno_irr.py      # JIT-compiled irreversible
 ├── Production Runners
 │   ├── parallel_sim.py         # Reversible (parallel + JIT)
-│   └── parallel_irr_sim.py     # Irreversible (parallel + JIT)
+│   └── parallel_sim_irr.py     # Irreversible (parallel + JIT)
 ├── Legacy (Single-Core)
 │   ├── legacy/README.md        # Documentation for legacy code
 │   ├── legacy/sim.py           # Original single-core reversible
@@ -53,7 +53,7 @@ nanosim/
 ├── HPC Integration
 │   └── batch_jobs/
 │       ├── sim_sbatch.sh       # SLURM job: reversible
-│       └── irr_sim_sbatch.sh   # SLURM job: irreversible
+│       └── sim_sbatch_irr.sh   # SLURM job: irreversible
 └── Infrastructure
     ├── venv/                   # Python virtual environment
     ├── requirements.txt        # Dependencies
@@ -121,7 +121,7 @@ class Inferno:
 - Reversed order + reversed radii = exact time reversal
 - Used to test fundamental reversibility of microcanonical dynamics
 
-### 2. irrInferno Class (`irr_inferno.py`)
+### 2. irrInferno Class (`inferno_irr.py`)
 
 **Purpose**: Implements irreversible dynamics with true randomness.
 
@@ -149,7 +149,7 @@ class irrInferno:
 
 ### 3. Simulation Runners
 
-#### Production: `parallel_sim.py` and `parallel_irr_sim.py`
+#### Production: `parallel_sim.py` and `parallel_sim_irr.py`
 
 The production runners use multiprocessing and JIT compilation for maximum performance (~1400x speedup).
 
@@ -405,7 +405,7 @@ final_state = x.lattice, x.E_demon
 
 The project includes parallel processing capabilities with JIT compilation:
 
-- **Implementation**: `parallel_sim.py` and `parallel_irr_sim.py`
+- **Implementation**: `parallel_sim.py` and `parallel_sim_irr.py`
 - **Default mode**: Parallel JIT enabled (provides ~1400x speedup)
 - **Auto-detection**: Uses all available CPU cores by default
 - **Manual control**: `--cores N` flag or `make run-sim ARGS="--cores N"`

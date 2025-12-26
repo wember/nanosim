@@ -13,11 +13,11 @@ import sys
 import argparse
 from pathlib import Path
 
-# Add creutz-sim to path
-sys.path.insert(0, str(Path(__file__).parent / 'creutz-sim'))
+# Add creutz-sim to path (going up one level from tools/)
+sys.path.insert(0, str(Path(__file__).parent.parent / 'creutz-sim'))
 
 from inferno import Inferno
-from irr_inferno import irrInferno
+from inferno_irr import irrInferno
 
 
 def run_simulation(mode='inferno', n=10000, sweeps=100, radius=5):

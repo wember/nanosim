@@ -11,13 +11,13 @@ This project implements a **microcanonical ensemble Monte Carlo simulation** of 
 - **`inferno.py`**: `Inferno` class - reversible simulation with pre-computed random walk patterns
   - Uses fixed arrays `radius_spin`/`radius_bond` and their reversed counterparts
   - `demon_move()` and `demon_reverse()` traverse lattice in opposite orders for time reversibility
-- **`irr_inferno.py`**: `irrInferno` class - irreversible simulation with truly random dynamics
+- **`inferno_irr.py`**: `irrInferno` class - irreversible simulation with truly random dynamics
   - Generates new random radii on each call to `demon_move()`/`demon_reverse()`
   - Otherwise identical structure to `Inferno`
 
 ### Simulation Runners
 
-- **Production**: `parallel_sim.py` and `parallel_irr_sim.py` - Parallel JIT-compiled runners (~1400x speedup)
+- **Production**: `parallel_sim.py` and `parallel_sim_irr.py` - Parallel JIT-compiled runners (~1400x speedup)
 - **Legacy**: `legacy/sim.py` and `legacy/irr_sim.py` - Original single-core implementations (educational reference only)
 - All runners output CSV data per radius/iteration to parameterized folder paths
 - Production runners used by all Makefile targets (`make run-sim`, `make run-irr-sim`)
@@ -97,7 +97,7 @@ source venv/bin/activate
 
 # Production (recommended - parallel JIT)
 python creutz-sim/parallel_sim.py --jit
-python creutz-sim/parallel_irr_sim.py --jit
+python creutz-sim/parallel_sim_irr.py --jit
 
 # Legacy single-core (educational only)
 python creutz-sim/legacy/sim.py
@@ -110,7 +110,7 @@ Submit batch jobs from `creutz-sim/batch_jobs/`:
 
 ```bash
 sbatch batch_jobs/sim_sbatch.sh      # Reversible
-sbatch batch_jobs/irr_sim_sbatch.sh  # Irreversible
+sbatch batch_jobs/sim_sbatch_irr.sh  # Irreversible
 ```
 
 Job specs: 1 node, 1 core, 1GB memory, 7-day limit

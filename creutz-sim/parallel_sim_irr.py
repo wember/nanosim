@@ -57,9 +57,9 @@ def run_single_simulation(args: Tuple[int, int, int, int, str, str, bool, int, '
     
     # Import appropriate irrInferno class
     if use_jit:
-        from jit_irr_inferno import JITirrInferno as irrInferno
+        from jit_inferno_irr import JITirrInferno as irrInferno
     else:
-        from irr_inferno import irrInferno
+        from inferno_irr import irrInferno
     
     # Create irrInferno instance
     x = irrInferno(n, R+1, validate_mode=validate_mode)

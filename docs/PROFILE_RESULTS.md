@@ -199,8 +199,8 @@ for radius in range(1, 11):  # R=1 to R=10
 
 ```bash
 # Profile with custom parameters
-python profile_sim.py --mode inferno --n 50000 --s 50
-python profile_sim.py --both --n 10000 --s 100
+python tools/profile_sim.py --mode inferno --n 50000 --s 50
+python tools/profile_sim.py --both --n 10000 --s 100
 
 # Interactive analysis
 python -m pstats profile_inferno_n10000_s100.stats

@@ -13,7 +13,7 @@ Added `--jit` flag to both parallel execution scripts:
 **Files Modified:**
 
 - `creutz-sim/parallel_sim.py` - Added --jit support for reversible simulations
-- `creutz-sim/parallel_irr_sim.py` - Added --jit support for irreversible simulations
+- `creutz-sim/parallel_sim_irr.py` - Added --jit support for irreversible simulations
 
 **Changes:**
 
@@ -28,7 +28,7 @@ Added `--jit` flag to both parallel execution scripts:
 ```bash
 # Enable JIT optimization
 python creutz-sim/parallel_sim.py --jit
-python creutz-sim/parallel_irr_sim.py --jit
+python creutz-sim/parallel_sim_irr.py --jit
 
 # Combine with other parameters
 python creutz-sim/parallel_sim.py --jit --n 100000 --s 1000 --r 5 --m 10

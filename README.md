@@ -242,9 +242,9 @@ make sbatch-irr-sim             # Submit irreversible (parallel JIT)
 # Manual submission (advanced)
 cd creutz-sim/batch_jobs
 sbatch sim_sbatch.sh                  # Sequential reversible
-sbatch irr_sim_sbatch.sh              # Sequential irreversible
+sbatch sim_sbatch_irr.sh              # Sequential irreversible
 sbatch sim_sbatch.sh                  # Reversible with parallel JIT (16 cores)
-sbatch irr_sim_sbatch.sh              # Irreversible with parallel JIT (16 cores)
+sbatch sim_sbatch_irr.sh              # Irreversible with parallel JIT (16 cores)
 ```
 
 **Parallel vs Sequential on HPC:**
@@ -300,11 +300,11 @@ pytest tests/ -v
 nanosim/
 ├── creutz-sim/              # Main simulation code
 │   ├── inferno.py           # Core reversible simulation class
-│   ├── irr_inferno.py       # Core irreversible simulation class
+│   ├── inferno_irr.py       # Core irreversible simulation class
 │   ├── jit_inferno.py       # JIT-compiled reversible wrapper
-│   ├── jit_irr_inferno.py   # JIT-compiled irreversible wrapper
+│   ├── jit_inferno_irr.py   # JIT-compiled irreversible wrapper
 │   ├── parallel_sim.py      # Production reversible (parallel + JIT)
-│   ├── parallel_irr_sim.py  # Production irreversible (parallel + JIT)
+│   ├── parallel_sim_irr.py  # Production irreversible (parallel + JIT)
 │   ├── sim_plot.py          # Single simulation plotter
 │   ├── sim_plot_radii.py    # Radius comparison plotter
 │   ├── Sk_comparison.py     # Entropy comparison plotter

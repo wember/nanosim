@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **Numba JIT Compilation** (2025-01-18): 70-106x speedup via machine code compilation
-  - New files: `jit_functions.py`, `jit_inferno.py`, `jit_irr_inferno.py`
+  - New files: `jit_functions.py`, `jit_inferno.py`, `jit_inferno_irr.py`
   - Benchmark script: `benchmark_jit.py` with comprehensive performance testing
   - Test suite: `test_jit_implementation.py` with 22 comprehensive tests
   - Combined with parallel processing: ~1000-1400x total speedup
@@ -19,7 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Makefile targets: `make benchmark-jit` (simplified from two targets)
   - New dependency: `numba>=0.63.1`
 - **Parallel Processing** (2025-01-17): 13-14x speedup with multiprocessing
-  - New files: `parallel_sim.py`, `parallel_irr_sim.py`
+  - New files: `parallel_sim.py`, `parallel_sim_irr.py`
   - Auto-detects CPU cores, supports SLURM integration
   - 21 new tests in `test_parallel_execution.py`
   - Makefile targets: `make run-sim`, `make run-irr-sim` (parallel JIT by default)

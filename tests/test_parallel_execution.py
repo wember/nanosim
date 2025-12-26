@@ -20,9 +20,9 @@ from pathlib import Path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'creutz-sim'))
 
 from parallel_sim import run_single_simulation as run_single_sim_rev
-from parallel_irr_sim import run_single_simulation as run_single_sim_irr
+from parallel_sim_irr import run_single_simulation as run_single_sim_irr
 from inferno import Inferno
-from irr_inferno import irrInferno
+from inferno_irr import irrInferno
 
 
 @pytest.fixture

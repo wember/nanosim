@@ -39,7 +39,7 @@ When combined with parallel processing (16 cores):
    - Drop-in replacement for `Inferno` class
    - 70x faster for reversible simulations
 
-3. **`creutz-sim/jit_irr_inferno.py`** (129 lines)
+3. **`creutz-sim/jit_inferno_irr.py`** (129 lines)
 
    - Drop-in replacement for `irrInferno` class
    - 106x faster for irreversible simulations
@@ -101,7 +101,7 @@ See [Section 9 in OPTIMIZATIONS.md](OPTIMIZATIONS.md#9-gpucuda-acceleration-not-
 ### Benchmark Results
 
 ```bash
-python benchmark_jit.py 10000 100 5
+python tools/benchmark_jit.py 10000 100 5
 
 Output:
   Reversible speedup:   70.05x
@@ -144,7 +144,7 @@ The JIT versions are 100% API-compatible:
 To use JIT in parallel simulations, just update the import:
 
 ```python
-# In parallel_sim.py or parallel_irr_sim.py
+# In parallel_sim.py or parallel_sim_irr.py
 from jit_inferno import JITInferno as Inferno
 from jit_irr_inferno import JITirrInferno as irrInferno
 

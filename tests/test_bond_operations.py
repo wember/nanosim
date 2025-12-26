@@ -19,7 +19,7 @@ import numpy as np
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'creutz-sim'))
 
 from inferno import Inferno
-from irr_inferno import irrInferno
+from inferno_irr import irrInferno
 
 
 class TestSpinFlipOperation:

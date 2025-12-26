@@ -23,7 +23,7 @@ The legacy versions are **single-core, interpreted Python** with simpler impleme
 They were superseded by the parallel JIT-compiled versions:
 
 - `parallel_sim.py` - Production reversible runner (uses multiprocessing + JIT)
-- `parallel_irr_sim.py` - Production irreversible runner (uses multiprocessing + JIT)
+- `parallel_sim_irr.py` - Production irreversible runner (uses multiprocessing + JIT)
 
 **Performance comparison:**
 
@@ -71,7 +71,7 @@ make run-sim-small     # Quick test
 
 # Or directly with Python
 python creutz-sim/parallel_sim.py --jit
-python creutz-sim/parallel_irr_sim.py --jit
+python creutz-sim/parallel_sim_irr.py --jit
 
 # Single-core mode (if needed)
 python creutz-sim/parallel_sim.py --jit --cores 1

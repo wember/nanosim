@@ -7,7 +7,7 @@ import numpy as np
 # Add creutz-sim directory to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'creutz-sim'))
 
-from irr_inferno import irrInferno
+from inferno_irr import irrInferno
 
 
 class TestIrrInfernoInitialization:

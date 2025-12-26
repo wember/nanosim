@@ -95,7 +95,7 @@ def demon_move(self):
 **Files Modified:**
 
 - `creutz-sim/inferno.py` - Added `validate_mode` parameter to `__init__`
-- `creutz-sim/irr_inferno.py` - Same changes for irreversible class
+- `creutz-sim/inferno_irr.py` - Same changes for irreversible class
 - `creutz-sim/sim.py` - Added `--validate` CLI argument
 - `creutz-sim/irr_sim.py` - Added `--validate` CLI argument
 
@@ -291,7 +291,7 @@ def bond_change(self, a, i):
 **Files Modified:**
 
 - `creutz-sim/inferno.py` - Added neighbor arrays, replaced 6 modulo operations
-- `creutz-sim/irr_inferno.py` - Same changes for irreversible class
+- `creutz-sim/inferno_irr.py` - Same changes for irreversible class
 
 **Locations of changes:**
 
@@ -319,7 +319,7 @@ $ make run-tests
 ```bash
 $ make coverage
 creutz-sim/inferno.py       174    0   100%
-creutz-sim/irr_inferno.py   167    0   100%
+creutz-sim/inferno_irr.py   167    0   100%
 ```
 
 All tests pass with 100% coverage on both core classes.
@@ -471,7 +471,7 @@ def demon_reverse(self):
 **Files Modified:**
 
 - `creutz-sim/inferno.py` - Replaced 6 modulo operations (3 in demon_move, 3 in demon_reverse)
-- `creutz-sim/irr_inferno.py` - Replaced 2 modulo operations (order_idx and rev_order_idx only)
+- `creutz-sim/inferno_irr.py` - Replaced 2 modulo operations (order_idx and rev_order_idx only)
 
 **Locations of changes:**
 
@@ -514,7 +514,7 @@ $ make run-tests
 ```bash
 $ make coverage
 creutz-sim/inferno.py       186    0   100%
-creutz-sim/irr_inferno.py   171    0   100%
+creutz-sim/inferno_irr.py   171    0   100%
 ```
 
 All tests pass with 100% coverage on both core classes. The additional lines (from 174→186 and 167→171) are due to expanding single-line operations into multi-line conditional blocks.
@@ -655,7 +655,7 @@ radius_bond = np.random.randint(0, self.R) * (2 * np.random.randint(0, 2) - 1)
 
 **Files Modified:**
 
-- `creutz-sim/irr_inferno.py` - Replaced 4 instances in `demon_move()` and `demon_reverse()`
+- `creutz-sim/inferno_irr.py` - Replaced 4 instances in `demon_move()` and `demon_reverse()`
 
 **Locations of changes:**
 
@@ -677,7 +677,7 @@ $ make run-tests
 
 ```bash
 $ make coverage
-creutz-sim/irr_inferno.py    42    0   100%
+creutz-sim/inferno_irr.py    42    0   100%
 ```
 
 All tests pass with 100% coverage. The optimization is a pure implementation detail - the statistical properties of the random number generation are identical.
@@ -797,7 +797,7 @@ Access patterns should be cache-friendly:
 **Status:** ✅ Complete
 
 **Implementation Date:** December 25, 2025  
-**Files Modified:** NEW `parallel_sim.py`, NEW `parallel_irr_sim.py`, `Makefile`, `README.md`
+**Files Modified:** NEW `parallel_sim.py`, NEW `parallel_sim_irr.py`, `Makefile`, `README.md`
 
 Multiple independent runs (different radii, different random seeds) can run in parallel across CPU cores. The sequential simulation scripts run all 50 simulations (R=0-10, M=0-4) one at a time. Parallel versions distribute work across available cores.
 
@@ -806,7 +806,7 @@ Multiple independent runs (different radii, different random seeds) can run in p
 Created two new parallel execution scripts using Python's `multiprocessing` module:
 
 **`parallel_sim.py`** - Parallel reversible simulations  
-**`parallel_irr_sim.py`** - Parallel irreversible simulations
+**`parallel_sim_irr.py`** - Parallel irreversible simulations
 
 Both scripts:
 
@@ -855,7 +855,7 @@ if __name__ == '__main__':
 Created SLURM batch scripts that respect allocated resources:
 
 **`sim_sbatch.sh`** - Reversible with parallel JIT (16 cores)  
-**`irr_sim_sbatch.sh`** - Irreversible with parallel JIT (16 cores)
+**`sim_sbatch_irr.sh`** - Irreversible with parallel JIT (16 cores)
 
 Key feature: Uses `$SLURM_CPUS_PER_TASK` environment variable to match Python's worker count with SLURM's allocation:
 
@@ -1049,7 +1049,7 @@ When implementing future optimizations:
 **Status:** Fully implemented and tested (2025-01-18)  
 **Speedup:** 70-106x for single-core simulations  
 **Combined with parallel:** ~1000-1400x total speedup  
-**Files:** `jit_functions.py`, `jit_inferno.py`, `jit_irr_inferno.py`
+**Files:** `jit_functions.py`, `jit_inferno.py`, `jit_inferno_irr.py`
 
 #### Overview
 
@@ -1254,7 +1254,7 @@ class JITInferno(SimulationBase):
         )
 ```
 
-**3. `creutz-sim/jit_irr_inferno.py` (129 lines)**
+**3. `creutz-sim/jit_inferno_irr.py` (129 lines)**
 
 JIT-optimized wrapper for irreversible simulations:
 
@@ -1276,7 +1276,7 @@ class JITirrInferno(SimulationBase):
 Comprehensive benchmarking script comparing JIT vs non-JIT:
 
 ```bash
-python benchmark_jit.py [N] [sweeps] [R]
+python tools/benchmark_jit.py [N] [sweeps] [R]
 # Default: N=10000, sweeps=100, R=5
 
 # Example output:
@@ -1412,7 +1412,7 @@ pytest tests/ -v
 **Performance verified:** ✓
 
 ```bash
-python benchmark_jit.py 10000 100 5
+python tools/benchmark_jit.py 10000 100 5
 
 # Results:
 #   Reversible:   70.05x speedup
@@ -1427,7 +1427,7 @@ To use JIT versions in production simulations:
 **Option 1: Direct import swap (in sim files)**
 
 ```python
-# At top of parallel_sim.py or parallel_irr_sim.py
+# At top of parallel_sim.py or parallel_sim_irr.py
 from jit_inferno import JITInferno as Inferno
 from jit_irr_inferno import JITirrInferno as irrInferno
 ```

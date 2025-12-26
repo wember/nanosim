@@ -13,13 +13,13 @@ import numpy as np
 import sys
 import os
 
-# Add creutz-sim to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'creutz-sim'))
+# Add creutz-sim to path (going up one level from tools/)
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'creutz-sim'))
 
 from inferno import Inferno
-from irr_inferno import irrInferno
+from inferno_irr import irrInferno
 from jit_inferno import JITInferno
-from jit_irr_inferno import JITirrInferno
+from jit_inferno_irr import JITirrInferno
 
 
 def benchmark_simulation(sim_class, name, n, r, sweeps, warmup=True):

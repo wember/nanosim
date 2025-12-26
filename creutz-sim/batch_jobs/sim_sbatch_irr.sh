@@ -40,7 +40,7 @@ cd creutz-sim
 
 # Run parallel irreversible simulation with JIT optimization
 # $SLURM_CPUS_PER_TASK is automatically set by SLURM (16 cores from --cpus-per-task above)
-python parallel_irr_sim.py \
+python parallel_sim_irr.py \
     --jit \
     --n 1000000 \
     --s 5000 \
