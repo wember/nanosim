@@ -189,7 +189,7 @@ Performance:
         print("\nNext steps:")
         print("  • Analyze results: python creutz-sim/Sk_comparison.py")
         print("  • Plot individual runs: python creutz-sim/sim_plot.py")
-        print("  • Visualize entropy trends: python creutz-sim/sim_plot_r.py")
+        print("  • Visualize entropy trends: python creutz-sim/sim_plot_radii.py")
         print("=" * 70)
         
     except KeyboardInterrupt:

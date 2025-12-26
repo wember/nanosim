@@ -278,7 +278,7 @@ For specific plots:
 source venv/bin/activate
 python creutz-sim/sim_plot.py         # Single simulation plot
 python creutz-sim/Sk_comparison.py    # Compare entropy across radii
-python creutz-sim/sim_plot_r.py       # Radius comparison
+python creutz-sim/sim_plot_radii.py   # Radius comparison
 ```
 
 ### Manual Environment Activation
@@ -306,7 +306,7 @@ nanosim/
 │   ├── parallel_sim.py      # Production reversible (parallel + JIT)
 │   ├── parallel_irr_sim.py  # Production irreversible (parallel + JIT)
 │   ├── sim_plot.py          # Single simulation plotter
-│   ├── sim_plot_r.py        # Radius comparison plotter
+│   ├── sim_plot_radii.py    # Radius comparison plotter
 │   ├── Sk_comparison.py     # Entropy comparison plotter
 │   ├── legacy/              # Original single-core implementations
 │   └── batch_jobs/          # SLURM HPC batch scripts

@@ -112,7 +112,7 @@ plot-radii:  ## Plot results across all radii for single simulation type (revers
 	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
 	@echo "Generating multi-radius comparison plot..."
 	@echo "Note: Requires data in data/r{0-10}/ directories"
-	@./venv/bin/python creutz-sim/sim_plot_r.py
+	@./venv/bin/python creutz-sim/sim_plot_radii.py
 
 plot-comparison:  ## Compare entropy between reversible and irreversible simulations (requires data from both)
 	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi

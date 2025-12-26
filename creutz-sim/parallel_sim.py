@@ -11,7 +11,6 @@ import csv
 import sys
 from scipy.special import loggamma as logg
 import os
-import argparse
 import logging
 import json
 from datetime import datetime
@@ -20,44 +19,11 @@ import multiprocessing as mp
 from multiprocessing import Manager
 from typing import Dict, Tuple
 import time
-from sim_utils import format_time
+from sim_utils import (format_time, handle_progress_message, process_message_queue,
+                       Sk_stable, Su_stable, create_argument_parser, 
+                       print_simulation_info, setup_logging, create_data_directories,
+                       build_simulation_parameters, print_final_results)
 
-
-def Sk_stable(N: int, K: int) -> float:
-    """Calculate kinetic entropy using stable logarithm.
-    
-    Args:
-        N: Number of sites in lattice
-        K: Total demon energy (sum of all oscillator energies)
-        
-    Returns:
-        Kinetic entropy in units of k_B
-        
-    Note:
-        Uses loggamma for numerical stability with large factorials.
-        Calculates log(Ω_k) where Ω_k = (K+N-1)! / (K! * (N-1)!)
-    """
-    return logg(K + N) - logg(K + 1) - logg(N)
-
-
-def Su_stable(N: int, N0: int, Nx: int, N0_exp: int) -> float:
-    """Calculate configurational entropy using stable logarithm.
-    
-    Args:
-        N: Number of sites in lattice
-        N0: Number of broken bonds
-        Nx: Number of anti-aligned neighbor pairs
-        N0_exp: N0 value for exponential term (max(N0, 1) to avoid log(0))
-        
-    Returns:
-        Configurational entropy in units of k_B
-        
-    Note:
-        Uses N0_exp * log(2) instead of log(2^N0_exp) to avoid overflow.
-        Calculates log(Ω_u) where Ω_u = N! * 2^N0 / ((N-N0-Nx)! * N0! * Nx!)
-    """
-    log_2_term = N0_exp * np.log(2)
-    return logg(N + 1) + log_2_term - (logg(N - N0 - Nx + 1) + logg(N0 + 1) + logg(Nx + 1))
 
 
 def run_single_simulation(args: Tuple[int, int, int, int, str, str, bool, int, 'mp.Queue']) -> Dict:
@@ -234,17 +200,7 @@ def run_single_simulation(args: Tuple[int, int, int, int, str, str, bool, int, '
 
 if __name__ == '__main__':
     # Parse command-line arguments
-    parser = argparse.ArgumentParser(description='Run parallel reversible Creutz demon simulation')
-    parser.add_argument('--n', type=int, default=1000000, help='Lattice size (default: 1000000)')
-    parser.add_argument('--s', type=int, default=5000, help='Number of sweeps per phase (default: 5000)')
-    parser.add_argument('--r', type=int, default=11, help='Max demon-coupling radius, tests 1 to r-1 (default: 11)')
-    parser.add_argument('--m', type=int, default=5, help='Number of independent runs (default: 5)')
-    parser.add_argument('--cores', type=int, default=None, 
-                       help='Number of CPU cores to use (default: auto-detect)')
-    parser.add_argument('--validate', type=str, default='off', choices=['off', 'periodic', 'frequent'],
-                       help='Validation mode: off (fastest), periodic (every 100 sweeps), frequent (every sweep)')
-    parser.add_argument('--jit', action='store_true',
-                       help='Use JIT-compiled version for 70x speedup (requires numba)')
+    parser = create_argument_parser('reversible')
     args = parser.parse_args()
     
     # Simulation parameters
@@ -263,21 +219,12 @@ if __name__ == '__main__':
     
     total_sims = r * m
     
-    print(f"Parallel reversible simulation:")
-    print(f"  Lattice size: n={n}")
-    print(f"  Sweeps: s={s}")
-    print(f"  Radii: R=0 to R={r-1}")
-    print(f"  Runs per radius: m={m}")
-    print(f"  Total simulations: {total_sims}")
-    print(f"  CPU cores: {num_cores}")
-    print(f"  Validation mode: {validate_mode}")
-    print(f"  JIT compilation: {'ENABLED' if use_jit else 'disabled'}")
-    print(f"  Parallelization: {num_cores} cores")
+    # Print simulation info
+    print_simulation_info('reversible', n, s, r, m, num_cores, validate_mode, use_jit)
     
     # Set up logging
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    log_dir = os.path.join(project_root, 'logs')
-    os.makedirs(log_dir, exist_ok=True)
+    log_dir = setup_logging(project_root, 'reversible')
     
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     log_file = os.path.join(log_dir, f'parallel_sim_reversible_{timestamp}.log')
@@ -293,17 +240,9 @@ if __name__ == '__main__':
     
     logging.info(f"Starting parallel reversible simulation: n={n}, s={s}, r={r}, m={m}, cores={num_cores}")
     
-    # Create data directories
-    for R in range(r):
-        os.makedirs(os.path.join(project_root, 'data', f'r{R}'), exist_ok=True)
-    
-    # Build list of all simulation parameters with simulation numbers
-    sim_params = []
-    sim_num = 1
-    for M in range(m):
-        for R in range(r):
-            sim_params.append((R, M, n, s, validate_mode, project_root, use_jit, sim_num, None))
-            sim_num += 1
+    # Create data directories and build parameter list
+    create_data_directories(project_root, r, 'reversible')
+    sim_params = build_simulation_parameters(r, m, n, s, validate_mode, project_root, use_jit)
     
     # Run simulations in parallel with progress monitoring
     start_time = datetime.now()
@@ -322,7 +261,6 @@ if __name__ == '__main__':
     active_sims = {}
     completed = 0
     sim_times = []
-    early_eta_shown = False  # Track if we've shown early ETA estimate
     
     with mp.Pool(processes=num_cores) as pool:
         # Start async processing
@@ -334,111 +272,11 @@ if __name__ == '__main__':
         pbar.set_description("Overall Progress")
         last_refresh = time.time()
         
-        try:
-            while not result.ready() or not progress_queue.empty():
-                try:
-                    msg = progress_queue.get(timeout=0.1)
-                        
-                    if msg['type'] == 'start':
-                        active_sims[msg['sim_num']] = {
-                            'R': msg['R'],
-                            'M': msg['M'],
-                            'start_time': time.time(),
-                            'phase': 'forward',
-                            'progress': 0,
-                            'phase_start_time': time.time()  # Initialize for forward phase
-                        }
-                        
-                    elif msg['type'] == 'progress':
-                        if msg['sim_num'] in active_sims:
-                            # Track phase transitions
-                            old_phase = active_sims[msg['sim_num']]['phase']
-                            new_phase = msg['phase']
-                            if old_phase != new_phase:
-                                active_sims[msg['sim_num']]['phase_start_time'] = time.time()
-                            
-                            active_sims[msg['sim_num']]['phase'] = new_phase
-                            active_sims[msg['sim_num']]['progress'] = msg['sweep']
-                            
-                            # Update status message with active simulations
-                            active_count = len(active_sims)
-                            if active_count > 0:
-                                # Show first active simulation as example with percentage
-                                first_sim = list(active_sims.values())[0]
-                                pct = (first_sim['progress'] / s) * 100
-                                
-                                # Only update display if throttle allows (1 second intervals)
-                                now = time.time()
-                                if now - last_refresh >= 1.0:
-                                    # Determine what to display based on available data
-                                    if sim_times:
-                                        # Use actual completion times once available (most accurate)
-                                        avg_time = np.mean(sim_times)
-                                        remaining = total_sims - completed
-                                        eta_minutes = (remaining * avg_time / num_cores) / 60
-                                        desc = f"Overall Progress (Running {active_count} | Ex: R={first_sim['R']}, M={first_sim['M']}, {first_sim['phase']} {first_sim['progress']}/{s} {pct:.0f}% | ETA: ~{format_time(eta_minutes)} remaining)"
-                                    elif first_sim['progress'] >= s * 0.01 and 'phase_start_time' in first_sim:
-                                        # Calculate ETA if we have 1%+ progress
-                                        phase_elapsed = time.time() - first_sim['phase_start_time']
-                                        phase_time_estimate = (phase_elapsed / first_sim['progress']) * s
-                                        sim_time_estimate = phase_time_estimate * 2  # forward + reverse
-                                        total_eta_minutes = (total_sims * sim_time_estimate / num_cores) / 60
-                                        desc = f"Overall Progress (Running {active_count} | Ex: R={first_sim['R']}, M={first_sim['M']}, {first_sim['phase']} {first_sim['progress']}/{s} {pct:.0f}% | Est: ~{format_time(total_eta_minutes)} remaining)"
-                                    else:
-                                        # Show running status with example (before 1% threshold)
-                                        desc = f"Overall Progress (Running {active_count} | Ex: R={first_sim['R']}, M={first_sim['M']}, {first_sim['phase']} {first_sim['progress']}/{s} {pct:.0f}%)"
-                                    
-                                    pbar.set_description(desc)
-                                    last_refresh = now
-                    
-                    elif msg['type'] == 'complete':
-                        if msg['sim_num'] in active_sims:
-                            elapsed = time.time() - active_sims[msg['sim_num']]['start_time']
-                            sim_times.append(elapsed)
-                            del active_sims[msg['sim_num']]
-                            
-                            completed += 1
-                            pbar.update(1)
-                            # ETA now handled in progress section for continuous updates
-                                
-                except Exception:
-                    pass
-                
-                # Force refresh display every second to show current status
-                if time.time() - last_refresh > 1.0:
-                    pbar.refresh()
-                    last_refresh = time.time()
-        
-        except KeyboardInterrupt:
-            pbar.close()
-            pool.terminate()
-            pool.join()
-            print("\n\nSimulation interrupted by user (Ctrl-C)")
-            print(f"Completed {completed}/{total_sims} simulations before interruption")
-            sys.exit(130)
-        
-        pbar.close()
-        results = result.get()
+        # Process messages and handle interrupts
+        completed, last_refresh, results = process_message_queue(
+            progress_queue, active_sims, s, pbar, last_refresh,
+            sim_times, total_sims, num_cores, completed, result, pool
+        )
     
     end_time = datetime.now()
-    elapsed = (end_time - start_time).total_seconds()
-    
-    # Log results
-    logging.info(f"Parallel simulation complete!")
-    logging.info(f"Total time: {elapsed:.1f} seconds ({elapsed/60:.1f} minutes)")
-    logging.info(f"Time per simulation: {elapsed/len(results):.1f} seconds")
-    
-    print(f"\nCompleted {len(results)} simulations in {elapsed:.1f}s ({elapsed/60:.1f} min)")
-    print(f"Average time per simulation: {elapsed/len(results):.1f}s")
-    
-    # Verify energy conservation
-    energy_errors = []
-    for result in results:
-        if abs(result['E_total'] - result['E_initial']) > 1e-10:
-            energy_errors.append(result)
-            logging.warning(f"Energy conservation error: R={result['R']}, M={result['M']}")
-    
-    if energy_errors:
-        print(f"\nWARNING: {len(energy_errors)} simulations had energy conservation errors")
-    else:
-        print(f"\n✓ All simulations passed energy conservation check")
+    print_final_results(results, start_time, end_time, 'reversible')

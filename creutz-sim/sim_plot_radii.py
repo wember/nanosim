@@ -14,7 +14,7 @@ Automatically searches for CSV files in data/r{0-10}/ directories relative to
 the project root.
 
 Usage:
-  python creutz-sim/sim_plot_r.py
+  python creutz-sim/sim_plot_radii.py
 """
 
 import pandas as pd

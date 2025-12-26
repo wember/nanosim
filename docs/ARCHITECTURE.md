@@ -48,7 +48,7 @@ nanosim/
 │   └── legacy/irr_sim.py       # Original single-core irreversible
 ├── Visualization
 │   ├── sim_plot.py             # Plot single simulation
-│   ├── sim_plot_r.py           # Plot across radii
+│   ├── sim_plot_radii.py       # Plot across radii
 │   └── Sk_comparison.py        # Compare rev vs. irr entropy
 ├── HPC Integration
 │   └── batch_jobs/

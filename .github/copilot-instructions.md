@@ -120,7 +120,7 @@ Job specs: 1 node, 1 core, 1GB memory, 7-day limit
 ### Plotting Scripts
 
 - **`sim_plot.py`**: Plots single simulation CSV (demon energy, lattice temp, entropy vs sweeps)
-- **`sim_plot_r.py`**: Likely plots results across radii variations
+- **`sim_plot_radii.py`**: Plots results across multiple radii (R=0 to R=10)
 - **`Sk_comparison.py`**: Compares entropy between reversible/irreversible runs
   - Averages multiple runs per radius (finds all CSVs in `data/r{R}/` and `data/irr/r{R}/`)
   - Applies rolling average smoothing (default `bin_size=10`)
