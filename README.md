@@ -6,10 +6,10 @@ A Python implementation of microcanonical ensemble Monte Carlo simulation for a 
 
 ## Documentation
 
-- **[ARCHITECTURE.md](ARCHITECTURE.md)** - Comprehensive technical documentation covering physics concepts, implementation details, and algorithm specifics
-- **[OPTIMIZATIONS.md](OPTIMIZATIONS.md)** - Detailed explanations of all performance optimizations with benchmarks and rationale
-- **[JIT_BEST_PRACTICES.md](JIT_BEST_PRACTICES.md)** - Guide for using Numba JIT optimization in production (70-106x speedup)
-- **[BEST_PRACTICES.md](BEST_PRACTICES.md)** - Summary of implemented improvements and development practices
+- **[ARCHITECTURE.md](docs/ARCHITECTURE.md)** - Comprehensive technical documentation covering physics concepts, implementation details, and algorithm specifics
+- **[OPTIMIZATIONS.md](docs/OPTIMIZATIONS.md)** - Detailed explanations of all performance optimizations with benchmarks and rationale
+- **[JIT_BEST_PRACTICES.md](docs/JIT_BEST_PRACTICES.md)** - Guide for using Numba JIT optimization in production (70-106x speedup)
+- **[BEST_PRACTICES.md](docs/BEST_PRACTICES.md)** - Summary of implemented improvements and development practices
 - **[CHANGELOG.md](CHANGELOG.md)** - Version history and changelog
 
 ## Performance
@@ -26,13 +26,13 @@ A Python implementation of microcanonical ensemble Monte Carlo simulation for a 
 **Quick Start - Maximum Performance:**
 
 ```bash
-make run-parallel-sim-jit        # Reversible with JIT (fastest)
-make run-parallel-irr-sim-jit    # Irreversible with JIT (fastest)
+make run-sim        # Reversible with parallel JIT (fastest, ~1.2 min)
+make run-irr-sim    # Irreversible with parallel JIT (fastest, ~1.2 min)
 ```
 
-See [OPTIMIZATIONS.md](OPTIMIZATIONS.md) for implementation details and [JIT_BEST_PRACTICES.md](JIT_BEST_PRACTICES.md) for usage guide.
+See [OPTIMIZATIONS.md](docs/OPTIMIZATIONS.md) for implementation details and [JIT_BEST_PRACTICES.md](docs/JIT_BEST_PRACTICES.md) for usage guide.
 
-**Why Not GPU/CUDA?** We evaluated GPU acceleration (ASU HPC has 290+ NVIDIA GPUs) but determined it would only provide 1.5-2x additional speedup at the cost of significant complexity. The sequential nature of energy-conserving Monte Carlo limits GPU effectiveness. See [Section 9 in OPTIMIZATIONS.md](OPTIMIZATIONS.md#9-gpucuda-acceleration-not-implemented) for detailed analysis.
+**Why Not GPU/CUDA?** We evaluated GPU acceleration (ASU HPC has 290+ NVIDIA GPUs) but determined it would only provide 1.5-2x additional speedup at the cost of significant complexity. The sequential nature of energy-conserving Monte Carlo limits GPU effectiveness. See [Section 9 in OPTIMIZATIONS.md](docs/OPTIMIZATIONS.md#9-gpucuda-acceleration-not-implemented) for detailed analysis.
 
 ## Installation
 
@@ -47,7 +47,7 @@ Use the Makefile for automated setup:
 
 ```bash
 make setup    # Create virtual environment and install dependencies
-make test     # Verify installation
+make test-env # Verify installation
 ```
 
 This will:
@@ -92,7 +92,7 @@ pip install -r requirements.txt
 ### Verify Installation
 
 ```bash
-make test
+make test-env
 ```
 
 ## Usage
@@ -103,21 +103,14 @@ Use the Makefile for all common tasks:
 
 ```bash
 make help              # Show all available commands
-make test              # Verify environment setup
-make run-sim-test      # Quick test (n=100, s=10, ~seconds)
-make run-sim-small     # Small test (n=1000, s=100, ~minutes)
-make run-sim           # Full simulation (n=1000000, s=5000, ~hours)
-make run-irr-sim       # Irreversible simulation (full parameters)
+make test-env          # Verify environment setup
+make run-sim-small     # Quick test (n=100, s=10, < 5 seconds)
+make run-sim           # Production run (parallel JIT, ~1.2 min)
+make run-irr-sim       # Irreversible (parallel JIT, ~1.2 min)
 
-# Parallel execution with JIT (RECOMMENDED - fastest)
-make run-parallel-sim-jit           # Full parallel + JIT reversible (~1.2 min)
-make run-parallel-irr-sim-jit       # Full parallel + JIT irreversible (~1.2 min)
-make run-parallel-sim-jit-test      # Quick test with JIT
-
-# Parallel execution without JIT (fast, but not maximum performance)
-make run-parallel-sim-test          # Quick parallel test
-make run-parallel-sim               # Full parallel reversible simulation (~2 hours)
-make run-parallel-irr-sim           # Full parallel irreversible simulation (~2 hours)
+# Custom parameters
+make run-sim ARGS="--n 50000 --s 5000"     # Custom size
+make run-sim ARGS="--cores 1"              # Single-core
 
 make run-tests         # Run unit tests
 make run-examples      # Run all example scripts
@@ -125,16 +118,16 @@ make plot              # Run plotting script
 make clean             # Remove virtual environment and cache files
 ```
 
-### Maximum Performance: JIT + Parallel (Recommended)
+### Maximum Performance: Parallel JIT (Default)
 
-**New in v3.0:** Numba JIT compilation provides **70-106x speedup** on top of parallel processing, reducing production runs from 27 hours to just **1.2 minutes**.
+**Parallel JIT is now enabled by default** for all simulations, providing **~1400x speedup** over the original implementation (27 hours → 1.2 minutes).
 
 **Quick start (fastest):**
 
 ```bash
 # Run with JIT optimization (recommended for production)
-make run-parallel-sim-jit          # Reversible (~1.2 minutes for full run)
-make run-parallel-irr-sim-jit      # Irreversible (~1.2 minutes for full run)
+make run-sim           # Reversible (~1.2 minutes for full run)
+make run-irr-sim       # Irreversible (~1.2 minutes for full run)
 
 # Or use command line directly
 python creutz-sim/parallel_sim.py --jit
@@ -150,7 +143,7 @@ python creutz-sim/parallel_irr_sim.py --jit
 | 8     | 6-8x        | 560x           | 848x           |
 | 16    | 13-14x      | ~1000x         | ~1400x         |
 
-See [JIT_BEST_PRACTICES.md](JIT_BEST_PRACTICES.md) for detailed usage guide.
+See [JIT_BEST_PRACTICES.md](docs/JIT_BEST_PRACTICES.md) for detailed usage guide.
 
 ### Parallel Execution
 
@@ -165,16 +158,16 @@ Parallel versions can run multiple independent simulations simultaneously across
 **Quick start:**
 
 ```bash
-# Run with auto-detected CPU cores (no JIT)
-make run-parallel-sim          # Reversible
-make run-parallel-irr-sim      # Irreversible
+# Run with auto-detected CPU cores (JIT enabled by default)
+make run-sim           # Reversible
+make run-irr-sim       # Irreversible
 
-# Or specify core count manually (useful for HPC SLURM jobs)
-python creutz-sim/parallel_sim.py --cores 16
-python creutz-sim/parallel_irr_sim.py --cores 8
-
-# Add --jit for maximum performance
+# Specify core count manually (useful for HPC SLURM jobs)
+make run-sim ARGS="--cores 8"
 python creutz-sim/parallel_sim.py --jit --cores 16
+
+# Single-core execution if needed
+make run-sim ARGS="--cores 1"
 ```
 
 **When to use parallel vs sequential:**
@@ -253,8 +246,14 @@ If you need to run commands manually, first activate the virtual environment:
 
 ```bash
 source venv/bin/activate
-python creutz-sim/sim.py --n 1000 --s 100     # Reversible simulation
-python creutz-sim/irr_sim.py --n 1000 --s 100 # Irreversible simulation
+
+# Production (parallel JIT, fastest)
+python creutz-sim/parallel_sim.py --jit
+python creutz-sim/parallel_irr_sim.py --jit
+
+# Legacy single-core (educational purposes only)
+python creutz-sim/legacy/sim.py --n 1000 --s 100
+python creutz-sim/legacy/irr_sim.py --n 1000 --s 100
 ```
 
 ### HPC Cluster (SLURM)
@@ -292,15 +291,15 @@ Once you have access, you can SSH to the cluster and use the batch scripts in th
 # Using Make (recommended - run from project root)
 make sbatch-sim                 # Submit sequential reversible simulation
 make sbatch-irr-sim             # Submit sequential irreversible simulation
-make sbatch-parallel-sim        # Submit parallel reversible simulation (NEW)
-make sbatch-parallel-irr-sim    # Submit parallel irreversible simulation (NEW)
+make sbatch-sim                 # Submit reversible (parallel JIT)
+make sbatch-irr-sim             # Submit irreversible (parallel JIT)
 
 # Manual submission (advanced)
 cd creutz-sim/batch_jobs
 sbatch sim_sbatch.sh                  # Sequential reversible
 sbatch irr_sim_sbatch.sh              # Sequential irreversible
-sbatch parallel_sim_sbatch.sh         # Parallel reversible (16 cores)
-sbatch parallel_irr_sim_sbatch.sh     # Parallel irreversible (16 cores)
+sbatch sim_sbatch.sh                  # Reversible with parallel JIT (16 cores)
+sbatch irr_sim_sbatch.sh              # Irreversible with parallel JIT (16 cores)
 ```
 
 **Parallel vs Sequential on HPC:**
@@ -339,10 +338,16 @@ python creutz-sim/Sk_comparison.py    # Compare entropy across radii
 ```
 nanosim/
 ├── creutz-sim/           # Main simulation code
-│   ├── inferno.py        # Reversible simulation class
-│   ├── irr_inferno.py    # Irreversible simulation class
-│   ├── sim.py            # Reversible simulation runner
-│   ├── irr_sim.py        # Irreversible simulation runner
+│   ├── inferno.py        # Core reversible simulation class
+│   ├── irr_inferno.py    # Core irreversible simulation class
+│   ├── jit_inferno.py    # JIT-compiled reversible wrapper
+│   ├── jit_irr_inferno.py # JIT-compiled irreversible wrapper
+│   ├── parallel_sim.py   # Production reversible runner (parallel + JIT)
+│   ├── parallel_irr_sim.py # Production irreversible runner (parallel + JIT)
+│   ├── legacy/
+│   │   ├── README.md     # Legacy code documentation
+│   │   ├── sim.py        # Legacy single-core reversible
+│   │   └── irr_sim.py    # Legacy single-core irreversible
 │   ├── sim_plot.py       # Single simulation plotter
 │   ├── sim_plot_r.py     # Radius comparison plotter
 │   ├── Sk_comparison.py  # Entropy comparison plotter
@@ -359,7 +364,11 @@ nanosim/
 ├── requirements.txt      # Python dependencies
 ├── Makefile             # Task automation
 ├── CHANGELOG.md         # Version history
-├── ARCHITECTURE.md      # Technical documentation
+├── docs/                # Documentation
+│   ├── ARCHITECTURE.md
+│   ├── OPTIMIZATIONS.md
+│   ├── JIT_BEST_PRACTICES.md
+│   └── ...
 └── README.md            # This file
 ```
 
@@ -424,7 +433,7 @@ pytest tests/test_inferno.py -v    # Single file
 
 **Production impact:** 27-hour simulation → **1.2 minutes**
 
-See `OPTIMIZATIONS.md` for detailed performance analysis and `benchmark_jit.py` for benchmarking.
+See `docs/OPTIMIZATIONS.md` for detailed performance analysis and `benchmark_jit.py` for benchmarking.
 
 ## Key Parameters
 

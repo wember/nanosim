@@ -16,9 +16,9 @@ python creutz-sim/parallel_sim.py --jit        # Reversible (70x per core)
 python creutz-sim/parallel_irr_sim.py --jit    # Irreversible (106x per core)
 
 # Or use Makefile targets
-make run-parallel-sim-jit                      # Production scale
-make run-parallel-irr-sim-jit                  # Irreversible
-make run-parallel-sim-jit-test                 # Quick test
+make run-sim                                   # Production scale (parallel JIT default)
+make run-irr-sim                               # Irreversible (parallel JIT default)
+make run-sim-small                             # Quick test
 ```
 
 ### Python API
@@ -398,13 +398,13 @@ python -m pstats jit_profile.stats
 
 ```bash
 # 1. Validate environment
-make test
+make test-env
 
 # 2. Quick test
-make run-parallel-sim-jit-test
+make run-sim-small
 
 # 3. Production run
-make run-parallel-sim-jit
+make run-sim
 
 # 4. Analyze results
 python creutz-sim/Sk_comparison.py

@@ -38,6 +38,10 @@ for i in range(sweeps):
     
     state = x.get_validated_state()
     
+    # Calculate per-site energies
+    K = state['E_demon_sum'] / N
+    U = state['E_lattice'] / N
+    
     # Calculate entropy
     Sk = logg(state['E_demon_sum'] + N) - logg(state['E_demon_sum'] + 1) - logg(N)
     N0_exp = max(int(state['bond_count'][1]), 1)
@@ -49,8 +53,8 @@ for i in range(sweeps):
     
     data.append({
         't': i,
-        'K': state['K'],
-        'U': state['U'],
+        'K': K,
+        'U': U,
         'S': S,
         'phase': 'forward'
     })
@@ -63,6 +67,10 @@ for i in range(sweeps):
     
     state = x.get_validated_state()
     
+    # Calculate per-site energies
+    K = state['E_demon_sum'] / N
+    U = state['E_lattice'] / N
+    
     Sk = logg(state['E_demon_sum'] + N) - logg(state['E_demon_sum'] + 1) - logg(N)
     N0_exp = max(int(state['bond_count'][1]), 1)
     Su = logg(N + 1) + N0_exp * np.log(2) - \
@@ -73,8 +81,8 @@ for i in range(sweeps):
     
     data.append({
         't': sweeps + i,
-        'K': state['K'],
-        'U': state['U'],
+        'K': K,
+        'U': U,
         'S': S,
         'phase': 'reverse'
     })

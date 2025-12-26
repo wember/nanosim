@@ -17,9 +17,10 @@ This project implements a **microcanonical ensemble Monte Carlo simulation** of 
 
 ### Simulation Runners
 
-- **`sim.py`**: Runs reversible simulations with varying demon-coupling radii (R=1 to R=10)
-- **`irr_sim.py`**: Runs irreversible simulations (structurally identical to `sim.py`)
-- Both output CSV data per radius/iteration to parameterized folder paths
+- **Production**: `parallel_sim.py` and `parallel_irr_sim.py` - Parallel JIT-compiled runners (~1400x speedup)
+- **Legacy**: `legacy/sim.py` and `legacy/irr_sim.py` - Original single-core implementations (educational reference only)
+- All runners output CSV data per radius/iteration to parameterized folder paths
+- Production runners used by all Makefile targets (`make run-sim`, `make run-irr-sim`)
 
 ### Key Physics Concepts
 
@@ -45,7 +46,7 @@ This project implements a **microcanonical ensemble Monte Carlo simulation** of 
 
 ```bash
 ./setup.sh  # Automated setup script
-make test   # Verify installation
+make test-env # Verify installation
 ```
 
 **Manual Setup**:
@@ -65,10 +66,10 @@ pip install -r requirements.txt
 **Common Commands**:
 
 ```bash
-make help        # Show all available make targets
-make test        # Verify environment works
-make run-sim     # Run reversible simulation
-make run-irr-sim # Run irreversible simulation
+make help        # Show all available make targets (organized by category)
+make test-env    # Verify environment works
+make run-sim     # Run reversible simulation (parallel JIT, fastest)
+make run-irr-sim # Run irreversible simulation (parallel JIT, fastest)
 make clean       # Remove venv and cache files
 ```
 
@@ -93,8 +94,14 @@ Data is organized in `data/` subdirectories relative to the project root, making
 
 ```bash
 source venv/bin/activate
-python creutz-sim/sim.py        # Reversible simulation
-python creutz-sim/irr_sim.py    # Irreversible simulation
+
+# Production (recommended - parallel JIT)
+python creutz-sim/parallel_sim.py --jit
+python creutz-sim/parallel_irr_sim.py --jit
+
+# Legacy single-core (educational only)
+python creutz-sim/legacy/sim.py
+python creutz-sim/legacy/irr_sim.py
 ```
 
 ### HPC Cluster (SLURM)

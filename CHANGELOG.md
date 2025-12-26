@@ -16,13 +16,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Combined with parallel processing: ~1000-1400x total speedup
   - Production impact: 27 hours → 1.2 minutes
   - Documentation: `JIT_OPTIMIZATION_SUMMARY.md`, `JIT_TEST_SUMMARY.md`
-  - Makefile targets: `make benchmark-jit`, `make benchmark-jit-quick`
+  - Makefile targets: `make benchmark-jit` (simplified from two targets)
   - New dependency: `numba>=0.63.1`
 - **Parallel Processing** (2025-01-17): 13-14x speedup with multiprocessing
   - New files: `parallel_sim.py`, `parallel_irr_sim.py`
   - Auto-detects CPU cores, supports SLURM integration
   - 21 new tests in `test_parallel_execution.py`
-  - Makefile targets: `make run-parallel-sim`, `make run-parallel-irr-sim`
+  - Makefile targets: `make run-sim`, `make run-irr-sim` (parallel JIT by default)
 - **Random Sign Generation Optimization** (2025-01-16): 1.7x speedup
   - Replaced array generation with `np.random.choice([-1, 1], size=N)`
   - Applied to both Inferno and irrInferno classes

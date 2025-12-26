@@ -854,8 +854,8 @@ if __name__ == '__main__':
 
 Created SLURM batch scripts that respect allocated resources:
 
-**`parallel_sim_sbatch.sh`** - Requests 16 cores  
-**`parallel_irr_sim_sbatch.sh`** - Requests 16 cores
+**`sim_sbatch.sh`** - Reversible with parallel JIT (16 cores)  
+**`irr_sim_sbatch.sh`** - Irreversible with parallel JIT (16 cores)
 
 Key feature: Uses `$SLURM_CPUS_PER_TASK` environment variable to match Python's worker count with SLURM's allocation:
 
@@ -910,33 +910,33 @@ The slight deviation from linear scaling (16x) is due to:
 **Local execution:**
 
 ```bash
-# Auto-detect cores
-make run-parallel-sim
-make run-parallel-irr-sim
+# Auto-detect cores (JIT enabled by default)
+make run-sim
+make run-irr-sim
 
 # Manual core count
-python creutz-sim/parallel_sim.py --cores 8
-python creutz-sim/parallel_irr_sim.py --cores 4
+make run-sim ARGS="--cores 8"
+python creutz-sim/parallel_sim.py --jit --cores 8
 ```
 
 **HPC SLURM submission:**
 
 ```bash
-make sbatch-parallel-sim        # 16-core job
-make sbatch-parallel-irr-sim    # 16-core job
+make sbatch-sim                 # Parallel JIT, 16 cores
+make sbatch-irr-sim             # Parallel JIT, 16 cores
 ```
 
 #### Makefile Targets
 
-Added six new targets to `Makefile`:
+Simulation targets (parallel JIT by default):
 
 ```makefile
-run-parallel-sim              # Full parallel reversible
-run-parallel-irr-sim          # Full parallel irreversible
-run-parallel-sim-test         # Test parallel reversible
-run-parallel-irr-sim-test     # Test parallel irreversible
-sbatch-parallel-sim           # Submit parallel reversible to SLURM
-sbatch-parallel-irr-sim       # Submit parallel irreversible to SLURM
+run-sim                       # Full parallel reversible (JIT enabled)
+run-irr-sim                   # Full parallel irreversible (JIT enabled)
+run-sim-small                 # Small-scale test reversible
+run-irr-sim-small             # Small-scale test irreversible
+sbatch-sim                    # Submit reversible to SLURM (parallel JIT)
+sbatch-irr-sim                # Submit irreversible to SLURM (parallel JIT)
 ```
 
 #### Testing

@@ -40,10 +40,10 @@ Added convenience targets for JIT-enabled runs:
 
 **New Targets:**
 
-- `make run-parallel-sim-jit` - Production reversible with JIT
-- `make run-parallel-irr-sim-jit` - Production irreversible with JIT
-- `make run-parallel-sim-jit-test` - Quick test with JIT
-- `make run-parallel-irr-sim-jit-test` - Quick irreversible test with JIT
+- `make run-sim` - Production reversible with parallel JIT (default)
+- `make run-irr-sim` - Production irreversible with parallel JIT (default)
+- `make run-sim-small` - Quick small-scale test with parallel JIT
+- `make run-irr-sim-small` - Quick small-scale irreversible test with parallel JIT
 
 **Features:**
 
@@ -187,13 +187,13 @@ New JIT demo verified:
 ```bash
 # 1. Setup (one time)
 make setup
-make test
+make test-env
 
 # 2. Quick validation
 python examples/production_run_jit.py --validate-only
 
 # 3. Production run (fastest)
-make run-parallel-sim-jit          # 1.2 minutes for full run
+make run-sim                       # 1.2 minutes for full run (parallel JIT default)
 
 # 4. Analysis
 python creutz-sim/Sk_comparison.py

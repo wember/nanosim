@@ -146,7 +146,7 @@ def main():
     print("    → Production run: 27 hours → 1.2 minutes")
     print("\nUsage:")
     print("  • Add --jit flag to parallel_sim.py or parallel_irr_sim.py")
-    print("  • Or use: make run-parallel-sim-jit")
+    print("  • Or use: make run-sim (parallel JIT is now default!)")
     print("=" * 60)
 
 

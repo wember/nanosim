@@ -1,10 +1,34 @@
-.PHONY: help setup clean test run-sim run-irr-sim run-sim-small run-irr-sim-small run-sim-test run-irr-sim-test sbatch-sim sbatch-irr-sim plot activate run-tests run-tests-serial run-test-file run-examples coverage coverage-html benchmark-jit benchmark-jit-quick
+.PHONY: help setup clean activate test-env run-sim run-irr-sim run-sim-small run-irr-sim-small sbatch-sim sbatch-irr-sim plot run-examples benchmark-jit profile profile-inferno profile-irr view-profile run-tests run-tests-serial run-test-file coverage coverage-html
 
 help:  ## Show this help message
 	@echo 'Usage: make [target]'
 	@echo ''
-	@echo 'Available targets:'
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
+	@printf '\033[1mEnvironment Setup:\033[0m\n'
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; /^(setup|clean|activate|test-env):/ {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
+	@echo ''
+	@printf '\033[1mSimulations:\033[0m\n'
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; /^(run-sim|run-irr-sim|run-sim-small|run-irr-sim-small):/ {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
+	@echo ''
+	@printf '\033[1mHPC / SLURM:\033[0m\n'
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; /^(sbatch-sim|sbatch-irr-sim):/ {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
+	@echo ''
+	@printf '\033[1mAnalysis & Visualization:\033[0m\n'
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; /^(plot|run-examples):/ {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
+	@echo ''
+	@printf '\033[1mPerformance & Profiling:\033[0m\n'
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; /^(benchmark-jit|profile|profile-inferno|profile-irr|view-profile):/ {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
+	@echo ''
+	@printf '\033[1mTesting & Coverage:\033[0m\n'
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; /^(run-tests|run-tests-serial|run-test-file|coverage|coverage-html):/ {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
+	@echo ''
+	@echo 'Notes:'
+	@echo '  - All simulations use parallel JIT by default (fastest: ~1400x speedup)'
+	@echo '  - Use --cores 1 for single-core execution if needed'
+	@echo '  - Custom params: make run-sim ARGS="--n 100000 --s 5000 --r 8"'
+
+# =============================================================================
+# Environment Setup
+# =============================================================================
 
 setup:  ## Create virtual environment and install dependencies
 	@./setup.sh
@@ -16,98 +40,107 @@ clean:  ## Remove virtual environment and cached files
 	find . -type f -name "*.pyc" -delete
 	@echo "✓ Cleanup complete"
 
-test:  ## Test that the environment is properly configured
+activate:  ## Show command to activate virtual environment
+	@echo "Run this command to activate the virtual environment:"
+	@echo "    source venv/bin/activate"
+
+test-env:  ## Test that the environment is properly configured
 	@echo "Testing environment..."
 	@./venv/bin/python -c "import numpy, scipy, pandas, plotly; print('✓ All dependencies imported successfully')"
 	@cd creutz-sim && ../venv/bin/python -c "from inferno import Inferno; x = Inferno(100, 5); assert x.E_total == 200, 'Energy conservation failed'; print('✓ Inferno class works correctly')"
 	@cd creutz-sim && ../venv/bin/python -c "from irr_inferno import irrInferno; x = irrInferno(100, 5); assert x.E_total == 200, 'Energy conservation failed'; print('✓ irrInferno class works correctly')"
 	@echo "✅ All tests passed!"
 
-run-sim:  ## Run reversible simulation (full: n=1000000, s=5000)
-	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
-	@echo "Running reversible simulation (full parameters)..."
-	@./venv/bin/python creutz-sim/sim.py
+# =============================================================================
+# Simulations
+# =============================================================================
 
-run-irr-sim:  ## Run irreversible simulation (full: n=1000000, s=5000)
-	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
-	@echo "Running irreversible simulation (full parameters)..."
-	@./venv/bin/python creutz-sim/irr_sim.py
+# =============================================================================
+# Simulations
+# =============================================================================
 
-run-parallel-sim:  ## Run parallel reversible simulation (auto-detect cores)
+run-sim:  ## Run reversible simulation with parallel JIT (fastest, use ARGS="--cores 1" for single-core)
 	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
-	@echo "Running parallel reversible simulation..."
-	@./venv/bin/python creutz-sim/parallel_sim.py
+	@echo "Running reversible simulation (parallel JIT, ~1400x faster)..."
+	@./venv/bin/python creutz-sim/parallel_sim.py --jit $(ARGS)
 
-run-parallel-irr-sim:  ## Run parallel irreversible simulation (auto-detect cores)
+run-irr-sim:  ## Run irreversible simulation with parallel JIT (fastest, use ARGS="--cores 1" for single-core)
 	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
-	@echo "Running parallel irreversible simulation..."
-	@./venv/bin/python creutz-sim/parallel_irr_sim.py
+	@echo "Running irreversible simulation (parallel JIT, ~1400x faster)..."
+	@./venv/bin/python creutz-sim/parallel_irr_sim.py --jit $(ARGS)
 
-run-sim-small:  ## Run reversible simulation (small: n=1000, s=100, r=3, m=2)
-	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
-	@./venv/bin/python creutz-sim/sim.py --n 1000 --s 100 --r 3 --m 2
-
-run-irr-sim-small:  ## Run irreversible simulation (small: n=1000, s=100, r=3, m=2)
-	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
-	@./venv/bin/python creutz-sim/irr_sim.py --n 1000 --s 100 --r 3 --m 2
-
-run-sim-test:  ## Run reversible simulation (test: n=100, s=10, r=2, m=1)
-	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
-	@./venv/bin/python creutz-sim/sim.py --n 100 --s 10 --r 2 --m 1
-
-run-irr-sim-test:  ## Run irreversible simulation (test: n=100, s=10, r=2, m=1)
-	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
-	@./venv/bin/python creutz-sim/irr_sim.py --n 100 --s 10 --r 2 --m 1
-
-run-parallel-sim-test:  ## Run parallel reversible simulation (test: n=100, s=10, r=3, m=6)
-	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
-	@./venv/bin/python creutz-sim/parallel_sim.py --n 100 --s 10 --r 3 --m 6
-
-run-parallel-irr-sim-test:  ## Run parallel irreversible simulation (test: n=100, s=10, r=3, m=6)
-	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
-	@./venv/bin/python creutz-sim/parallel_irr_sim.py --n 100 --s 10 --r 3 --m 6
-
-run-parallel-sim-jit:  ## Run parallel reversible simulation with JIT (70x faster per core)
-	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
-	@echo "Running parallel reversible simulation with JIT optimization..."
-	@./venv/bin/python creutz-sim/parallel_sim.py --jit
-
-run-parallel-irr-sim-jit:  ## Run parallel irreversible simulation with JIT (106x faster per core)
-	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
-	@echo "Running parallel irreversible simulation with JIT optimization..."
-	@./venv/bin/python creutz-sim/parallel_irr_sim.py --jit
-
-run-parallel-sim-jit-test:  ## Run parallel reversible simulation with JIT (test: n=100, s=10, r=3, m=6)
+run-sim-small:  ## Quick small-scale reversible simulation (n=100, s=10, r=3, m=6)
 	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
 	@./venv/bin/python creutz-sim/parallel_sim.py --jit --n 100 --s 10 --r 3 --m 6
 
-run-parallel-irr-sim-jit-test:  ## Run parallel irreversible simulation with JIT (test: n=100, s=10, r=3, m=6)
+run-irr-sim-small:  ## Quick small-scale irreversible simulation (n=100, s=10, r=3, m=6)
 	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
 	@./venv/bin/python creutz-sim/parallel_irr_sim.py --jit --n 100 --s 10 --r 3 --m 6
 
-sbatch-sim:  ## Submit reversible simulation to SLURM cluster
+# =============================================================================
+# HPC / SLURM
+# =============================================================================
+
+sbatch-sim:  ## Submit reversible simulation to SLURM (parallel JIT, fastest)
 	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
-	@echo "Submitting reversible simulation to SLURM..."
+	@echo "Submitting reversible simulation to SLURM (parallel JIT)..."
 	cd creutz-sim/batch_jobs && sbatch sim_sbatch.sh
 
-sbatch-irr-sim:  ## Submit irreversible simulation to SLURM cluster
+sbatch-irr-sim:  ## Submit irreversible simulation to SLURM (parallel JIT, fastest)
 	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
-	@echo "Submitting irreversible simulation to SLURM..."
+	@echo "Submitting irreversible simulation to SLURM (parallel JIT)..."
 	cd creutz-sim/batch_jobs && sbatch irr_sim_sbatch.sh
 
-sbatch-parallel-sim:  ## Submit parallel reversible simulation to SLURM cluster
-	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
-	@echo "Submitting parallel reversible simulation to SLURM..."
-	cd creutz-sim/batch_jobs && sbatch parallel_sim_sbatch.sh
+# =============================================================================
+# Analysis & Visualization
+# =============================================================================
 
-sbatch-parallel-irr-sim:  ## Submit parallel irreversible simulation to SLURM cluster
+plot:  ## Run plotting script (requires simulation CSV output)
 	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
-	@echo "Submitting parallel irreversible simulation to SLURM..."
-	cd creutz-sim/batch_jobs && sbatch parallel_irr_sim_sbatch.sh
-
-plot:  ## Run plotting script (requires sim_data.csv)
-	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
+	@echo "Note: Run a simulation first to generate CSV data (e.g., make run-sim-small)"
 	@./venv/bin/python creutz-sim/sim_plot.py
+
+run-examples:  ## Run all example scripts
+	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
+	@echo "Running quick_test.py..."
+	@./venv/bin/python examples/quick_test.py
+	@echo "\nRunning custom_parameters.py..."
+	@./venv/bin/python examples/custom_parameters.py
+	@echo "\nRunning analysis_pipeline.py..."
+	@./venv/bin/python examples/analysis_pipeline.py
+
+# =============================================================================
+# Performance & Profiling
+# =============================================================================
+
+benchmark-jit:  ## Benchmark JIT vs non-JIT performance (shows 70-107x speedup)
+	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
+	@echo "Running JIT benchmark (N=10000, S=100, R=5)..."
+	@./venv/bin/python benchmark_jit.py
+
+profile:  ## Profile simulation to identify bottlenecks (usage: make profile MODE=inferno N=10000 S=100 R=5)
+	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
+	@mkdir -p profiling
+	@echo "Profiling $(or $(MODE),inferno) simulation..."
+	@./venv/bin/python profile_sim.py --mode $(or $(MODE),inferno) --n $(or $(N),10000) --s $(or $(S),100) --r $(or $(R),5)
+
+profile-inferno:  ## Profile Inferno (reversible) simulation
+	@make profile MODE=inferno N=10000 S=100 R=5
+
+profile-irr:  ## Profile irrInferno (irreversible) simulation
+	@make profile MODE=irr_inferno N=10000 S=100 R=5
+
+view-profile:  ## View most recent profiling results (usage: make view-profile FILE=profile_inferno_n10000_s100.stats)
+	@if [ -z "$(FILE)" ]; then \
+		echo "Available profile files:"; \
+		ls -lh profiling/*.stats 2>/dev/null || echo "No profile files found"; \
+	else \
+		python -c "import pstats; p = pstats.Stats('profiling/$(FILE)'); p.sort_stats('cumulative').print_stats(30)"; \
+	fi
+
+# =============================================================================
+# Testing & Coverage
+# =============================================================================
 
 run-tests:  ## Run unit tests in parallel (pass ARGS="..." for custom options)
 	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
@@ -140,26 +173,3 @@ coverage-html:  ## Run coverage and open HTML report in browser
 	@make coverage
 	@echo "Opening coverage report in browser..."
 	@open htmlcov/index.html || xdg-open htmlcov/index.html 2>/dev/null || echo "Please open htmlcov/index.html manually"
-
-run-examples:  ## Run all example scripts
-	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
-	@echo "Running quick_test.py..."
-	@./venv/bin/python examples/quick_test.py
-	@echo "\nRunning custom_parameters.py..."
-	@./venv/bin/python examples/custom_parameters.py
-	@echo "\nRunning analysis_pipeline.py..."
-	@./venv/bin/python examples/analysis_pipeline.py
-
-benchmark-jit:  ## Benchmark JIT vs non-JIT performance (usage: make benchmark-jit N=10000 S=100 R=5)
-	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
-	@echo "Running JIT benchmark..."
-	@./venv/bin/python benchmark_jit.py $(N) $(S) $(R)
-
-benchmark-jit-quick:  ## Quick JIT benchmark (N=1000, S=50, R=3)
-	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
-	@echo "Running quick JIT benchmark..."
-	@./venv/bin/python benchmark_jit.py 1000 50 3
-
-activate:  ## Show command to activate virtual environment
-	@echo "Run this command to activate the virtual environment:"
-	@echo "    source venv/bin/activate"

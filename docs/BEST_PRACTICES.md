@@ -72,7 +72,7 @@ Three demonstration scripts:
 - **README.md**: Expanded with new features, runtime estimates, examples
 - **ARCHITECTURE.md**: Technical documentation
 - **.gitignore**: Added logs/, metadata, pytest cache
-- **Makefile**: New targets (run-tests, run-examples, run-sim-test)
+- **Makefile**: New targets (run-tests, run-examples, run-sim-small)
 - **Benefits**: Discoverable features, easier onboarding
 
 ## Additional Improvements
@@ -92,7 +92,7 @@ Three demonstration scripts:
 
 ### Enhanced Makefile
 
-- **New targets**: run-sim-test, run-sim-small, run-tests, run-examples
+- **Simplified targets**: Parallel JIT now default for run-sim/run-irr-sim
 - **Benefits**: Consistent interface, easier workflow
 
 ### Requirements Management
@@ -106,7 +106,7 @@ Three demonstration scripts:
 
 ```bash
 # Ultra-fast test (1 second)
-make run-sim-test
+make run-sim-small
 python creutz-sim/sim.py --n 100 --s 10 --r 2 --m 1
 
 # Small test (10 seconds)
@@ -143,7 +143,7 @@ make setup
 make run-tests
 
 # 3. Quick validation
-make run-sim-test
+make run-sim-small
 
 # 4. Full run (when ready)
 make run-sim

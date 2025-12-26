@@ -36,10 +36,16 @@ Instead of traditional Monte Carlo methods using random thermal fluctuations, th
 nanosim/
 ├── Core Simulation Classes
 │   ├── inferno.py              # Reversible simulation
-│   └── irr_inferno.py          # Irreversible simulation
-├── Simulation Runners
-│   ├── sim.py                  # Run reversible simulations
-│   └── irr_sim.py              # Run irreversible simulations
+│   ├── irr_inferno.py          # Irreversible simulation
+│   ├── jit_inferno.py          # JIT-compiled reversible
+│   └── jit_irr_inferno.py      # JIT-compiled irreversible
+├── Production Runners
+│   ├── parallel_sim.py         # Reversible (parallel + JIT)
+│   └── parallel_irr_sim.py     # Irreversible (parallel + JIT)
+├── Legacy (Single-Core)
+│   ├── legacy/README.md        # Documentation for legacy code
+│   ├── legacy/sim.py           # Original single-core reversible
+│   └── legacy/irr_sim.py       # Original single-core irreversible
 ├── Visualization
 │   ├── sim_plot.py             # Plot single simulation
 │   ├── sim_plot_r.py           # Plot across radii
@@ -143,9 +149,22 @@ class irrInferno:
 
 ### 3. Simulation Runners
 
-#### `sim.py` and `irr_sim.py`
+#### Production: `parallel_sim.py` and `parallel_irr_sim.py`
 
-**Structure:**
+The production runners use multiprocessing and JIT compilation for maximum performance (~1400x speedup).
+
+**Key Features:**
+
+- Parallel execution across multiple CPU cores
+- JIT compilation via `--jit` flag (enabled by default in Makefile)
+- Same algorithm and output format as legacy versions
+- Command-line control: `--cores N`, `--n`, `--s`, `--r`, `--m`
+
+#### Legacy: `legacy/sim.py` and `legacy/irr_sim.py`
+
+Original single-core implementations preserved for educational purposes. See `creutz-sim/legacy/README.md` for details.
+
+**Core Algorithm Structure (shared by all runners):**
 
 ```python
 # Parameters
@@ -384,9 +403,17 @@ final_state = x.lattice, x.E_demon
 
 ### Parallel Processing
 
-- Use `multiprocessing` for different radii/runs
-- Aggregate CSVs after completion
-- Requires careful file naming
+The project includes parallel processing capabilities with JIT compilation:
+
+- **Implementation**: `parallel_sim.py` and `parallel_irr_sim.py`
+- **Default mode**: Parallel JIT enabled (provides ~1400x speedup)
+- **Auto-detection**: Uses all available CPU cores by default
+- **Manual control**: `--cores N` flag or `make run-sim ARGS="--cores N"`
+- **SLURM integration**: Batch scripts configure core allocation
+- **File management**: Each run generates independent CSV files
+- **Aggregation**: Results combined for analysis across radii
+
+See [JIT_BEST_PRACTICES.md](JIT_BEST_PRACTICES.md) and [OPTIMIZATIONS.md](OPTIMIZATIONS.md) for detailed performance information.
 
 ## References
 

@@ -1,19 +1,41 @@
 #!/bin/bash
+#SBATCH --job-name=parallel_sim_reversible
+#SBATCH --output=logs/parallel_sim_rev_%j.out
+#SBATCH --error=logs/parallel_sim_rev_%j.err
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=16
+#SBATCH --mem=8GB
+#SBATCH --time=7-00:00:00
 
-#SBATCH -N 1  		# number of nodes
-#SBATCH -c 1  		# number of "tasks" (cores)
-#SBATCH --mem=1G        # GigaBytes of memory required (per node)
-#SBATCH -t 7-00:00:00   # time in d-hh:mm:ss
-#SBATCH -p public	# partition
-#SBATCH -q public       # QOS
-#SBATCH -o slurm.%j.out # file to save job's STDOUT (%j = JobId)
-#SBATCH -e slurm.%j.err # file to save job's STDERR (%j = JobId)
-#SBATCH --mail-type=ALL # Send an e-mail when a job starts, stops, or fails
-##SBATCH --mail-user=wember@asu.edu # Mail-to address
+# Parallel reversible Creutz demon simulation SLURM batch script
+# Optimized for multi-core execution on HPC clusters
 
-# Activate virtual environment (relative to project root)
-source ../../venv/bin/activate
+echo "Job started at: $(date)"
+echo "Running on node: $(hostname)"
+echo "Job ID: $SLURM_JOB_ID"
+echo "CPUs allocated: $SLURM_CPUS_PER_TASK"
 
-# Run simulation
-python ../sim.py
+# Load any required modules (uncomment and modify as needed)
+# module load python/3.11
+# module load numpy/2.0
+# module load scipy/1.14
 
+# Activate virtual environment
+source venv/bin/activate
+
+# Change to simulation directory
+cd creutz-sim
+
+# Run parallel simulation with JIT optimization and explicit core count
+# Uses SLURM_CPUS_PER_TASK to match allocated resources
+python parallel_sim.py \
+    --jit \
+    --n 1000000 \
+    --s 5000 \
+    --r 11 \
+    --m 5 \
+    --cores $SLURM_CPUS_PER_TASK \
+    --validate off
+
+echo "Job completed at: $(date)"
