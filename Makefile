@@ -1,4 +1,4 @@
-.PHONY: help setup clean activate test-env run-sim run-irr-sim run-sim-small run-irr-sim-small sbatch-sim sbatch-irr-sim plot run-examples benchmark-jit profile profile-inferno profile-irr view-profile run-tests run-tests-serial run-test-file coverage coverage-html
+.PHONY: help setup clean activate test-env run-sim run-irr-sim run-sim-small run-irr-sim-small sbatch-sim sbatch-irr-sim plot plot-radii plot-comparison run-examples benchmark-jit profile profile-inferno profile-irr view-profile run-tests run-tests-serial run-test-file coverage coverage-html
 
 help:  ## Show this help message
 	@echo 'Usage: make [target]'
@@ -13,7 +13,7 @@ help:  ## Show this help message
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; /^(sbatch-sim|sbatch-irr-sim):/ {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
 	@echo ''
 	@printf '\033[1mAnalysis & Visualization:\033[0m\n'
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; /^(plot|run-examples):/ {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; /^(plot|plot-radii|plot-comparison|run-examples):/ {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
 	@echo ''
 	@printf '\033[1mPerformance & Profiling:\033[0m\n'
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; /^(benchmark-jit|profile|profile-inferno|profile-irr|view-profile):/ {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
@@ -99,6 +99,18 @@ plot:  ## Run plotting script (requires simulation CSV output)
 	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
 	@echo "Note: Run a simulation first to generate CSV data (e.g., make run-sim-small)"
 	@./venv/bin/python creutz-sim/sim_plot.py
+
+plot-radii:  ## Plot results across all radii for single simulation type (reversible or irreversible)
+	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
+	@echo "Generating multi-radius comparison plot..."
+	@echo "Note: Requires data in data/r{0-10}/ directories"
+	@./venv/bin/python creutz-sim/sim_plot_r.py
+
+plot-comparison:  ## Compare entropy between reversible and irreversible simulations (requires data from both)
+	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
+	@echo "Generating entropy comparison plot (reversible vs irreversible)..."
+	@echo "Note: Requires data in data/r{0-10}/ and data/irr/r{0-10}/ directories"
+	@./venv/bin/python creutz-sim/Sk_comparison.py
 
 run-examples:  ## Run all example scripts
 	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi

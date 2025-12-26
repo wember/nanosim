@@ -1,3 +1,20 @@
+"""Reversible Creutz Demon Simulation (Inferno)
+
+Implements the reversible version of the Creutz demon algorithm for 1D Ising lattice.
+This class uses pre-computed radius arrays to enable exact time-reversibility testing.
+
+Key features for reversibility:
+- Pre-computed random walk patterns (radius_spin, radius_bond)
+- Reversed arrays (rev_radius_spin, rev_radius_bond) for backward traversal
+- Forward (demon_move) and reverse (demon_reverse) phases that mirror each other
+- Can return to initial state after forward then reverse traversal
+
+The reversibility property allows testing the second law of thermodynamics by
+observing whether entropy returns to its initial value during reverse phase.
+
+Inherits validation, energy conservation, and bond operations from SimulationBase.
+"""
+
 import numpy as np
 import random
 import math
@@ -7,7 +24,34 @@ from sim_utils import Sk, Su, Su0, SimulationBase
 
 class Inferno(SimulationBase):
     """
-        Optimized Inferno class with roundoff error prevention
+    Reversible Creutz demon simulation with pre-computed radius arrays.
+    
+    This class implements the reversible version of the Creutz demon algorithm.
+    The key to reversibility is using fixed random walk patterns (radius arrays)
+    and their exact reversals, allowing the system to be run forward then backward
+    to return to the initial state.
+    
+    Reversibility mechanism:
+    - radius_spin: Pre-computed random radii for spin flips (forward)
+    - rev_radius_spin: Flipped radius_spin for reverse traversal
+    - radius_bond: Flipped radius_spin (for bond changes, forward)
+    - rev_radius_bond: Copy of radius_spin (for bond changes, reverse)
+    
+    The specific pattern ensures demon_reverse() exactly reverses demon_move().
+    
+    Attributes:
+        N: Number of lattice sites
+        R: Maximum demon-coupling radius
+        lattice: Spin configuration array (±1)
+        bonds: Bond state array (-1=aligned, 0=broken, 1=anti-aligned)
+        bond_count: Array [N0, N1, Nx] tracking bond counts
+        E_demon: Array of demon energies (one per site)
+        E_lattice: Total lattice energy
+        E_total: Conserved total energy (lattice + demon)
+        order: Randomized forward traversal order
+        rev_order: Reversed traversal order (flipped order array)
+        radius_spin, radius_bond: Forward phase radius arrays
+        rev_radius_spin, rev_radius_bond: Reverse phase radius arrays
     """
 
     def __init__(self, N, R, validate_mode='off'):
@@ -26,9 +70,16 @@ class Inferno(SimulationBase):
 
         self.N = N
         self.order, self.rev_order = SimulationBase.initialize_order_arrays(N)
+        
+        # Pre-compute radius arrays for reversibility
+        # radius_spin: random radii in range [-R+1, R-1] for forward spin flips
         self.radius_spin = np.random.randint(0, R, size=N)*np.random.choice([-1, 1], size=N)
+        # rev_radius_spin: flipped radius_spin for reverse spin flips
         self.rev_radius_spin = np.flip(self.radius_spin)
+        # radius_bond: flipped radius_spin for forward bond changes
         self.radius_bond = np.flip(self.radius_spin)
+        # rev_radius_bond: copy of radius_spin for reverse bond changes
+        # This specific pattern ensures exact reversibility
         self.rev_radius_bond = self.radius_spin.copy()
 
         # Initialize lattice, bonds, and bond counts using base class helper
@@ -45,7 +96,8 @@ class Inferno(SimulationBase):
         # Setup validation using base class helper
         self.setup_validation_mode(N, validate_mode, total_energy)
 
-        # Indices for rolling
+        # Index tracking for cycling through arrays
+        # These wrap around to 0 after reaching N
         self.order_idx = 0
         self.rev_order_idx = 0
         self.radius_spin_idx = 0
@@ -58,7 +110,17 @@ class Inferno(SimulationBase):
 
     def demon_move(self):
         """
-            Move the demon with periodic validation
+        Perform one reversible Monte Carlo move (forward phase).
+        
+        For each lattice site (in order):
+        1. Attempt spin flip using pre-computed radius from radius_spin
+        2. Update bond states if spin was flipped
+        3. Attempt bond change using pre-computed radius from radius_bond
+        
+        Uses fixed radius arrays to enable exact reversal by demon_reverse().
+        The sequence (spin flip → bond change) is mirrored in reverse phase.
+        
+        Updates all index counters and performs periodic validation if enabled.
         """
         a = self.order[self.order_idx]
 
@@ -87,7 +149,18 @@ class Inferno(SimulationBase):
 
     def demon_reverse(self):
         """
-            Reverse order with periodic validation
+        Perform one reversible Monte Carlo move (reverse phase).
+        
+        Exactly reverses demon_move() by:
+        1. Using reversed traversal order (rev_order)
+        2. Performing bond change BEFORE spin flip (opposite sequence)
+        3. Using reversed radius arrays (rev_radius_bond, rev_radius_spin)
+        
+        The specific combination of reversed order, reversed sequence, and
+        reversed radii ensures this exactly undoes demon_move(), returning
+        the system to its previous state.
+        
+        Updates all reverse index counters and performs periodic validation if enabled.
         """
         a = self.rev_order[self.rev_order_idx]
 

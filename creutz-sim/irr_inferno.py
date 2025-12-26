@@ -1,3 +1,18 @@
+"""Irreversible Creutz Demon Simulation (irrInferno)
+
+Implements an irreversible version of the Creutz demon algorithm for 1D Ising lattice.
+Unlike the reversible Inferno class, this generates truly random demon-coupling radii
+on-the-fly during each move, making the dynamics irreversible.
+
+Key differences from reversible version:
+- Generates new random radii for each spin flip and bond change
+- No pre-computed radius arrays (radius_spin, radius_bond)
+- Cannot reverse back to initial state even with reversed order
+- Used to study thermodynamic irreversibility
+
+Inherits validation, energy conservation, and bond operations from SimulationBase.
+"""
+
 import numpy as np
 import random
 import math
@@ -7,8 +22,26 @@ from sim_utils import Sk, Su, Su0, SimulationBase
 
 class irrInferno(SimulationBase):
     """
-        Optimized irrInferno class with roundoff error prevention
-        Uses truly random radius selection (no pre-generated arrays)
+    Irreversible Creutz demon simulation with on-the-fly random radius generation.
+    
+    This class implements the irreversible version of the Creutz demon algorithm.
+    Unlike the reversible Inferno class which uses pre-computed radius arrays,
+    this generates new random radii for each move, ensuring true irreversibility.
+    
+    The random radii are generated as: radius = randint(0, R) * (±1)
+    where ±1 is randomly chosen, giving radii in range [-R+1, R-1].
+    
+    Attributes:
+        N: Number of lattice sites
+        R: Maximum demon-coupling radius
+        lattice: Spin configuration array (±1)
+        bonds: Bond state array (-1=aligned, 0=broken, 1=anti-aligned)
+        bond_count: Array [N0, N1, Nx] tracking bond counts
+        E_demon: Array of demon energies (one per site)
+        E_lattice: Total lattice energy
+        E_total: Conserved total energy (lattice + demon)
+        order: Randomized forward traversal order
+        rev_order: Reversed traversal order (flipped order array)
     """
 
     def __init__(self, N, R, validate_mode='off'):
@@ -52,12 +85,23 @@ class irrInferno(SimulationBase):
 
     def demon_move(self):
         """
-            Move the demon with truly random radius selection
-            This version generates random radius on-the-fly for irreversibility
+        Perform one irreversible Monte Carlo move with random demon coupling.
+        
+        This is the forward phase move. For each lattice site (in order):
+        1. Generate random radius and attempt spin flip
+        2. Update bond states if spin was flipped
+        3. Generate new random radius and attempt bond change
+        
+        The random radius generation ensures this move cannot be exactly
+        reversed by demon_reverse(), creating irreversible dynamics.
+        
+        Updates order_idx to cycle through lattice sites.
+        Performs periodic validation if enabled.
         """
         a = self.order[self.order_idx]
 
-        # Generate random radius and direction for spin flip
+        # Generate random radius in range [-R+1, R-1] with random sign
+        # This is regenerated each call, ensuring irreversibility
         radius_spin = np.random.randint(0, self.R) * (2 * np.random.randint(0, 2) - 1)
         bonds_changed = self.spin_flip(a, (a + radius_spin) % self.N)
         if bonds_changed:
@@ -77,7 +121,17 @@ class irrInferno(SimulationBase):
 
     def demon_reverse(self):
         """
-            Reverse order with random radius selection
+        Perform one irreversible Monte Carlo move in reverse order.
+        
+        This is the reverse phase move. Uses reversed traversal order but:
+        1. Generates NEW random radii (not the same as demon_move)
+        2. Performs bond change BEFORE spin flip (opposite order)
+        
+        Despite using reversed order, the newly generated random radii mean
+        this does NOT reverse the forward phase - the dynamics remain irreversible.
+        
+        Updates rev_order_idx to cycle through lattice sites.
+        Performs periodic validation if enabled.
         """
         a = self.rev_order[self.rev_order_idx]
 
