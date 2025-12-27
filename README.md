@@ -8,7 +8,7 @@ A high-performance Python implementation of microcanonical ensemble Monte Carlo 
 
 **Key Features:**
 
-- 🚀 **~1400x speedup** with parallel JIT compilation (Numba + multiprocessing)
+- 🚀 **~8,900x speedup** with parallel JIT compilation (Numba + multiprocessing)
 - 🔄 **Reversible vs irreversible dynamics** for studying entropy production
 - 📊 **Interactive visualizations** with Plotly
 - ✅ **150+ unit tests** ensuring correctness
@@ -109,7 +109,7 @@ make run-sim
 
 > **Benchmark System:** Apple M3 Max (16 cores). Performance will vary on different hardware.
 
-**All production commands use parallel JIT by default** (`make run-sim`, `make run-irr-sim`).
+**All production commands use parallel JIT by default** (`make run-sim`, `make run-sim-irr`).
 
 > **First-Time Setup Note:** Running `make setup` compiles all JIT functions once (~15-20 seconds). After that, all simulations run at full speed immediately. If you skip `make setup` and run a simulation directly, the first run will include compilation time.
 
@@ -122,7 +122,7 @@ make run-sim
 Start here for understanding the physics and implementation:
 
 - **[ARCHITECTURE.md](docs/ARCHITECTURE.md)** - Physics concepts, algorithm details, implementation specifics
-- **[JIT_BEST_PRACTICES.md](docs/JIT_BEST_PRACTICES.md)** - Using Numba JIT optimization (70-106x speedup)
+- **[JIT_BEST_PRACTICES.md](docs/JIT_BEST_PRACTICES.md)** - Using Numba JIT optimization (~3,881x speedup single-core)
 - **[BEST_PRACTICES.md](docs/BEST_PRACTICES.md)** - Development practices and code patterns
 - **[CHANGELOG.md](CHANGELOG.md)** - Version history
 
@@ -185,14 +185,12 @@ During execution, you'll see real-time progress with estimated completion time:
 - Shows active parallel workers and current simulation details
 - Updates every 10% of sweeps within each simulation
 
-**Performance scaling (with JIT):**
+**Performance scaling (measured on Apple M3 Max):**
 
-| Cores | Speedup vs Original |
-| ----- | ------------------- |
-| 1     | 70-106x             |
-| 4     | 280-424x            |
-| 8     | 560-848x            |
-| 16    | 1000-1400x          |
+| Cores | Speedup vs Legacy      |
+| ----- | ---------------------- |
+| 1     | ~3,881x (JIT)          |
+| 16    | ~8,902x (JIT+Parallel) |
 
 **When to use what:**
 
@@ -234,9 +232,9 @@ Once you have access, you can SSH to the cluster and use the batch scripts in th
 ```bash
 # Using Make (recommended - run from project root)
 make sbatch-sim                 # Submit sequential reversible simulation
-make sbatch-irr-sim             # Submit sequential irreversible simulation
+make sbatch-sim-irr             # Submit sequential irreversible simulation
 make sbatch-sim                 # Submit reversible (parallel JIT)
-make sbatch-irr-sim             # Submit irreversible (parallel JIT)
+make sbatch-sim-irr             # Submit irreversible (parallel JIT)
 
 # Manual submission (advanced)
 cd creutz-sim/batch_jobs
@@ -466,7 +464,7 @@ make compile           # Recompile JIT functions if needed
 make test-env          # Verify environment
 make run-sim-small     # Quick test (~5 sec)
 make run-sim           # Production run (~1-2 min)
-make run-irr-sim       # Irreversible run (~1-2 min)
+make run-sim-irr       # Irreversible run (~1-2 min)
 make plot              # Generate plots
 make run-tests         # Run test suite (~30 sec)
 make clean             # Clean up generated files
@@ -482,8 +480,8 @@ make clean             # Clean up generated files
 - ✅ **Comprehensive tests** - 150+ unit tests with pytest
 - ✅ **Example scripts** - Three demos to get started
 - ✅ **Portable paths** - Works anywhere without configuration
-- 🚀 **JIT compilation** - 70-106x speedup with Numba
-- 🚀 **Parallel execution** - 13-14x speedup with multiprocessing
+- 🚀 **JIT compilation** - ~3,881x speedup with Numba (single-core)
+- 🚀 **Parallel execution** - ~2.3x additional speedup with multiprocessing (16 cores)
 
 ## Citation
 

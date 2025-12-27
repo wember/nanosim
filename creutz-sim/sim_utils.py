@@ -240,17 +240,21 @@ def print_final_results(results, start_time, end_time, sim_type: str):
     import logging
 
     elapsed = (end_time - start_time).total_seconds()
+    time_str = format_elapsed_time(elapsed)
 
-    # Log results
-    logging.info(f"Parallel simulation complete!")
-    logging.info(f"Total time: {elapsed:.1f} seconds ({elapsed/60:.1f} minutes)")
-    logging.info(f"Time per simulation: {elapsed/len(results):.1f} seconds")
+    # Log results with detailed timing
+    logging.info(f"Parallel {sim_type} simulation complete!")
+    logging.info(f"Total wall-clock time: {time_str}")
+    logging.info(f"Simulations completed: {len(results)}")
+    logging.info(f"Average time per simulation: {elapsed/len(results):.2f}s")
 
-    print(
-        f"\nCompleted {len(results)} simulations in {elapsed:.1f}s "
-        f"({elapsed/60:.1f} min)"
-    )
-    print(f"Average time per simulation: {elapsed/len(results):.1f}s")
+    print(f"\n{'='*70}")
+    print(f"SIMULATION COMPLETE")
+    print(f"{'='*70}")
+    print(f"Configuration: {sim_type}")
+    print(f"Total simulations: {len(results)}")
+    print(f"Total wall-clock time: {time_str}")
+    print(f"Average per simulation: {elapsed/len(results):.2f}s")
 
     # Verify energy conservation
     energy_errors = []
@@ -283,7 +287,7 @@ def format_time(minutes):
         minutes: Time duration in minutes
 
     Returns:
-        str: Formatted time string (e.g., "45 min", "1h 52min", "2d 5h 30min")
+        str: Formatted time string (e.g., "45 min", "1h 52min")
     """
     if minutes >= 1440:  # 24 hours
         days = int(minutes // 1440)
@@ -296,6 +300,24 @@ def format_time(minutes):
         return f"{hours}h {mins} min"
     else:
         return f"{int(minutes)} min"
+
+
+def format_elapsed_time(seconds):
+    """
+    Format elapsed time in seconds to human-readable string.
+
+    Args:
+        seconds: Time duration in seconds
+
+    Returns:
+        str: Formatted time string (e.g., "45.2s", "5.23m (313.5s)")
+    """
+    if seconds < 60:
+        return f"{seconds:.1f}s"
+    elif seconds < 3600:
+        return f"{seconds/60:.2f}m ({seconds:.1f}s)"
+    else:
+        return f"{seconds/3600:.2f}h ({seconds/60:.1f}m)"
 
 
 def calculate_progress_description(

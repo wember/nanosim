@@ -1,6 +1,7 @@
+import argparse
 import csv
 import math
-import socket
+import os
 from datetime import datetime
 
 import numpy as np
@@ -24,37 +25,31 @@ Su = (
     lambda N, N0, Nx, N0_exp: logg(N + 1)
     + math.log(2**N0_exp)
     - (logg(N - N0 - Nx + 1) + logg(N0 + 1) + logg(Nx + 1))
-)  # N == lattice size, N0 == broken bonds, Nx == bonds between anti-aligned spins
+)  # N == lattice size, N0 == broken bonds, Nx == anti-aligned spins
 
-# lattice size
-n = 10000
-# sweeps
-s = 10000
-# max bond-demon couple radius
-r = 11
-# number of sims
-m = 5
+# Parse command line arguments
+parser = argparse.ArgumentParser(description="Run legacy simulation")
+parser.add_argument("--n", type=int, default=10000, help="Lattice size")
+parser.add_argument("--s", type=int, default=10000, help="Number of sweeps")
+parser.add_argument("--r", type=int, default=11, help="Max radius")
+parser.add_argument("--m", type=int, default=5, help="Number of runs")
+args = parser.parse_args()
 
-folder = "/Users/winry/Documents/ASU/thesis/dev/data/"
+n = args.n
+s = args.s
+r = args.r
+m = args.m
 
-host = socket.gethostname()
-if host != "Luli.local":
-    folder = "/home/wember/2025thesis/nanosim/data/"
+# Use relative path from project root
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+folder = os.path.join(project_root, "data") + os.sep
+
+# Create data directories if they don't exist
+for R in range(r):
+    os.makedirs(os.path.join(project_root, "data", f"r{R}"), exist_ok=True)
 
 status_file = f"{folder}sim_status.csv"
-file_names = [
-    f"{folder}r0/sim_data",
-    f"{folder}r1/sim_data_r1",
-    f"{folder}r2/sim_data_r2",
-    f"{folder}r3/sim_data_r3",
-    f"{folder}r4/sim_data_r4",
-    f"{folder}r5/sim_data_r5",
-    f"{folder}r6/sim_data_r6",
-    f"{folder}r7/sim_data_r7",
-    f"{folder}r8/sim_data_r8",
-    f"{folder}r9/sim_data_r9",
-    f"{folder}r10/sim_data_r10",
-]
+file_names = [f"{folder}r{R}/sim_data_r{R}" for R in range(r)]
 
 
 with open(status_file, "w+", newline="") as file:

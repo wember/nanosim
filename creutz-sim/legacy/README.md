@@ -27,8 +27,8 @@ They were superseded by the parallel JIT-compiled versions:
 
 **Performance comparison:**
 
-- Legacy (single-core): 27 hours for full production run
-- Production (parallel JIT): ~1.2 minutes for same run (~1400x faster)
+- Legacy (single-core): 2.48 hours for benchmark run (n=10k, s=100, r=3, m=2)
+- Production (parallel JIT): 1.0 second for same run (~8,900x faster)
 
 ## When to Use Legacy Versions
 
@@ -66,7 +66,7 @@ For production use, always use the parallel JIT versions:
 ```bash
 # Use Makefile targets (recommended)
 make run-sim           # Reversible (parallel JIT)
-make run-irr-sim       # Irreversible (parallel JIT)
+make run-sim-irr       # Irreversible (parallel JIT)
 make run-sim-small     # Quick test
 
 # Or directly with Python

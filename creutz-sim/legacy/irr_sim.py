@@ -1,10 +1,16 @@
+import argparse
 import csv
 import math
-import socket
+import os
+import sys
+from datetime import datetime
 
 import numpy as np
-from inferno_irr import irrInferno
 from scipy.special import loggamma as logg
+
+# Ensure parent directory is in sys.path for imports
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+from inferno_irr import irrInferno
 
 
 def add_row(filename, row_data):  # appends a new row to csv file
@@ -16,14 +22,6 @@ def add_row(filename, row_data):  # appends a new row to csv file
         print(f"An error occurred: {e}")
 
 
-def fix_null_bytes(stream):
-    """
-    A generator that replaces null bytes in a stream with empty strings.
-    """
-    for line in stream:
-        yield line.replace("\0", "")
-
-
 Sk = (
     lambda N, K: logg(K + N) - logg(K + 1) - logg(N)
 )  # N == lattice size, K == kinetic energy
@@ -33,34 +31,35 @@ Su = (
     - (logg(N - N0 - Nx + 1) + logg(N0 + 1) + logg(Nx + 1))
 )  # N == lattice size, N0 == broken bonds, Nx == bonds between anti-aligned spins
 
-# lattice size
-n = 1000000
-# sweeps
-s = 10000
-# max bond-demon couple radius
-r = 11
-# number of sims
-m = 5
+# Parse command line arguments
+parser = argparse.ArgumentParser(description="Run legacy irreversible simulation")
+parser.add_argument("--n", type=int, default=10000, help="Lattice size")
+parser.add_argument("--s", type=int, default=10000, help="Number of sweeps")
+parser.add_argument("--r", type=int, default=11, help="Max radius")
+parser.add_argument("--m", type=int, default=5, help="Number of runs")
+args = parser.parse_args()
 
-folder = "/Users/winry/Documents/ASU/thesis/dev/data/"
+n = args.n
+s = args.s
+r = args.r
+m = args.m
 
-host = socket.gethostname()
-if host != "Luli.local":
-    folder = "/home/wember/2025thesis/nanosim/data/"
+# Use relative path from project root
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+folder = os.path.join(project_root, "data") + os.sep
 
-file_names = [
-    f"{folder}irr/r0/irr_sim_data",
-    f"{folder}irr/r1/irr_sim_data_r1",
-    f"{folder}irr/r2/irr_sim_data_r2",
-    f"{folder}irr/r3/irr_sim_data_r3",
-    f"{folder}irr/r4/irr_sim_data_r4",
-    f"{folder}irr/r5/irr_sim_data_r5",
-    f"{folder}irr/r6/irr_sim_data_r6",
-    f"{folder}irr/r7/irr_sim_data_r7",
-    f"{folder}irr/r8/irr_sim_data_r8",
-    f"{folder}irr/r9/irr_sim_data_r9",
-    f"{folder}irr/r10/irr_sim_data_r10",
-]
+# Create data directories if they don't exist
+for R in range(r):
+    os.makedirs(os.path.join(project_root, "data", "irr", f"r{R}"), exist_ok=True)
+
+status_file = f"{folder}irr_sim_status.csv"
+file_names = [f"{folder}irr/r{R}/irr_sim_data_r{R}" for R in range(r)]
+
+
+with open(status_file, "w+", newline="") as file:
+    writer = csv.writer(file)
+
+add_row(status_file, f"{datetime.now()}\t Begin irr_sim")
 
 
 for M in range(m):

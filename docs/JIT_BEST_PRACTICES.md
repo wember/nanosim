@@ -4,7 +4,7 @@ This guide covers best practices for using Numba JIT optimization in production 
 
 ## Overview
 
-Numba JIT compilation provides **70-106x speedup** by compiling Python functions to optimized machine code. Combined with parallel processing, this reduces production runs from **27 hours to 1.2 minutes** (~1400x total speedup).
+Numba JIT compilation provides **~3,881x speedup** (single-core) by compiling Python functions to optimized machine code. Combined with parallel processing on 16 cores, this reduces benchmark runs from **2.5 hours to 1 second** (~8,902x total speedup).
 
 ## Quick Start
 
@@ -17,7 +17,7 @@ python creutz-sim/parallel_sim_irr.py --jit    # Irreversible (106x per core)
 
 # Or use Makefile targets
 make run-sim                                   # Production scale (parallel JIT default)
-make run-irr-sim                               # Irreversible (parallel JIT default)
+make run-sim-irr                               # Irreversible (parallel JIT default)
 make run-sim-small                             # Quick test
 ```
 
@@ -88,12 +88,16 @@ for _ in range(s):
 
 ### Combined with Parallel Processing (16 cores)
 
-| Configuration      | Speedup    | Production Time |
-| ------------------ | ---------- | --------------- |
-| Original           | 1x         | 27 hours        |
-| JIT only           | 70-106x    | 15-23 minutes   |
-| Parallel only      | 13-14x     | ~2 hours        |
-| **JIT + Parallel** | **~1400x** | **1.2 minutes** |
+Benchmark workload: n=10,000 sites, s=100 sweeps, r=3 radii, m=2 runs (12 total simulations)
+
+| Configuration      | Speedup     | Total Time     |
+| ------------------ | ----------- | -------------- |
+| Original           | 1x          | 2.48 hours     |
+| JIT only (1 core)  | ~3,881x     | 2.3 seconds    |
+| Parallel only      | ~1,147x     | 7.8 seconds    |
+| **JIT + Parallel** | **~8,902x** | **1.0 second** |
+
+> **System:** Apple M3 Max, 16 cores, 48GB RAM. Performance will vary on different hardware.
 
 ## First-Run Behavior
 
@@ -362,7 +366,7 @@ python -m pstats jit_profile.stats
 **Key Takeaways:**
 
 - ✅ Use `--jit` flag for all production runs (n ≥ 10,000)
-- ✅ Combine with parallel processing for maximum speedup (~1400x)
+- ✅ Combine with parallel processing for maximum speedup (~8,900x)
 - ✅ Validate results match original implementation
 - ✅ Ignore first-call compilation overhead when timing
 - ⚠️ Original version better for small tests and debugging

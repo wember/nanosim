@@ -40,19 +40,9 @@ Added convenience targets for JIT-enabled runs:
 
 **New Targets:**
 
-- `make run-sim` - Production reversible with parallel JIT (default)
-- `make run-irr-sim` - Production irreversible with parallel JIT (default)
-- `make run-sim-small` - Quick small-scale test with parallel JIT
-- `make run-irr-sim-small` - Quick small-scale irreversible test with parallel JIT
-
-**Features:**
 
 - Automatic environment validation
 - Clear status messages showing JIT is enabled
-- Consistent interface with non-JIT targets
-- Help text shows expected speedup (70x or 106x per core)
-
-### 3. Documentation ✓
 
 **JIT_BEST_PRACTICES.md** - Comprehensive usage guide
 
@@ -80,7 +70,7 @@ Added convenience targets for JIT-enabled runs:
 
 **README.md Updates:**
 
-- Added Performance section at top showing 1400x total speedup
+- Added Performance section at top showing ~8,900x total speedup
 - Quick-start commands for maximum performance
 - Updated documentation links to include JIT_BEST_PRACTICES.md
 - Performance comparison table (original vs JIT vs parallel vs both)
@@ -92,12 +82,12 @@ Added convenience targets for JIT-enabled runs:
 
 ### Speedup Summary
 
-| Configuration      | Time (n=1M, s=10k) | Speedup    |
-| ------------------ | ------------------ | ---------- |
-| Original           | ~27 hours          | 1x         |
-| JIT only           | ~15-23 minutes     | 70-106x    |
-| Parallel only      | ~2 hours           | 13-14x     |
-| **JIT + Parallel** | **~1.2 minutes**   | **~1400x** |
+| Configuration      | Total Time     | Speedup     |
+| ------------------ | -------------- | ----------- |
+| Original           | 2.48 hours     | 1x          |
+| JIT only           | 2.3 seconds    | ~3,881x     |
+| Parallel only      | 7.8 seconds    | ~1,147x     |
+| **JIT + Parallel** | **1.0 second** | **~8,902x** |
 
 ### Real-World Verification
 
@@ -223,6 +213,6 @@ However, the current implementation is **production-ready** and provides all ess
 
 ## Conclusion
 
-JIT optimization is now **production-ready** and easily accessible. Users can achieve ~1400x speedup with a simple `--jit` flag, making large-scale simulations practical for thesis work. Documentation provides clear guidance on when and how to use JIT for maximum benefit.
+JIT optimization is now **production-ready** and easily accessible. Users can achieve ~8,900x speedup with a simple `--jit` flag, making large-scale simulations practical for thesis work. Documentation provides clear guidance on when and how to use JIT for maximum benefit.
 
 **Status: COMPLETE** ✓

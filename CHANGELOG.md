@@ -9,12 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Numba JIT Compilation** (2025-01-18): 70-106x speedup via machine code compilation
+- **Numba JIT Compilation** (2025-01-18): ~3,881x speedup via machine code compilation
   - New files: `jit_functions.py`, `jit_inferno.py`, `jit_inferno_irr.py`
   - Benchmark script: `benchmark_jit.py` with comprehensive performance testing
   - Test suite: `test_jit_implementation.py` with 22 comprehensive tests
-  - Combined with parallel processing: ~1000-1400x total speedup
-  - Production impact: 27 hours → 1.2 minutes
+  - Combined with parallel processing: ~8,900x total speedup
+  - Production impact: 2.48 hours → 1.0 second
   - Documentation: `JIT_OPTIMIZATION_SUMMARY.md`, `JIT_TEST_SUMMARY.md`
   - Makefile targets: `make benchmark-jit` (simplified from two targets)
   - New dependency: `numba>=0.63.1`

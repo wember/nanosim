@@ -17,7 +17,7 @@ This project implements a **microcanonical ensemble Monte Carlo simulation** of 
 
 ### Simulation Runners
 
-- **Production**: `parallel_sim.py` and `parallel_sim_irr.py` - Parallel JIT-compiled runners (~1400x speedup)
+- **Production**: `parallel_sim.py` and `parallel_sim_irr.py` - Parallel JIT-compiled runners (~8,900x speedup)
 - **Legacy**: `legacy/sim.py` and `legacy/irr_sim.py` - Original single-core implementations (educational reference only)
 - All runners output CSV data per radius/iteration to parameterized folder paths
 - Production runners used by all Makefile targets (`make run-sim`, `make run-irr-sim`)

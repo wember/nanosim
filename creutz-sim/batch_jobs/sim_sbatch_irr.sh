@@ -32,11 +32,21 @@ echo "CPUs allocated: $SLURM_CPUS_PER_TASK"
 # module load numpy/2.0
 # module load scipy/1.14
 
+
+# Resolve project root (two levels up from this script)
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
 # Activate virtual environment
-source venv/bin/activate
+if [ -f "$PROJECT_ROOT/venv/bin/activate" ]; then
+    source "$PROJECT_ROOT/venv/bin/activate"
+else
+    echo "[SBATCH WRAPPER] ERROR: venv/bin/activate not found at $PROJECT_ROOT/venv/bin/activate"
+    exit 1
+fi
 
 # Change to simulation directory
-cd creutz-sim
+cd "$PROJECT_ROOT/creutz-sim"
 
 # Run parallel irreversible simulation with JIT optimization
 # $SLURM_CPUS_PER_TASK is automatically set by SLURM (16 cores from --cpus-per-task above)

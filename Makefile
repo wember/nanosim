@@ -1,4 +1,4 @@
-.PHONY: help setup clean activate test-env compile run-sim run-irr-sim run-sim-small run-irr-sim-small sbatch-sim sbatch-irr-sim plot plot-radii plot-comparison benchmark-jit profile profile-inferno profile-irr view-profile run-tests run-tests-serial run-test-file coverage coverage-html format format-check lint pre-commit-install pre-commit-run
+.PHONY: help setup clean activate test-env compile run-sim run-sim-irr run-sim-small run-sim-irr-small run-legacy run-legacy-irr sbatch-sim sbatch-sim-irr plot plot-radii plot-comparison benchmark-jit benchmark-production benchmark-production-small benchmark-production-full profile profile-inferno profile-irr view-profile run-tests run-tests-serial run-test-file coverage coverage-html format format-check lint pre-commit-install pre-commit-run
 
 help:  ## Show this help message
 	@echo 'Usage: make [target]'
@@ -7,7 +7,7 @@ help:  ## Show this help message
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; /^(setup|clean|activate|test-env|compile):/ {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
 	@echo ''
 	@printf '\033[1mSimulations:\033[0m\n'
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; /^(run-sim|run-irr-sim|run-sim-small|run-irr-sim-small):/ {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; /^(run-sim|run-sim-irr|run-sim-small|run-sim-irr-small|run-legacy|run-legacy-irr):/ {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
 	@echo ''
 	@printf '\033[1mHPC / SLURM:\033[0m\n'
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; /^(sbatch-sim|sbatch-irr-sim):/ {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
@@ -16,7 +16,7 @@ help:  ## Show this help message
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; /^(plot|plot-radii|plot-comparison):/ {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
 	@echo ''
 	@printf '\033[1mPerformance & Profiling:\033[0m\n'
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; /^(benchmark-jit|profile|profile-inferno|profile-irr|view-profile):/ {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; /^(benchmark-jit|benchmark-production|benchmark-production-small|benchmark-production-full|profile|profile-inferno|profile-irr|view-profile):/ {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
 	@echo ''
 	@printf '\033[1mTesting & Coverage:\033[0m\n'
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; /^(run-tests|run-tests-serial|run-test-file|coverage|coverage-html):/ {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
@@ -25,7 +25,7 @@ help:  ## Show this help message
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; /^(format|format-check|lint|pre-commit-install|pre-commit-run):/ {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
 	@echo ''
 	@echo 'Notes:'
-	@echo '  - All simulations use parallel JIT by default (fastest: ~1400x speedup)'
+	@echo '  - All simulations use parallel JIT by default (fastest: ~8,900x speedup)'
 	@echo '  - Use --cores 1 for single-core execution if needed'
 	@echo '  - Custom params: make run-sim ARGS="--n 100000 --s 5000 --r 8"'
 
@@ -72,35 +72,60 @@ compile:  ## Warm up JIT compilation (run once after installation)
 
 run-sim:  ## Run reversible simulation with parallel JIT (fastest, use ARGS="--cores 1" for single-core)
 	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
-	@echo "Running reversible simulation (parallel JIT, ~1400x faster)..."
+	@echo "Running reversible simulation (parallel JIT, ~8,900x faster)..."
 	@./venv/bin/python creutz-sim/parallel_sim.py --jit $(ARGS)
 
-run-irr-sim:  ## Run irreversible simulation with parallel JIT (fastest, use ARGS="--cores 1" for single-core)
+
+run-sim-irr:  ## Run irreversible simulation with parallel JIT (fastest, use ARGS="--cores 1" for single-core)
 	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
-	@echo "Running irreversible simulation (parallel JIT, ~1400x faster)..."
+	@echo "Running irreversible simulation (parallel JIT, ~8,900x faster)..."
 	@./venv/bin/python creutz-sim/parallel_sim_irr.py --jit $(ARGS)
 
 run-sim-small:  ## Quick small-scale reversible simulation (n=100, s=10, r=3, m=6)
 	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
 	@./venv/bin/python creutz-sim/parallel_sim.py --jit --n 100 --s 10 --r 3 --m 6
 
-run-irr-sim-small:  ## Quick small-scale irreversible simulation (n=100, s=10, r=3, m=6)
+
+run-sim-irr-small:  ## Quick small-scale irreversible simulation (n=100, s=10, r=3, m=6)
 	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
 	@./venv/bin/python creutz-sim/parallel_sim_irr.py --jit --n 100 --s 10 --r 3 --m 6
+
+# =============================================================================
+# Legacy (No JIT, Single-Core)
+# =============================================================================
+
+run-legacy:  ## Run legacy reversible simulation (no JIT, single-core, educational only)
+	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
+	@echo "⚠️  Running LEGACY single-core simulation (no JIT optimization)"
+	@echo "This is ~8,900x slower than production. Use for education/debugging only."
+	@echo "For fast simulations, use 'make run-sim' instead."
+	@echo ""
+	@cd creutz-sim && ../venv/bin/python legacy/sim.py $(ARGS)
+
+run-legacy-irr:  ## Run legacy irreversible simulation (no JIT, single-core, educational only)
+	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
+	@echo "⚠️  Running LEGACY single-core irreversible simulation (no JIT optimization)"
+	@echo "This is ~8,900x slower than production. Use for education/debugging only."
+	@echo "For fast simulations, use 'make run-irr-sim' instead."
+	@echo ""
+	@cd creutz-sim && ../venv/bin/python legacy/irr_sim.py $(ARGS)
 
 # =============================================================================
 # HPC / SLURM
 # =============================================================================
 
+
 sbatch-sim:  ## Submit reversible simulation to SLURM (parallel JIT, fastest)
 	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
 	@echo "Submitting reversible simulation to SLURM (parallel JIT)..."
-	cd creutz-sim/batch_jobs && sbatch sim_sbatch.sh
+	cd creutz-sim/batch_jobs && ./sbatch sim_sbatch.sh
 
-sbatch-irr-sim:  ## Submit irreversible simulation to SLURM (parallel JIT, fastest)
+
+
+sbatch-sim-irr:  ## Submit irreversible simulation to SLURM (parallel JIT, fastest)
 	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
 	@echo "Submitting irreversible simulation to SLURM (parallel JIT)..."
-	cd creutz-sim/batch_jobs && sbatch sim_sbatch_irr.sh
+	cd creutz-sim/batch_jobs && ./sbatch sim_sbatch_irr.sh
 
 # =============================================================================
 # Analysis & Visualization
@@ -119,9 +144,10 @@ plot-radii:  ## Plot results across all radii for single simulation type (revers
 
 plot-comparison:  ## Compare entropy between reversible and irreversible simulations (requires data from both)
 	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
-	@echo "Generating entropy comparison plot (reversible vs irreversible)..."
+	@echo "Generating reversible vs irreversible comparison..."
 	@echo "Note: Requires data in data/r{0-10}/ and data/irr/r{0-10}/ directories"
 	@./venv/bin/python creutz-sim/Sk_comparison.py
+
 
 # =============================================================================
 # Performance & Profiling

@@ -82,7 +82,7 @@ This document summarizes all the best practices that have been implemented in th
 
 ### Enhanced Makefile
 
-- **Simplified targets**: Parallel JIT now default for run-sim/run-irr-sim
+- **Simplified targets**: Parallel JIT now default for run-sim/run-sim-irr
 - **Benefits**: Consistent interface, easier workflow
 
 ### Requirements Management

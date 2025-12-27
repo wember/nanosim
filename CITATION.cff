@@ -2,7 +2,7 @@ cff-version: 1.2.0
 message: "If you use this software, please cite it as below."
 type: software
 title: "Nanosim: Microcanonical Monte Carlo Simulation of 1D Ising Lattice"
-abstract: "A high-performance Python implementation of Creutz's microcanonical demon algorithm for studying thermodynamic irreversibility in 1D Ising systems. Features both reversible and irreversible dynamics with JIT compilation achieving ~1400x speedup."
+abstract: "A high-performance Python implementation of Creutz's microcanonical demon algorithm for studying thermodynamic irreversibility in 1D Ising systems. Features both reversible and irreversible dynamics with JIT compilation achieving ~8,900x speedup."
 authors:
   - family-names: "Ember"
     given-names: "Winry"

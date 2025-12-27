@@ -41,6 +41,10 @@ logs/
 profiling/
 *.stats
 
+# Benchmarking results (machine-specific)
+benchmark_results.json
+tools/benchmark_results*.json
+
 # Metadata
 *_metadata.json
 

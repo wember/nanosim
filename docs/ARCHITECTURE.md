@@ -151,7 +151,7 @@ class irrInferno:
 
 #### Production: `parallel_sim.py` and `parallel_sim_irr.py`
 
-The production runners use multiprocessing and JIT compilation for maximum performance (~1400x speedup).
+The production runners use multiprocessing and JIT compilation for maximum performance (~8,900x speedup).
 
 **Key Features:**
 
@@ -407,7 +407,7 @@ final_state = x.lattice, x.E_demon
 The project includes parallel processing capabilities with JIT compilation:
 
 - **Implementation**: `parallel_sim.py` and `parallel_sim_irr.py`
-- **Default mode**: Parallel JIT enabled (provides ~1400x speedup)
+- **Default mode**: Parallel JIT enabled (provides ~8,900x speedup)
 - **Auto-detection**: Uses all available CPU cores by default
 - **Manual control**: `--cores N` flag or `make run-sim ARGS="--cores N"`
 - **SLURM integration**: Batch scripts configure core allocation
