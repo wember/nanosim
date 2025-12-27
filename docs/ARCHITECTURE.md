@@ -267,7 +267,8 @@ S_k = log(Ω_k) = loggamma(K + N) - loggamma(K + 1) - loggamma(N)
 S_u = log(Ω_u) = loggamma(N+1) + N0*log(2) - sum(loggamma(...))
 
 # Special case: N0 = 0
-# Use 2^(N0+1) instead of 2^N0 to avoid log(0)
+# Implementation uses N0_exp = max(N0, 1), so when N0 = 0 we compute
+# N0_exp * log(2) = 1 * log(2) = log(2^1) instead of log(2^0) = log(1) = 0.
 ```
 
 ### Energy Exchange Rules
