@@ -8,16 +8,16 @@ Successfully completed production refinements to make JIT optimization easily ac
 
 ### 1. Command-Line Interface ✓
 
-Added `--jit` flag to both parallel execution scripts:
+Added JIT as the default for both parallel execution scripts (use `--no-jit` to disable):
 
 **Files Modified:**
 
-- `creutz-sim/parallel_sim.py` - Added --jit support for reversible simulations
-- `creutz-sim/parallel_sim_irr.py` - Added --jit support for irreversible simulations
+- `creutz-sim/parallel_sim.py` - JIT enabled by default for reversible simulations
+- `creutz-sim/parallel_sim_irr.py` - JIT enabled by default for irreversible simulations
 
 **Changes:**
 
-- Added command-line argument parser with `--jit` flag
+- Added command-line argument parser with `--no-jit` flag
 - Conditional import: loads JIT classes when flag enabled, original classes otherwise
 - Updated simulation loops to handle API differences (JIT does full sweep per call)
 - Print output shows JIT status and adjusted speedup estimates
@@ -27,11 +27,11 @@ Added `--jit` flag to both parallel execution scripts:
 
 ```bash
 # Enable JIT optimization
-python creutz-sim/parallel_sim.py --jit
-python creutz-sim/parallel_sim_irr.py --jit
+python creutz-sim/parallel_sim.py
+python creutz-sim/parallel_sim_irr.py
 
 # Combine with other parameters
-python creutz-sim/parallel_sim.py --jit --n 100000 --s 1000 --r 5 --m 10
+python creutz-sim/parallel_sim.py --n 100000 --s 1000 --r 5 --m 10
 ```
 
 ### 2. Makefile Targets ✓
@@ -74,7 +74,7 @@ Added convenience targets for JIT-enabled runs:
 - Updated documentation links to include JIT_BEST_PRACTICES.md
 - Performance comparison table (original vs JIT vs parallel vs both)
 - Highlighted JIT + Parallel as recommended approach
-- Updated all usage examples to show --jit flag
+- Updated all usage examples to show JIT as default (no flag needed)
 - Clear guidance on when to use each approach
 
 ## Performance Impact
@@ -106,7 +106,7 @@ Energy conservation verified in both cases (E_total = 2N maintained).
 python creutz-sim/parallel_sim.py
 
 # New code (with JIT)
-python creutz-sim/parallel_sim.py --jit
+python creutz-sim/parallel_sim.py
 ```
 
 No breaking changes. JIT is opt-in via command-line flag.
@@ -160,11 +160,11 @@ python creutz-sim/Sk_comparison.py
 ### Alternative Approaches
 
 ```bash
-# Direct command line
-python creutz-sim/parallel_sim.py --jit
+# Direct command line (JIT enabled by default)
+python creutz-sim/parallel_sim.py
 
 # Custom parameters
-python creutz-sim/parallel_sim.py --jit --n 500000 --s 5000 --r 6 --m 10
+python creutz-sim/parallel_sim.py --n 500000 --s 5000 --r 6 --m 10
 ```
 
 ## Documentation Structure
@@ -181,7 +181,7 @@ docs/
 
 ## Key Features
 
-1. **Zero-friction adoption** - Single `--jit` flag enables 70-106x speedup
+1. **Zero-friction adoption** - JIT enabled by default for 70-106x speedup (use `--no-jit` to disable)
 2. **Safe defaults** - Original behavior preserved without flag
 3. **Clear feedback** - Status messages show JIT is active
 4. **Comprehensive docs** - When/how/why to use JIT
@@ -194,7 +194,7 @@ While production refinements are complete, future enhancements could include:
 
 1. **Environment variable support** - `NANOSIM_USE_JIT=1` for system-wide default
 2. **Configuration file** - Store user preferences in `~/.nanosimrc`
-3. **Batch script templates** - SLURM job scripts with --jit flag
+3. **Batch script templates** - SLURM job scripts (JIT enabled by default)
 4. **CI/CD integration** - Automated benchmarking on each commit
 5. **Profiling tools** - Built-in performance analysis
 
@@ -203,7 +203,7 @@ However, the current implementation is **production-ready** and provides all ess
 ## Success Metrics
 
 - ✅ Production runs reduced from 27 hours to 1.2 minutes
-- ✅ Simple command-line interface (`--jit` flag)
+- ✅ Simple command-line interface (JIT enabled by default, use `--no-jit` to disable)
 - ✅ Comprehensive documentation and examples
 - ✅ 100% test coverage maintained
 - ✅ Real-world performance verified
@@ -212,6 +212,6 @@ However, the current implementation is **production-ready** and provides all ess
 
 ## Conclusion
 
-JIT optimization is now **production-ready** and easily accessible. Users can achieve ~8,900x speedup with a simple `--jit` flag, making large-scale simulations practical for thesis work. Documentation provides clear guidance on when and how to use JIT for maximum benefit.
+JIT optimization is now **production-ready** and easily accessible. Users can achieve ~8,900x speedup by default, making large-scale simulations practical for thesis work. Documentation provides clear guidance on when and how to use JIT for maximum benefit (use `--no-jit` to disable).
 
 **Status: COMPLETE** ✓

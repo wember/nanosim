@@ -59,7 +59,7 @@ test-env:  ## Test that the environment is properly configured
 
 compile:  ## Warm up JIT compilation (run once after installation)
 	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
-	@./venv/bin/python creutz-sim/parallel_sim.py --jit --n 100 --s 5 --r 3 --m 2 > /dev/null 2>&1
+	@./venv/bin/python creutz-sim/parallel_sim.py --n 100 --s 5 --r 3 --m 2 > /dev/null 2>&1
 	@echo "✓ JIT compilation complete (cached for future runs)"
 
 # =============================================================================
@@ -73,22 +73,22 @@ compile:  ## Warm up JIT compilation (run once after installation)
 run-sim:  ## Run reversible simulation with parallel JIT (fastest, use ARGS="--cores 1" for single-core)
 	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
 	@echo "Running reversible simulation (parallel JIT, ~8,900x faster)..."
-	@./venv/bin/python creutz-sim/parallel_sim.py --jit $(ARGS)
+	@./venv/bin/python creutz-sim/parallel_sim.py $(ARGS)
 
 
 run-sim-irr:  ## Run irreversible simulation with parallel JIT (fastest, use ARGS="--cores 1" for single-core)
 	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
 	@echo "Running irreversible simulation (parallel JIT, ~8,900x faster)..."
-	@./venv/bin/python creutz-sim/parallel_sim_irr.py --jit $(ARGS)
+	@./venv/bin/python creutz-sim/parallel_sim_irr.py $(ARGS)
 
 run-sim-small:  ## Quick small-scale reversible simulation (n=100, s=10, r=3, m=6)
 	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
-	@./venv/bin/python creutz-sim/parallel_sim.py --jit --n 100 --s 10 --r 3 --m 6
+	@./venv/bin/python creutz-sim/parallel_sim.py --n 100 --s 10 --r 3 --m 6
 
 
 run-sim-irr-small:  ## Quick small-scale irreversible simulation (n=100, s=10, r=3, m=6)
 	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
-	@./venv/bin/python creutz-sim/parallel_sim_irr.py --jit --n 100 --s 10 --r 3 --m 6
+	@./venv/bin/python creutz-sim/parallel_sim_irr.py --n 100 --s 10 --r 3 --m 6
 
 # =============================================================================
 # Legacy (No JIT, Single-Core)
@@ -185,7 +185,7 @@ view-profile:  ## View most recent profiling results (usage: make view-profile F
 run-tests:  ## Run unit tests in parallel (pass ARGS="..." for custom options)
 	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
 	@echo "Running unit tests in parallel..."
-	@./venv/bin/python -m pytest tests/ -v -n auto $(ARGS)
+	@./venv/bin/python -m pytest tests/ -v -n auto --durations=5 $(ARGS)
 
 run-tests-serial:  ## Run unit tests serially (for debugging race conditions)
 	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi

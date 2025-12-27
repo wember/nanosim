@@ -116,9 +116,9 @@ def create_argument_parser(sim_type: str) -> argparse.ArgumentParser:
         "frequent (every sweep)",
     )
     parser.add_argument(
-        "--jit",
+        "--no-jit",
         action="store_true",
-        help="Use JIT-compiled version for 70x speedup (requires numba)",
+        help="Disable JIT-compiled version (for debugging/validation)",
     )
     return parser
 

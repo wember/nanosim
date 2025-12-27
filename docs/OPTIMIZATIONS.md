@@ -914,7 +914,7 @@ make run-irr-sim
 
 # Manual core count
 make run-sim ARGS="--cores 8"
-python creutz-sim/parallel_sim.py --jit --cores 8
+python creutz-sim/parallel_sim.py --cores 8
 ```
 
 **HPC SLURM submission:**
@@ -1441,10 +1441,10 @@ from jit_irr_inferno import JITirrInferno as irrInferno
 
 ```python
 # Add to argument parser
-parser.add_argument('--jit', action='store_true',
-                    help='Use JIT-compiled version (70-106x faster)')
+parser.add_argument('--no-jit', action='store_true',
+                    help='Disable JIT-compiled version (default: enabled)')
 
-if args.jit:
+if not args.no_jit:
     from jit_inferno import JITInferno as Inferno
 else:
     from inferno import Inferno

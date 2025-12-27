@@ -60,9 +60,8 @@ if [ -z "$SLURM_CPUS_PER_TASK" ]; then
 fi
 
 
-# Run parallel simulation with JIT optimization
+# Run parallel simulation (JIT enabled by default)
 python parallel_sim.py \
-    --jit \
     --n 1000000 \
     --s 5000 \
     --r 11 \

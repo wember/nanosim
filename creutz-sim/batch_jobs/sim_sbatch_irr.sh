@@ -48,10 +48,9 @@ fi
 # Change to simulation directory
 cd "$PROJECT_ROOT/creutz-sim"
 
-# Run parallel irreversible simulation with JIT optimization
+# Run parallel irreversible simulation (JIT enabled by default)
 # $SLURM_CPUS_PER_TASK is automatically set by SLURM (16 cores from --cpus-per-task above)
 python parallel_sim_irr.py \
-    --jit \
     --n 1000000 \
     --s 5000 \
     --r 11 \

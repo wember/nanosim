@@ -96,8 +96,8 @@ Data is organized in `data/` subdirectories relative to the project root, making
 source venv/bin/activate
 
 # Production (recommended - parallel JIT)
-python creutz-sim/parallel_sim.py --jit
-python creutz-sim/parallel_sim_irr.py --jit
+python creutz-sim/parallel_sim.py
+python creutz-sim/parallel_sim_irr.py
 
 # Legacy single-core (educational only)
 python creutz-sim/legacy/sim.py

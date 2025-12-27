@@ -11,9 +11,9 @@ Numba JIT compilation provides **~3,881x speedup** (single-core) by compiling Py
 ### Command-Line Usage
 
 ```bash
-# Enable JIT for parallel runs
-python creutz-sim/parallel_sim.py --jit        # Reversible (70x per core)
-python creutz-sim/parallel_sim_irr.py --jit    # Irreversible (106x per core)
+# Production run (JIT enabled by default)
+python creutz-sim/parallel_sim.py              # Reversible (JIT default)
+python creutz-sim/parallel_sim_irr.py          # Irreversible (JIT default)
 
 # Or use Makefile targets
 make run-sim                                   # Production scale (parallel JIT default)
@@ -143,13 +143,13 @@ elapsed = time.perf_counter() - start
 
 ```python
 # In your script
-parser.add_argument('--jit', action='store_true', help='Enable JIT optimization')
+parser.add_argument('--no-jit', action='store_true', help='Disable JIT optimization (JIT is default)')
 args = parser.parse_args()
 
-if args.jit:
-    from jit_inferno import JITInferno as Inferno
-else:
+if args.no_jit:
     from inferno import Inferno
+else:
+    from jit_inferno import JITInferno as Inferno
 
 # Use Inferno normally (works with both)
 sim = Inferno(n=args.n, s=args.s, R=args.R)
@@ -316,14 +316,14 @@ Add optional JIT support without breaking existing workflows:
 import argparse
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--jit', action='store_true')
+parser.add_argument('--no-jit', action='store_true')
 args = parser.parse_args()
 
 # Import appropriate class
-if args.jit:
-    from jit_inferno import JITInferno as SimClass
-else:
+if args.no_jit:
     from inferno import Inferno as SimClass
+else:
+    from jit_inferno import JITInferno as SimClass
 
 # Rest of code unchanged
 sim = SimClass(n, s, R)
@@ -357,7 +357,7 @@ pytest tests/test_jit_implementation.py::TestJITPerformance -v  # Performance te
 python tools/benchmark_jit.py
 
 # Profile JIT execution
-python -m cProfile -o jit_profile.stats creutz-sim/parallel_sim.py --jit
+python -m cProfile -o jit_profile.stats creutz-sim/parallel_sim.py
 python -m pstats jit_profile.stats
 ```
 
@@ -365,7 +365,7 @@ python -m pstats jit_profile.stats
 
 **Key Takeaways:**
 
-- ✅ Use `--jit` flag for all production runs (n ≥ 10,000)
+- ✅ JIT is enabled by default for all production runs (n ≥ 10,000); use --no-jit to disable
 - ✅ Combine with parallel processing for maximum speedup (~8,900x)
 - ✅ Validate results match original implementation
 - ✅ Ignore first-call compilation overhead when timing

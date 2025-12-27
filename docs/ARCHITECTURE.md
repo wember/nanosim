@@ -156,7 +156,7 @@ The production runners use multiprocessing and JIT compilation for maximum perfo
 **Key Features:**
 
 - Parallel execution across multiple CPU cores
-- JIT compilation via `--jit` flag (enabled by default in Makefile)
+- JIT compilation enabled by default (use `--no-jit` to disable)
 - Same algorithm and output format as legacy versions
 - Command-line control: `--cores N`, `--n`, `--s`, `--r`, `--m`
 

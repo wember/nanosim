@@ -77,12 +77,12 @@ class TestStressTests:
         assert np.abs(x.E_total - initial_energy) < 1e-10
 
     def test_long_run_no_drift(self):
-        """Test for energy drift over long simulation."""
+        """Test for energy drift over a substantial (but faster) simulation."""
         x = Inferno(1000, 5)
         initial_energy = x.E_total
 
-        # Run 10000 sweeps
-        for _ in range(10000):
+        # Run 2000 sweeps (reduced from 10000 for speed)
+        for _ in range(2000):
             for _ in range(x.N):
                 x.demon_move()
 

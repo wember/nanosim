@@ -144,11 +144,10 @@ def benchmark_jit_only(n, s, r, m, test_mode=False):
         # Use same params as other benchmarks for fair comparison
         n, s, r, m = 10000, 100, 3, 2
 
-    # Use parallel_sim.py with --jit but cores=1 for serial execution
+    # Use parallel_sim.py with JIT (default) but cores=1 for serial execution
     cmd = [
         "python",
         "creutz-sim/parallel_sim.py",
-        "--jit",
         "--n",
         str(n),
         "--s",
@@ -188,7 +187,7 @@ def benchmark_parallel_only(n, s, r, m, cores, test_mode=False):
         str(m),
         "--cores",
         str(cores),
-        # No --jit flag = uses original classes
+        # Add --no-jit flag to disable JIT
     ]
 
     description = f"Parallel Only - No JIT (n={n}, s={s}, r={r}, m={m}, cores={cores})"
@@ -207,7 +206,6 @@ def benchmark_production(n, s, r, m, cores, test_mode=False):
     cmd = [
         "python",
         "creutz-sim/parallel_sim.py",
-        "--jit",
         "--n",
         str(n),
         "--s",

@@ -1,7 +1,8 @@
 """Tests for JIT command-line flag integration in parallel scripts.
 
 Validates that:
-- --jit flag correctly enables JIT compilation
+- JIT is enabled by default (no flag needed)
+- --no-jit flag correctly disables JIT compilation
 - JIT and non-JIT versions produce equivalent results
 - Performance characteristics are as expected
 - Error handling works correctly
@@ -31,7 +32,7 @@ def mock_progress_queue():
 
 
 class TestJITFlagIntegration:
-    """Test --jit flag integration in parallel execution."""
+    """Test JIT default and --no-jit flag integration in parallel execution."""
 
     def test_reversible_jit_vs_nojit_results_match(self, mock_progress_queue):
         """JIT and non-JIT reversible simulations should produce equivalent results."""

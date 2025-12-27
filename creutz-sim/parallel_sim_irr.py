@@ -3,7 +3,8 @@
 Uses multiprocessing to run multiple independent simulations simultaneously,
 significantly reducing total execution time on multi-core systems.
 
-Supports JIT-compiled version via --jit flag for 106x additional speedup.
+JIT compilation is enabled by default for maximum speedup (~3,880x per core).
+Use --no-jit to disable JIT for debugging or validation.
 """
 
 import csv
@@ -16,7 +17,7 @@ from datetime import datetime
 from multiprocessing import Manager
 from typing import Dict, Tuple
 
-# Dynamic import based on --jit flag
+# Dynamic import based on JIT (default on, use --no-jit to disable)
 import numpy as np
 from sim_utils import (
     Sk_stable,
@@ -214,7 +215,7 @@ if __name__ == "__main__":
     r = args.r  # max bond-demon couple radius
     m = args.m  # number of sims
     validate_mode = args.validate
-    use_jit = args.jit
+    use_jit = not args.no_jit
 
     # Determine number of cores
     if args.cores is None:

@@ -159,7 +159,7 @@ make run-sim ARGS="--n 10000 --s 1000 --r 5"     # Test fewer radii
 - `--r`: Max demon-coupling radius (tests R=1 to r-1, default: 11)
 - `--m`: Independent runs for statistics (default: 5)
 - `--cores`: CPU cores to use (default: auto-detect)
-- `--jit`: Enable JIT compilation (default: enabled via Makefile)
+- `--no-jit`: Disable JIT compilation (default: JIT enabled)
 - `--validate`: Validation mode - `off` (default), `periodic`, `frequent`
 
 ### Parallel Execution Details
@@ -286,7 +286,7 @@ If you need to run commands manually:
 source venv/bin/activate   # Activate environment
 
 # Then run any Python script
-python creutz-sim/parallel_sim.py --jit
+python creutz-sim/parallel_sim.py
 pytest tests/ -v
 ```
 

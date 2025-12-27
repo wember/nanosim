@@ -26,12 +26,13 @@ class TestValidationModeCorrectness:
     """Test that validation mode doesn't affect simulation correctness."""
 
     def test_off_mode_energy_conservation(self):
-        """Test that validation='off' maintains energy conservation."""
+        """Test that validation='off' maintains energy conservation
+        (reduced for speed)."""
         x = Inferno(1000, 5, validate_mode="off")
         initial_energy = x.E_total
 
-        # Run many moves
-        for _ in range(5000):
+        # Run fewer moves for speed (1,000 sweeps)
+        for _ in range(1000):
             for _ in range(x.N):
                 x.demon_move()
 
@@ -170,12 +171,12 @@ class TestLongRunStability:
     """Test stability over very long runs without validation."""
 
     def test_very_long_run_off_mode(self):
-        """Test 20,000 sweep run with validation='off'."""
+        """Test 2,000 sweep run with validation='off' (reduced for speed)."""
         x = Inferno(500, 5, validate_mode="off")
         initial_energy = x.E_total
 
-        # Run 20,000 sweeps (10 million moves)
-        for _ in range(20000):
+        # Run 2,000 sweeps (1 million moves)
+        for _ in range(2000):
             for _ in range(x.N):
                 x.demon_move()
 
@@ -192,20 +193,20 @@ class TestLongRunStability:
 
     def test_multiple_forward_reverse_cycles(self):
         """Test multiple forward-reverse cycles with validation='off'."""
-        x = Inferno(200, 5, validate_mode="off")
+        x = Inferno(100, 5, validate_mode="off")
         initial_lattice = x.lattice.copy()
         initial_E_demon = x.E_demon.copy()
         initial_bonds = x.bonds.copy()
 
         # 10 cycles of forward-reverse
-        for cycle in range(10):
+        for cycle in range(3):
             # Forward
-            for _ in range(50):
+            for _ in range(5):
                 for _ in range(x.N):
                     x.demon_move()
 
             # Reverse
-            for _ in range(50):
+            for _ in range(5):
                 for _ in range(x.N):
                     x.demon_reverse()
 

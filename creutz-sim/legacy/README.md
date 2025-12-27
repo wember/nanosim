@@ -70,11 +70,11 @@ make run-sim-irr       # Irreversible (parallel JIT)
 make run-sim-small     # Quick test
 
 # Or directly with Python
-python creutz-sim/parallel_sim.py --jit
-python creutz-sim/parallel_sim_irr.py --jit
+python creutz-sim/parallel_sim.py
+python creutz-sim/parallel_sim_irr.py
 
 # Single-core mode (if needed)
-python creutz-sim/parallel_sim.py --jit --cores 1
+python creutz-sim/parallel_sim.py --cores 1
 ```
 
 ## Technical Notes

@@ -1,6 +1,6 @@
 # Profiling Results Summary
 
-**Date:** December 25, 2025  
+**Date:** December 25, 2025
 **Configuration:** N=10,000, sweeps=100, R=5 (2,000,000 total moves)
 
 ---
@@ -117,9 +117,9 @@ np.random.randint(0, 2) * 2 - 1  # Generates 0→-1 or 1→1
 
 **Why Numba is perfect for this code:**
 
-✅ Pure NumPy array operations  
-✅ Integer-only arithmetic (no Python objects)  
-✅ Tight inner loops called millions of times  
+✅ Pure NumPy array operations
+✅ Integer-only arithmetic (no Python objects)
+✅ Tight inner loops called millions of times
 ✅ No dynamic types or complex Python features
 
 **Target functions for @jit decoration:**
