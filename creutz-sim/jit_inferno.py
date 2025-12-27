@@ -1,6 +1,6 @@
 """JIT-optimized Inferno class using Numba-compiled functions.
 
-This module provides a drop-in replacement for the Inferno class with 
+This module provides a drop-in replacement for the Inferno class with
 3-10x performance improvement via Numba JIT compilation of hot functions.
 
 Performance comparison:
@@ -12,22 +12,22 @@ Usage:
 """
 
 import numpy as np
-from sim_utils import Sk, Su, Su0, SimulationBase
 from jit_functions import demon_move_jit
+from sim_utils import SimulationBase, Sk, Su, Su0  # noqa: F401
 
 
 class JITInferno(SimulationBase):
     """
     JIT-optimized Inferno simulation with reversible dynamics.
-    
+
     Uses Numba-compiled functions for spin flips and bond changes.
     Maintains identical physics and API to original Inferno class.
     """
 
-    def __init__(self, N, R, validate_mode='off'):
+    def __init__(self, N, R, validate_mode="off"):
         """
         Initialize JIT-optimized Inferno simulation.
-        
+
         Args:
             N: Number of lattice sites
             R: Demon coupling radius
@@ -36,12 +36,14 @@ class JITInferno(SimulationBase):
                 'periodic' - Validate every 100 sweeps (default for testing)
                 'frequent' - Validate every sweep (debug mode, slowest)
         """
-        total_energy = 2*N
+        total_energy = 2 * N
 
         self.N = N
         self.R = R
         self.order, self.rev_order = SimulationBase.initialize_order_arrays(N)
-        self.radius_spin = np.random.randint(0, R, size=N)*np.random.choice([-1, 1], size=N)
+        self.radius_spin = np.random.randint(0, R, size=N) * np.random.choice(
+            [-1, 1], size=N
+        )
         self.rev_radius_spin = np.flip(self.radius_spin)
         self.radius_bond = np.flip(self.radius_spin)
         self.rev_radius_bond = self.radius_spin.copy()
@@ -50,10 +52,10 @@ class JITInferno(SimulationBase):
         self.lattice, self.bonds, self.bond_count = SimulationBase.initialize_lattice(N)
 
         self.E_lattice = np.sum(self.bonds, dtype=np.int64)
-        
+
         # Initialize demon energy using base class helper
-        self.E_demon, self.E_demon_sum, self.d_energy = SimulationBase.initialize_demon_energy(
-            N, total_energy, self.E_lattice
+        self.E_demon, self.E_demon_sum, self.d_energy = (
+            SimulationBase.initialize_demon_energy(N, total_energy, self.E_lattice)
         )
         self.E_total = self.E_lattice + self.E_demon_sum
 
@@ -61,12 +63,14 @@ class JITInferno(SimulationBase):
         self.setup_validation_mode(N, validate_mode, total_energy)
 
         # Pre-compute neighbor indices using base class helper
-        self.right_neighbor, self.left_neighbor = SimulationBase.setup_neighbor_arrays(N)
+        self.right_neighbor, self.left_neighbor = SimulationBase.setup_neighbor_arrays(
+            N
+        )
 
     def demon_move(self):
         """
         Perform one complete sweep using JIT-compiled functions.
-        
+
         This replaces the N calls to spin_flip/bond_change with a single
         JIT-compiled loop, providing massive speedup (3-10x).
         """
@@ -84,16 +88,16 @@ class JITInferno(SimulationBase):
             self.radius_spin,
             self.radius_bond,
             self.N,
-            self.R
+            self.R,
         )
-        
+
         # Periodic validation (only if enabled)
         self.perform_periodic_validation()
 
     def demon_reverse(self):
         """
         Perform one reverse sweep using JIT-compiled functions.
-        
+
         Uses reversed order and radii for time-reversible dynamics.
         """
         # Call JIT-compiled sweep with reversed parameters
@@ -110,9 +114,9 @@ class JITInferno(SimulationBase):
             self.rev_radius_bond,  # Reversed!
             self.rev_radius_spin,  # Reversed!
             self.N,
-            self.R
+            self.R,
         )
-        
+
         # Periodic validation (only if enabled)
         self.perform_periodic_validation()
 

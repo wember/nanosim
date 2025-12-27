@@ -1,6 +1,18 @@
 # Nanosim - Microcanonical Monte Carlo Simulation
 
-A Python implementation of microcanonical ensemble Monte Carlo simulation for a 1D Ising lattice using **Creutz's demon algorithm** (Creutz, 1983). This project explores thermodynamic irreversibility by comparing reversible and irreversible dynamics.
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
+
+A high-performance Python implementation of microcanonical ensemble Monte Carlo simulation for a 1D Ising lattice using **Creutz's demon algorithm** (Creutz, 1983). This project explores thermodynamic irreversibility by comparing reversible and irreversible dynamics.
+
+**Key Features:**
+
+- 🚀 **~1400x speedup** with parallel JIT compilation (Numba + multiprocessing)
+- 🔄 **Reversible vs irreversible dynamics** for studying entropy production
+- 📊 **Interactive visualizations** with Plotly
+- ✅ **150+ unit tests** ensuring correctness
+- 🎯 **Production-ready** with comprehensive documentation
 
 ## What Does This Simulate?
 
@@ -475,21 +487,58 @@ make run-examples      # Run all examples
 make clean             # Clean up generated files
 ```
 
-## License
-
-[Add your license here]
-
-## Citationecution logs in `logs/` with timestamps, progress updates, and any errors.
-
-## Features
+### Features
 
 - ✅ **Command-line configuration** - No source file editing needed
 - ✅ **Progress bars** - Visual feedback during long runs
 - ✅ **Structured logging** - Detailed logs in `logs/` directory
 - ✅ **Metadata tracking** - JSON files document each run
 - ✅ **Type hints** - Better IDE support and code clarity
-- ✅ **Comprehensive tests** - 135+ unit tests with pytest
+- ✅ **Comprehensive tests** - 150+ unit tests with pytest
 - ✅ **Example scripts** - Three demos to get started
 - ✅ **Portable paths** - Works anywhere without configuration
 - 🚀 **JIT compilation** - 70-106x speedup with Numba
 - 🚀 **Parallel execution** - 13-14x speedup with multiprocessing
+
+## Citation
+
+If you use this software in your research, please cite it:
+
+```bibtex
+@software{ember2025nanosim,
+  author = {Ember, Winry},
+  title = {Nanosim: Microcanonical Monte Carlo Simulation of 1D Ising Lattice},
+  year = {2025},
+  url = {https://github.com/wember/nanosim},
+  version = {0.1.0}
+}
+```
+
+See [CITATION.cff](CITATION.cff) for more details.
+
+## Contributing
+
+We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on:
+
+- Reporting bugs
+- Suggesting enhancements
+- Submitting pull requests
+- Development setup
+- Testing procedures
+- Code style guidelines
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## Contact
+
+- **Authors**: Winry Ember, Wayne Mock
+- **Repository**: [github.com/wember/nanosim](https://github.com/wember/nanosim)
+- **Issues**: [github.com/wember/nanosim/issues](https://github.com/wember/nanosim/issues)
+
+## Acknowledgments
+
+Based on Creutz's microcanonical demon algorithm:
+
+- Creutz, M. (1983). "Microcanonical Monte Carlo Simulation". _Physical Review Letters_, 50(19), 1411-1414.

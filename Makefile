@@ -1,4 +1,4 @@
-.PHONY: help setup clean activate test-env compile run-sim run-irr-sim run-sim-small run-irr-sim-small sbatch-sim sbatch-irr-sim plot plot-radii plot-comparison run-examples benchmark-jit profile profile-inferno profile-irr view-profile run-tests run-tests-serial run-test-file coverage coverage-html
+.PHONY: help setup clean activate test-env compile run-sim run-irr-sim run-sim-small run-irr-sim-small sbatch-sim sbatch-irr-sim plot plot-radii plot-comparison run-examples benchmark-jit profile profile-inferno profile-irr view-profile run-tests run-tests-serial run-test-file coverage coverage-html format format-check lint pre-commit-install pre-commit-run
 
 help:  ## Show this help message
 	@echo 'Usage: make [target]'
@@ -20,6 +20,9 @@ help:  ## Show this help message
 	@echo ''
 	@printf '\033[1mTesting & Coverage:\033[0m\n'
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; /^(run-tests|run-tests-serial|run-test-file|coverage|coverage-html):/ {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
+	@echo ''
+	@printf '\033[1mCode Quality:\033[0m\n'
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; /^(format|format-check|lint|pre-commit-install|pre-commit-run):/ {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
 	@echo ''
 	@echo 'Notes:'
 	@echo '  - All simulations use parallel JIT by default (fastest: ~1400x speedup)'
@@ -186,10 +189,49 @@ coverage:  ## Run tests with coverage report (parallel execution)
 	@echo "Running tests with coverage analysis (parallel)..."
 	@COVERAGE_FILE=/tmp/.coverage ./venv/bin/python -m pytest tests/ --cov=creutz-sim --cov-report=term-missing --cov-report=html -n auto $(ARGS)
 	@rm -f .coverage
-	@echo ""
-	@echo "✓ Coverage report generated at htmlcov/index.html"
-
 coverage-html:  ## Run coverage and open HTML report in browser
+	@make coverage
+	@echo "Opening coverage report in browser..."
+	@open htmlcov/index.html || xdg-open htmlcov/index.html 2>/dev/null || echo "Please open htmlcov/index.html manually"
+
+# =============================================================================
+# Code Quality & Formatting
+# =============================================================================
+
+format:  ## Format code with black and isort
+	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
+	@echo "Formatting code with black..."
+	@./venv/bin/python -m black creutz-sim/ tests/ tools/ examples/
+	@echo "Sorting imports with isort..."
+	@./venv/bin/python -m isort creutz-sim/ tests/ tools/ examples/
+	@echo "✓ Code formatting complete"
+
+format-check:  ## Check if code is formatted correctly (CI-friendly)
+	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
+	@echo "Checking code formatting..."
+	@./venv/bin/python -m black --check creutz-sim/ tests/ tools/ examples/
+	@./venv/bin/python -m isort --check-only creutz-sim/ tests/ tools/ examples/
+	@echo "✓ Code formatting is correct"
+
+lint:  ## Run flake8 linting
+	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
+	@echo "Running flake8 linter..."
+	@./venv/bin/python -m flake8 creutz-sim/ tests/ tools/ examples/ --max-line-length=88 --extend-ignore=E203,W503,E402,E731,F541
+	@echo "✓ Linting complete"
+
+pre-commit-install:  ## Install pre-commit hooks
+	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
+	@echo "Installing pre-commit hooks..."
+	@./venv/bin/python -m pre_commit install
+	@echo "✓ Pre-commit hooks installed"
+	@echo ""
+	@echo "Hooks will now run automatically on 'git commit'"
+	@echo "To run manually: make pre-commit-run"
+
+pre-commit-run:  ## Run pre-commit hooks on all files
+	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
+	@echo "Running pre-commit hooks on all files..."
+	@./venv/bin/python -m pre_commit run --all-files
 	@make coverage
 	@echo "Opening coverage report in browser..."
 	@open htmlcov/index.html || xdg-open htmlcov/index.html 2>/dev/null || echo "Please open htmlcov/index.html manually"

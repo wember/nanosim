@@ -14,23 +14,20 @@ Inherits validation, energy conservation, and bond operations from SimulationBas
 """
 
 import numpy as np
-import random
-import math
-
-from sim_utils import Sk, Su, Su0, SimulationBase
+from sim_utils import SimulationBase, Sk, Su, Su0  # noqa: F401
 
 
 class irrInferno(SimulationBase):
     """
     Irreversible Creutz demon simulation with on-the-fly random radius generation.
-    
+
     This class implements the irreversible version of the Creutz demon algorithm.
     Unlike the reversible Inferno class which uses pre-computed radius arrays,
     this generates new random radii for each move, ensuring true irreversibility.
-    
+
     The random radii are generated as: radius = randint(0, R) * (±1)
     where ±1 is randomly chosen, giving radii in range [-R+1, R-1].
-    
+
     Attributes:
         N: Number of lattice sites
         R: Maximum demon-coupling radius
@@ -44,10 +41,10 @@ class irrInferno(SimulationBase):
         rev_order: Reversed traversal order (flipped order array)
     """
 
-    def __init__(self, N, R, validate_mode='off'):
+    def __init__(self, N, R, validate_mode="off"):
         """
         Initialize irrInferno simulation.
-        
+
         Args:
             N: Number of lattice sites
             R: Demon coupling radius
@@ -56,7 +53,7 @@ class irrInferno(SimulationBase):
                 'periodic' - Validate every 100 sweeps (default for testing)
                 'frequent' - Validate every sweep (debug mode, slowest)
         """
-        total_energy = 2*N
+        total_energy = 2 * N
 
         self.N = N
         self.order, self.rev_order = SimulationBase.initialize_order_arrays(N)
@@ -66,10 +63,10 @@ class irrInferno(SimulationBase):
         self.lattice, self.bonds, self.bond_count = SimulationBase.initialize_lattice(N)
 
         self.E_lattice = np.sum(self.bonds, dtype=np.int64)
-        
+
         # Initialize demon energy using base class helper
-        self.E_demon, self.E_demon_sum, self.d_energy = SimulationBase.initialize_demon_energy(
-            N, total_energy, self.E_lattice
+        self.E_demon, self.E_demon_sum, self.d_energy = (
+            SimulationBase.initialize_demon_energy(N, total_energy, self.E_lattice)
         )
         self.E_total = self.E_lattice + self.E_demon_sum
 
@@ -81,20 +78,22 @@ class irrInferno(SimulationBase):
         self.rev_order_idx = 0
 
         # Pre-compute neighbor indices using base class helper
-        self.right_neighbor, self.left_neighbor = SimulationBase.setup_neighbor_arrays(N)
+        self.right_neighbor, self.left_neighbor = SimulationBase.setup_neighbor_arrays(
+            N
+        )
 
     def demon_move(self):
         """
         Perform one irreversible Monte Carlo move with random demon coupling.
-        
+
         This is the forward phase move. For each lattice site (in order):
         1. Generate random radius and attempt spin flip
         2. Update bond states if spin was flipped
         3. Generate new random radius and attempt bond change
-        
+
         The random radius generation ensures this move cannot be exactly
         reversed by demon_reverse(), creating irreversible dynamics.
-        
+
         Updates order_idx to cycle through lattice sites.
         Performs periodic validation if enabled.
         """
@@ -122,14 +121,14 @@ class irrInferno(SimulationBase):
     def demon_reverse(self):
         """
         Perform one irreversible Monte Carlo move in reverse order.
-        
+
         This is the reverse phase move. Uses reversed traversal order but:
         1. Generates NEW random radii (not the same as demon_move)
         2. Performs bond change BEFORE spin flip (opposite order)
-        
+
         Despite using reversed order, the newly generated random radii mean
         this does NOT reverse the forward phase - the dynamics remain irreversible.
-        
+
         Updates rev_order_idx to cycle through lattice sites.
         Performs periodic validation if enabled.
         """

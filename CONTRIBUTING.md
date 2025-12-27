@@ -167,12 +167,36 @@ def test_energy_conservation():
 ### Python Code Style
 
 - **Follow PEP 8** for general Python style
+- **Use Black formatter** for automatic code formatting (line length: 88)
+- **Use isort** for import sorting (profile: black)
+- **Run pre-commit hooks** before committing (automatically formats and checks code)
 - **Use meaningful variable names**:
   - Physics variables: Match paper notation (`N`, `R`, `K`, `U`)
   - Code variables: Descriptive (`lattice`, `bonds`, `energy_sum`)
 - **Add docstrings** to all functions and classes
 - **Type hints** are encouraged but not required
 - **Comments**: Explain _why_, not _what_
+
+### Code Formatting Workflow
+
+```bash
+# Install pre-commit hooks (one-time setup)
+make pre-commit-install
+
+# Format code automatically
+make format
+
+# Check formatting without changes
+make format-check
+
+# Run linter
+make lint
+
+# Run all pre-commit hooks manually
+make pre-commit-run
+```
+
+Once pre-commit hooks are installed, they run automatically on `git commit` to ensure code quality.
 
 ### Physics Code Conventions
 

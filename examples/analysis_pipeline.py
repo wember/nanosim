@@ -7,13 +7,15 @@ Shows the complete workflow:
 3. Load and analyze results
 4. Generate plots
 """
-import sys
-import os
+
 import csv
+import os
+import sys
+
 import numpy as np
 from scipy.special import loggamma as logg
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'creutz-sim'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "creutz-sim"))
 
 from inferno import Inferno
 
@@ -35,74 +37,72 @@ print("Forward phase...")
 for i in range(sweeps):
     for _ in range(N):
         x.demon_move()
-    
+
     state = x.get_validated_state()
-    
+
     # Calculate per-site energies
-    K = state['E_demon_sum'] / N
-    U = state['E_lattice'] / N
-    
+    K = state["E_demon_sum"] / N
+    U = state["E_lattice"] / N
+
     # Calculate entropy
-    Sk = logg(state['E_demon_sum'] + N) - logg(state['E_demon_sum'] + 1) - logg(N)
-    N0_exp = max(int(state['bond_count'][1]), 1)
-    Su = logg(N + 1) + N0_exp * np.log(2) - \
-         (logg(N - int(state['bond_count'][1]) - int(state['bond_count'][2]) + 1) + 
-          logg(int(state['bond_count'][1]) + 1) + 
-          logg(int(state['bond_count'][2]) + 1))
+    Sk = logg(state["E_demon_sum"] + N) - logg(state["E_demon_sum"] + 1) - logg(N)
+    N0_exp = max(int(state["bond_count"][1]), 1)
+    Su = (
+        logg(N + 1)
+        + N0_exp * np.log(2)
+        - (
+            logg(N - int(state["bond_count"][1]) - int(state["bond_count"][2]) + 1)
+            + logg(int(state["bond_count"][1]) + 1)
+            + logg(int(state["bond_count"][2]) + 1)
+        )
+    )
     S = (Sk + Su) / N
-    
-    data.append({
-        't': i,
-        'K': K,
-        'U': U,
-        'S': S,
-        'phase': 'forward'
-    })
+
+    data.append({"t": i, "K": K, "U": U, "S": S, "phase": "forward"})
 
 # Reverse phase
 print("Reverse phase...")
 for i in range(sweeps):
     for _ in range(N):
         x.demon_reverse()
-    
+
     state = x.get_validated_state()
-    
+
     # Calculate per-site energies
-    K = state['E_demon_sum'] / N
-    U = state['E_lattice'] / N
-    
-    Sk = logg(state['E_demon_sum'] + N) - logg(state['E_demon_sum'] + 1) - logg(N)
-    N0_exp = max(int(state['bond_count'][1]), 1)
-    Su = logg(N + 1) + N0_exp * np.log(2) - \
-         (logg(N - int(state['bond_count'][1]) - int(state['bond_count'][2]) + 1) + 
-          logg(int(state['bond_count'][1]) + 1) + 
-          logg(int(state['bond_count'][2]) + 1))
+    K = state["E_demon_sum"] / N
+    U = state["E_lattice"] / N
+
+    Sk = logg(state["E_demon_sum"] + N) - logg(state["E_demon_sum"] + 1) - logg(N)
+    N0_exp = max(int(state["bond_count"][1]), 1)
+    Su = (
+        logg(N + 1)
+        + N0_exp * np.log(2)
+        - (
+            logg(N - int(state["bond_count"][1]) - int(state["bond_count"][2]) + 1)
+            + logg(int(state["bond_count"][1]) + 1)
+            + logg(int(state["bond_count"][2]) + 1)
+        )
+    )
     S = (Sk + Su) / N
-    
-    data.append({
-        't': sweeps + i,
-        'K': K,
-        'U': U,
-        'S': S,
-        'phase': 'reverse'
-    })
+
+    data.append({"t": sweeps + i, "K": K, "U": U, "S": S, "phase": "reverse"})
 
 # Save to CSV
-output_dir = os.path.join(os.path.dirname(__file__), '..', 'data', 'examples')
+output_dir = os.path.join(os.path.dirname(__file__), "..", "data", "examples")
 os.makedirs(output_dir, exist_ok=True)
-output_file = os.path.join(output_dir, 'pipeline_example.csv')
+output_file = os.path.join(output_dir, "pipeline_example.csv")
 
-with open(output_file, 'w', newline='') as f:
-    writer = csv.DictWriter(f, fieldnames=['t', 'K', 'U', 'S', 'phase'])
+with open(output_file, "w", newline="") as f:
+    writer = csv.DictWriter(f, fieldnames=["t", "K", "U", "S", "phase"])
     writer.writeheader()
     writer.writerows(data)
 
 print(f"\nData saved to: {output_file}")
 
 # Basic analysis
-K_values = [d['K'] for d in data]
-U_values = [d['U'] for d in data]
-S_values = [d['S'] for d in data]
+K_values = [d["K"] for d in data]
+U_values = [d["U"] for d in data]
+S_values = [d["S"] for d in data]
 
 print("\nSummary statistics:")
 print(f"  <K> = {np.mean(K_values):.4f} ± {np.std(K_values):.4f}")
@@ -110,7 +110,7 @@ print(f"  <U> = {np.mean(U_values):.4f} ± {np.std(U_values):.4f}")
 print(f"  <S/k> = {np.mean(S_values):.4f} ± {np.std(S_values):.4f}")
 
 # Check reversibility
-forward_final = data[sweeps-1]
+forward_final = data[sweeps - 1]
 reverse_final = data[-1]
 print(f"\nReversibility check:")
 print(f"  Forward final:  K={forward_final['K']:.4f}, U={forward_final['U']:.4f}")
