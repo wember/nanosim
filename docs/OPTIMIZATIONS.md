@@ -928,12 +928,13 @@ make sbatch-irr-sim             # Parallel JIT, 16 cores
 
 Simulation targets (parallel JIT by default):
 
-run-sim                       # Full parallel reversible (JIT enabled)
-run-irr-sim                   # Full parallel irreversible (JIT enabled)
-run-sim-small                 # Small-scale test reversible
-run-irr-sim-small             # Small-scale test irreversible
-sbatch-sim                    # Submit reversible to SLURM (parallel JIT)
-sbatch-irr-sim                # Submit irreversible to SLURM (parallel JIT)
+run-sim # Full parallel reversible (JIT enabled)
+run-irr-sim # Full parallel irreversible (JIT enabled)
+run-sim-small # Small-scale test reversible
+run-irr-sim-small # Small-scale test irreversible
+sbatch-sim # Submit reversible to SLURM (parallel JIT)
+sbatch-irr-sim # Submit irreversible to SLURM (parallel JIT)
+
 ```makefile
 run-sim                       # Full parallel reversible (JIT enabled)
 run-sim-irr                   # Full parallel irreversible (JIT enabled)

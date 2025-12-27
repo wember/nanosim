@@ -40,7 +40,6 @@ Added convenience targets for JIT-enabled runs:
 
 **New Targets:**
 
-
 - Automatic environment validation
 - Clear status messages showing JIT is enabled
 
