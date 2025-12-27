@@ -98,19 +98,6 @@ make run-sim
 - `--r`: Max radius to test (default: 11, tests R=1-10)
 - `--m`: Independent runs for averaging (default: 5)
 
-### 5. Explore Examples
-
-See complete workflows in `examples/`:
-
-```bash
-make run-examples    # Run all three examples
-
-# Or individually:
-python examples/quick_test.py          # Minimal working example
-python examples/custom_parameters.py   # Parameter customization
-python examples/analysis_pipeline.py   # Full analysis workflow
-```
-
 ## Performance
 
 **Full production runs** (`make run-sim`: n=1M, s=5k, r=11, m=5 = 55 simulations):
@@ -302,7 +289,6 @@ source venv/bin/activate   # Activate environment
 
 # Then run any Python script
 python creutz-sim/parallel_sim.py --jit
-python examples/quick_test.py
 pytest tests/ -v
 ```
 
@@ -322,8 +308,8 @@ nanosim/
 │   ├── Sk_comparison.py     # Entropy comparison plotter
 │   ├── legacy/              # Original single-core implementations
 │   └── batch_jobs/          # SLURM HPC batch scripts
-├── tests/                   # Comprehensive test suite (135+ tests)
-├── examples/                # Three demonstration scripts
+├── tests/                   # Comprehensive test suite (150+ tests)
+├── tools/                   # Benchmarking and profiling tools
 ├── docs/                    # Detailed documentation
 ├── data/                    # Output data (auto-generated)
 ├── logs/                    # Execution logs (auto-generated)
@@ -483,7 +469,6 @@ make run-sim           # Production run (~1-2 min)
 make run-irr-sim       # Irreversible run (~1-2 min)
 make plot              # Generate plots
 make run-tests         # Run test suite (~30 sec)
-make run-examples      # Run all examples
 make clean             # Clean up generated files
 ```
 

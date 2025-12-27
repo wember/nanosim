@@ -121,7 +121,6 @@ nanosim/
 │   └── parallel_sim*.py # Parallel execution
 ├── tests/               # Test suite
 ├── tools/               # Development tools
-├── examples/            # Example scripts
 └── docs/               # Documentation
 ```
 

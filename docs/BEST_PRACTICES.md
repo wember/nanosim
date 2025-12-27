@@ -51,28 +51,18 @@ This document summarizes all the best practices that have been implemented in th
 - **Run**: `make run-tests` or `pytest tests/ -v`
 - **Benefits**: Regression prevention, confidence in changes, documentation of expected behavior
 
-### 8. Examples Directory
-
-Three demonstration scripts:
-
-- **quick_test.py**: Minimal working example (100 sites, 10 sweeps)
-- **custom_parameters.py**: Shows parameter customization and comparisons
-- **analysis_pipeline.py**: Complete workflow from simulation to analysis
-- **Run**: `make run-examples`
-- **Benefits**: Quick start for new users, reference implementations
-
-### 9. CHANGELOG.md
+### 8. CHANGELOG.md
 
 - **Format**: Keep a Changelog standard
 - **Sections**: Added, Changed, Removed, Fixed
 - **Benefits**: Version tracking, migration guides, communication of changes
 
-### 10. Updated Documentation
+### 9. Updated Documentation
 
-- **README.md**: Expanded with new features, runtime estimates, examples
+- **README.md**: Expanded with new features, runtime estimates
 - **ARCHITECTURE.md**: Technical documentation
 - **.gitignore**: Added logs/, metadata, pytest cache
-- **Makefile**: New targets (run-tests, run-examples, run-sim-small)
+- **Makefile**: New targets (run-tests, run-sim-small)
 - **Benefits**: Discoverable features, easier onboarding
 
 ## Additional Improvements
@@ -124,13 +114,6 @@ python creutz-sim/sim.py  # Uses defaults
 make run-tests              # Run all unit tests
 pytest tests/ -v            # Verbose output
 pytest tests/test_inferno.py::TestInfernoReversibility -v  # Specific test class
-```
-
-### Examples
-
-```bash
-make run-examples           # Run all examples
-python examples/quick_test.py  # Single example
 ```
 
 ### Development Workflow
@@ -185,10 +168,10 @@ These suggestions from the original list could still be added:
 
 ## Impact Summary
 
-**Lines of Code**: ~1,500 added (tests, examples, documentation)
-**New Files**: 10 (3 tests, 3 examples, 1 changelog, 3 support files)
+**Lines of Code**: ~1,200 added (tests, documentation)
+**New Files**: 7 (3 tests, 1 changelog, 3 support files)
 **Dependencies**: +2 (tqdm, pytest)
-**User Experience**: Dramatically improved (progress bars, clear feedback, examples)
+**User Experience**: Dramatically improved (progress bars, clear feedback)
 **Developer Experience**: Much better (tests, logging, type hints)
 **Maintainability**: Significantly enhanced (documentation, structure, tests)
 

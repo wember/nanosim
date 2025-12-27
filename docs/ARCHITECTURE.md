@@ -447,7 +447,7 @@ See [JIT_BEST_PRACTICES.md](JIT_BEST_PRACTICES.md) and [OPTIMIZATIONS.md](OPTIMI
 - Newman, M. E. J., & Barkema, G. T. (1999). _Monte Carlo Methods in Statistical Physics_. Oxford University Press.
 
   - Chapter 3: Microcanonical methods including Creutz demon
-  - Practical implementation details and examples
+  - Practical implementation details
 
 - Landau, D. P., & Binder, K. (2014). _A Guide to Monte Carlo Simulations in Statistical Physics_ (4th ed.). Cambridge University Press.
   - Section 2.4: Microcanonical Monte Carlo

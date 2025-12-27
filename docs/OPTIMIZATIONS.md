@@ -15,8 +15,8 @@ This document provides detailed technical explanations of all performance optimi
 
 ## 1. Validation Overhead Reduction
 
-**Date Implemented:** December 25, 2025  
-**Status:** ✅ Complete  
+**Date Implemented:** December 25, 2025
+**Status:** ✅ Complete
 **Performance Impact:** Minor improvement (~1-2% in typical cases), significant improvement in debug workflows
 
 ### Problem
@@ -131,11 +131,9 @@ Created comprehensive test suite in `tests/test_performance.py`:
 - ✅ Validation catches artificially introduced errors when enabled
 - ✅ No energy drift detected in 10,000 sweep runs
 
-**Benchmark script:** `examples/benchmark_validation.py`
+**Benchmark results:**
 
 ```bash
-$ python examples/benchmark_validation.py
-
 Small lattice (N=1,000, 1000 sweeps, R=5)
   off         :  3.363s  (speedup: 1.00x)
   periodic    :  3.348s  (speedup: 1.00x)
@@ -218,8 +216,8 @@ Medium lattice (N=10,000, 100 sweeps, R=5)
 
 ## 2. Neighbor Index Pre-computation
 
-**Date Implemented:** December 25, 2025  
-**Status:** ✅ Complete  
+**Date Implemented:** December 25, 2025
+**Status:** ✅ Complete
 **Performance Impact:** Modest improvement with better cache locality and reduced arithmetic operations
 
 ### Problem
@@ -326,7 +324,7 @@ All tests pass with 100% coverage on both core classes.
 
 ### Performance Impact
 
-**Benchmark results** (`examples/benchmark_neighbor_optimization.py`):
+**Benchmark results:**
 
 ```
 Small lattice (N=1,000, 1000 sweeps, R=5)
@@ -393,8 +391,8 @@ x.demon_move()  # Now uses pre-computed neighbors
 
 ## 3. Index Cycling Optimization
 
-**Date Implemented:** December 25, 2025  
-**Status:** ✅ Complete  
+**Date Implemented:** December 25, 2025
+**Status:** ✅ Complete
 **Performance Impact:** Modest improvement with better branch prediction efficiency
 
 ### Problem
@@ -521,7 +519,7 @@ All tests pass with 100% coverage on both core classes. The additional lines (fr
 
 ### Performance Impact
 
-**Benchmark results** (`examples/benchmark_index_cycling.py`):
+**Benchmark results:**
 
 ```
 Small lattice (N=1,000, 1000 sweeps, R=5)
@@ -610,8 +608,8 @@ for _ in range(100):
 
 ## 4. Random Sign Generation Optimization
 
-**Date Implemented:** December 25, 2025  
-**Status:** ✅ Complete  
+**Date Implemented:** December 25, 2025
+**Status:** ✅ Complete
 **Performance Impact:** 1.7x speedup for irrInferno (41% runtime reduction)
 
 ### Problem
@@ -754,8 +752,8 @@ These optimizations have been identified but not yet implemented. Listed in prio
 
 ### 5. NumPy Vectorization
 
-**Estimated Impact:** 10-30% speedup  
-**Complexity:** Medium  
+**Estimated Impact:** 10-30% speedup
+**Complexity:** Medium
 **Status:** 🔄 Planned
 
 Currently, the simulation loops over individual sites sequentially:
@@ -780,8 +778,8 @@ for i in range(s):  # sweeps
 
 ### 6. Cache Locality Optimization
 
-**Estimated Impact:** 5-15% speedup  
-**Complexity:** Low  
+**Estimated Impact:** 5-15% speedup
+**Complexity:** Low
 **Status:** 🔄 Planned
 
 Access patterns should be cache-friendly:
@@ -792,11 +790,11 @@ Access patterns should be cache-friendly:
 
 ### 7. Parallel Processing
 
-**Estimated Impact:** 6-16x speedup (depending on cores)  
-**Complexity:** Medium  
+**Estimated Impact:** 6-16x speedup (depending on cores)
+**Complexity:** Medium
 **Status:** ✅ Complete
 
-**Implementation Date:** December 25, 2025  
+**Implementation Date:** December 25, 2025
 **Files Modified:** NEW `parallel_sim.py`, NEW `parallel_sim_irr.py`, `Makefile`, `README.md`
 
 Multiple independent runs (different radii, different random seeds) can run in parallel across CPU cores. The sequential simulation scripts run all 50 simulations (R=0-10, M=0-4) one at a time. Parallel versions distribute work across available cores.
@@ -805,7 +803,7 @@ Multiple independent runs (different radii, different random seeds) can run in p
 
 Created two new parallel execution scripts using Python's `multiprocessing` module:
 
-**`parallel_sim.py`** - Parallel reversible simulations  
+**`parallel_sim.py`** - Parallel reversible simulations
 **`parallel_sim_irr.py`** - Parallel irreversible simulations
 
 Both scripts:
@@ -854,7 +852,7 @@ if __name__ == '__main__':
 
 Created SLURM batch scripts that respect allocated resources:
 
-**`sim_sbatch.sh`** - Reversible with parallel JIT (16 cores)  
+**`sim_sbatch.sh`** - Reversible with parallel JIT (16 cores)
 **`sim_sbatch_irr.sh`** - Irreversible with parallel JIT (16 cores)
 
 Key feature: Uses `$SLURM_CPUS_PER_TASK` environment variable to match Python's worker count with SLURM's allocation:
@@ -992,8 +990,8 @@ Manual verification:
 
 ### 8. Compiled Code (Numba/Cython)
 
-**Estimated Impact:** 10-100x speedup  
-**Complexity:** High  
+**Estimated Impact:** 10-100x speedup
+**Complexity:** High
 **Status:** 💡 Research needed
 
 JIT compilation or Cython for inner loops:
@@ -1046,9 +1044,9 @@ When implementing future optimizations:
 
 ### 8. Numba JIT Compilation ✅ **IMPLEMENTED**
 
-**Status:** Fully implemented and tested (2025-01-18)  
-**Speedup:** 70-106x for single-core simulations  
-**Combined with parallel:** ~1000-1400x total speedup  
+**Status:** Fully implemented and tested (2025-01-18)
+**Speedup:** 70-106x for single-core simulations
+**Combined with parallel:** ~1000-1400x total speedup
 **Files:** `jit_functions.py`, `jit_inferno.py`, `jit_inferno_irr.py`
 
 #### Overview
@@ -1587,8 +1585,8 @@ Numba JIT compilation delivers the largest single-optimization speedup (70-106x)
 
 ## 9. GPU/CUDA Acceleration (Not Implemented)
 
-**Date Evaluated:** December 25, 2025  
-**Status:** ❌ Not Recommended  
+**Date Evaluated:** December 25, 2025
+**Status:** ❌ Not Recommended
 **Expected Impact:** 1.5-2x additional speedup (not worth the complexity)
 
 ### Analysis

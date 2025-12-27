@@ -1,4 +1,4 @@
-.PHONY: help setup clean activate test-env compile run-sim run-irr-sim run-sim-small run-irr-sim-small sbatch-sim sbatch-irr-sim plot plot-radii plot-comparison run-examples benchmark-jit profile profile-inferno profile-irr view-profile run-tests run-tests-serial run-test-file coverage coverage-html format format-check lint pre-commit-install pre-commit-run
+.PHONY: help setup clean activate test-env compile run-sim run-irr-sim run-sim-small run-irr-sim-small sbatch-sim sbatch-irr-sim plot plot-radii plot-comparison benchmark-jit profile profile-inferno profile-irr view-profile run-tests run-tests-serial run-test-file coverage coverage-html format format-check lint pre-commit-install pre-commit-run
 
 help:  ## Show this help message
 	@echo 'Usage: make [target]'
@@ -13,7 +13,7 @@ help:  ## Show this help message
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; /^(sbatch-sim|sbatch-irr-sim):/ {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
 	@echo ''
 	@printf '\033[1mAnalysis & Visualization:\033[0m\n'
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; /^(plot|plot-radii|plot-comparison|run-examples):/ {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; /^(plot|plot-radii|plot-comparison):/ {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
 	@echo ''
 	@printf '\033[1mPerformance & Profiling:\033[0m\n'
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; /^(benchmark-jit|profile|profile-inferno|profile-irr|view-profile):/ {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
@@ -123,15 +123,6 @@ plot-comparison:  ## Compare entropy between reversible and irreversible simulat
 	@echo "Note: Requires data in data/r{0-10}/ and data/irr/r{0-10}/ directories"
 	@./venv/bin/python creutz-sim/Sk_comparison.py
 
-run-examples:  ## Run all example scripts
-	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
-	@echo "Running quick_test.py..."
-	@./venv/bin/python examples/quick_test.py
-	@echo "\nRunning custom_parameters.py..."
-	@./venv/bin/python examples/custom_parameters.py
-	@echo "\nRunning analysis_pipeline.py..."
-	@./venv/bin/python examples/analysis_pipeline.py
-
 # =============================================================================
 # Performance & Profiling
 # =============================================================================
@@ -201,22 +192,22 @@ coverage-html:  ## Run coverage and open HTML report in browser
 format:  ## Format code with black and isort
 	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
 	@echo "Formatting code with black..."
-	@./venv/bin/python -m black creutz-sim/ tests/ tools/ examples/
+	@./venv/bin/python -m black creutz-sim/ tests/ tools/
 	@echo "Sorting imports with isort..."
-	@./venv/bin/python -m isort creutz-sim/ tests/ tools/ examples/
+	@./venv/bin/python -m isort creutz-sim/ tests/ tools/
 	@echo "✓ Code formatting complete"
 
 format-check:  ## Check if code is formatted correctly (CI-friendly)
 	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
 	@echo "Checking code formatting..."
-	@./venv/bin/python -m black --check creutz-sim/ tests/ tools/ examples/
-	@./venv/bin/python -m isort --check-only creutz-sim/ tests/ tools/ examples/
+	@./venv/bin/python -m black --check creutz-sim/ tests/ tools/
+	@./venv/bin/python -m isort --check-only creutz-sim/ tests/ tools/
 	@echo "✓ Code formatting is correct"
 
 lint:  ## Run flake8 linting
 	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
 	@echo "Running flake8 linter..."
-	@./venv/bin/python -m flake8 creutz-sim/ tests/ tools/ examples/ --max-line-length=88 --extend-ignore=E203,W503,E402,E731,F541
+	@./venv/bin/python -m flake8 creutz-sim/ tests/ tools/ --max-line-length=88 --extend-ignore=E203,W503,E402,E731,F541
 	@echo "✓ Linting complete"
 
 pre-commit-install:  ## Install pre-commit hooks

@@ -325,32 +325,6 @@ else:
 sim = SimClass(n, s, R)
 ```
 
-## Examples
-
-### Quick Demo
-
-```bash
-# Run performance comparison
-python examples/jit_quick_demo.py
-```
-
-Shows side-by-side comparison of original vs JIT.
-
-### Production Template
-
-```bash
-# Validate setup
-python examples/production_run_jit.py --validate-only
-
-# Run production simulation
-python examples/production_run_jit.py
-
-# Custom parameters
-python examples/production_run_jit.py --n 500000 --s 5000 --r 6 --m 10
-```
-
-Full-featured production template with error handling and monitoring.
-
 ## Testing
 
 ### Run JIT Tests
@@ -410,4 +384,4 @@ make run-sim
 python creutz-sim/Sk_comparison.py
 ```
 
-For questions or issues, see [test_jit_implementation.py](../tests/test_jit_implementation.py) for comprehensive examples.
+For questions or issues, see [test_jit_implementation.py](../tests/test_jit_implementation.py) for comprehensive test coverage.

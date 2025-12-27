@@ -52,37 +52,7 @@ Added convenience targets for JIT-enabled runs:
 - Consistent interface with non-JIT targets
 - Help text shows expected speedup (70x or 106x per core)
 
-### 3. Example Scripts ✓
-
-Created demonstration scripts showing JIT usage:
-
-**examples/jit_quick_demo.py** - Interactive performance comparison
-
-- Runs both original and JIT versions side-by-side
-- Shows actual measured speedup (70x rev, 106x irr)
-- Verifies energy conservation and correctness
-- Includes warmup to exclude compilation overhead
-- Clear output explaining JIT benefits
-
-**examples/production_run_jit.py** - Production template
-
-- Complete production-ready wrapper script
-- Automatic JIT optimization (always enabled)
-- Parallel processing across all cores
-- Progress monitoring and time estimates
-- Energy conservation validation
-- Error handling and user-friendly output
-- Supports validation mode for quick testing
-- Detailed help text with usage examples
-
-**Features:**
-
-- `--validate-only` flag for quick setup verification
-- Customizable parameters (n, s, r, m)
-- Output directory configuration
-- Clear status messages and progress updates
-
-### 4. Documentation ✓
+### 3. Documentation ✓
 
 **JIT_BEST_PRACTICES.md** - Comprehensive usage guide
 
@@ -105,9 +75,8 @@ Created demonstration scripts showing JIT usage:
 6. Validation - Correctness verification
 7. Common Issues - Troubleshooting guide
 8. Migration Guide - Convert existing code
-9. Examples - Demo scripts
-10. Testing - Run test suite
-11. Summary - Key takeaways and workflow
+9. Testing - Run test suite
+10. Summary - Key takeaways and workflow
 
 **README.md Updates:**
 
@@ -169,15 +138,15 @@ New JIT demo verified:
 
 ## Production Readiness Checklist
 
-✅ Command-line interface for easy JIT switching  
-✅ Makefile targets for common workflows  
-✅ Example scripts demonstrating usage  
-✅ Comprehensive best practices documentation  
-✅ README updated with performance data  
-✅ Backward compatible (no breaking changes)  
-✅ All tests passing  
-✅ Real-world performance verified  
-✅ Error handling in place  
+✅ Command-line interface for easy JIT switching
+✅ Makefile targets for common workflows
+✅ Example scripts demonstrating usage
+✅ Comprehensive best practices documentation
+✅ README updated with performance data
+✅ Backward compatible (no breaking changes)
+✅ All tests passing
+✅ Real-world performance verified
+✅ Error handling in place
 ✅ User-friendly output messages
 
 ## User Workflow
@@ -190,7 +159,7 @@ make setup
 make test-env
 
 # 2. Quick validation
-python examples/production_run_jit.py --validate-only
+make run-tests
 
 # 3. Production run (fastest)
 make run-sim                       # 1.2 minutes for full run (parallel JIT default)
@@ -207,9 +176,6 @@ python creutz-sim/parallel_sim.py --jit
 
 # Custom parameters
 python creutz-sim/parallel_sim.py --jit --n 500000 --s 5000 --r 6 --m 10
-
-# Wrapper script
-python examples/production_run_jit.py --irreversible
 ```
 
 ## Documentation Structure
@@ -222,10 +188,6 @@ docs/
 ├── JIT_BEST_PRACTICES.md        # JIT usage guide (NEW)
 ├── BEST_PRACTICES.md            # Development practices
 └── CHANGELOG.md                 # Version history
-
-examples/
-├── jit_quick_demo.py            # Performance demonstration (NEW)
-└── production_run_jit.py        # Production template (NEW)
 ```
 
 ## Key Features
