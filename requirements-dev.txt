@@ -1,0 +1,10 @@
+# Include base requirements
+-r requirements.txt
+
+# Development and testing tools
+pytest-cov>=4.0.0  # Coverage reporting (used in make coverage)
+black>=24.0.0      # Code formatting
+isort>=5.13.0      # Import sorting
+flake8>=7.0.0      # Linting
+pre-commit>=3.0.0  # Git hooks for code quality
+# mypy>=1.0.0      # Type checking (optional)

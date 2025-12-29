@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: General Questions
+    url: https://github.com/wember/nanosim/discussions
+    about: Ask questions or discuss ideas in GitHub Discussions
+  - name: Creutz Demon Algorithm
+    url: https://doi.org/10.1103/PhysRevLett.50.1411
+    about: Original paper on the microcanonical demon algorithm

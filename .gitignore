@@ -1,0 +1,73 @@
+# Python virtual environments
+venv/
+env/
+ENV/
+.venv/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Distribution / packaging
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Data files (adjust as needed for your workflow)
+data/
+*.csv
+
+# Logs
+logs/
+*.log
+
+# Profiling data
+profiling/
+*.stats
+
+# Benchmarking results (machine-specific)
+benchmark_results.json
+tools/benchmark_results*.json
+
+# Metadata
+*_metadata.json
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Jupyter Notebooks (if you add them later)
+.ipynb_checkpoints/
+
+# SLURM output files
+slurm-*.out
+
+# Pytest
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+slurm.*.out
+slurm.*.err

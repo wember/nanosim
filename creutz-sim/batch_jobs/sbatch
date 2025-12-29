@@ -1,0 +1,43 @@
+#!/bin/bash
+
+
+# ======================================================================
+# SBATCH WRAPPER SCRIPT (portable SLURM compatibility layer)
+# ======================================================================
+# This script wraps SLURM's sbatch interface for local development and portability.
+# If a real sbatch is available elsewhere on the system, it will delegate to it.
+# Otherwise, it will run the given script as a regular bash script.
+# ======================================================================
+
+if [ $# -lt 1 ]; then
+    echo "Usage: sbatch <script.sh> [args...]"
+    exit 1
+fi
+
+
+# Try to find a real sbatch, but not this script itself
+SBATCH_WRAPPER_PATH="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
+REAL_SBATCH="$(command -v sbatch 2>/dev/null | grep -v "$SBATCH_WRAPPER_PATH" || true)"
+
+if [ -n "$REAL_SBATCH" ] && [ "$REAL_SBATCH" != "$SBATCH_WRAPPER_PATH" ]; then
+    echo "[SBATCH WRAPPER] Delegating to real sbatch at $REAL_SBATCH"
+    exec "$REAL_SBATCH" "$@"
+fi
+
+script="$1"
+shift
+
+
+# Print a wrapper SLURM job ID and environment variables
+export SLURM_JOB_ID=$RANDOM
+export SLURM_CPUS_PER_TASK=${SLURM_CPUS_PER_TASK:-$(sysctl -n hw.physicalcpu 2>/dev/null || echo 4)}
+
+# Print SBATCH WRAPPER info
+cat <<EOF
+Submitted batch job $SLURM_JOB_ID
+[SBATCH WRAPPER] SLURM_JOB_ID=$SLURM_JOB_ID
+[SBATCH WRAPPER] SLURM_CPUS_PER_TASK=$SLURM_CPUS_PER_TASK
+EOF
+
+# Run the script as a normal bash script
+bash "$script" "$@"
