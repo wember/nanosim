@@ -1,3 +1,11 @@
+"""
+Copyright (c) 2026 Winry Ember
+Licensed under the MIT License.
+See LICENSE file in the project root for full license information.
+
+Tests for sim_utils_progress module functions.
+"""
+
 import os
 import sys
 import time

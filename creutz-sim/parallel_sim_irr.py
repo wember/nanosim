@@ -1,4 +1,9 @@
-"""Parallel implementation of irreversible Creutz demon simulation.
+"""
+Copyright (c) 2026 Winry Ember
+Licensed under the MIT License.
+See LICENSE file in the project root for full license information.
+
+Parallel implementation of irreversible Creutz demon simulation.
 
 Uses multiprocessing to run multiple independent simulations simultaneously,
 significantly reducing total execution time on multi-core systems.

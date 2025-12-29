@@ -1,4 +1,9 @@
-"""JIT-optimized Inferno class using Numba-compiled functions.
+"""
+Copyright (c) 2026 Winry Ember
+Licensed under the MIT License.
+See LICENSE file in the project root for full license information.
+
+JIT-optimized Inferno class using Numba-compiled functions.
 
 This module provides a drop-in replacement for the Inferno class with
 3-10x performance improvement via Numba JIT compilation of hot functions.

@@ -1,4 +1,9 @@
-"""Single Simulation Visualization
+"""
+Copyright (c) 2026 Winry Ember
+Licensed under the MIT License.
+See LICENSE file in the project root for full license information.
+
+Single Simulation Visualization
 
 Generates a 1x3 subplot layout showing:
 - Demon energy vs sweeps

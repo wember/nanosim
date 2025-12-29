@@ -1,13 +1,17 @@
 """
+Copyright (c) 2026 Winry Ember
+Licensed under the MIT License.
+See LICENSE file in the project root for full license information.
+
 Production-scale benchmark for Creutz demon simulations.
 
 Benchmarks actual production configurations to measure real-world performance:
 - Full-scale parameters: n=1M, s=5k, r=11, m=5
 - Tests all optimization strategies:
-  * Legacy (no optimization)
-  * JIT only (single-core)
-  * Parallel only (no JIT)
-  * JIT + Parallel (production)
+    * Legacy (no optimization)
+    * JIT only (single-core)
+    * Parallel only (no JIT)
+    * JIT + Parallel (production)
 
 Outputs timing data, speedup factors, and updates documentation templates.
 """

@@ -1,4 +1,9 @@
-"""Multi-Radius Comparison Visualization
+"""
+Copyright (c) 2026 Winry Ember
+Licensed under the MIT License.
+See LICENSE file in the project root for full license information.
+
+Multi-Radius Comparison Visualization
 
 Compares simulation results across different demon-coupling radii (R=0 to R=10)
 for a single simulation type (reversible or irreversible).

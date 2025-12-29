@@ -1,4 +1,9 @@
-"""Tests for JIT command-line flag integration in parallel scripts.
+"""
+Copyright (c) 2026 Winry Ember
+Licensed under the MIT License.
+See LICENSE file in the project root for full license information.
+
+Tests for JIT command-line flag integration in parallel scripts.
 
 Validates that:
 - JIT is enabled by default (no flag needed)

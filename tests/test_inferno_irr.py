@@ -1,4 +1,10 @@
-"""Unit tests for irreversible irrInferno simulation class."""
+"""
+Copyright (c) 2026 Winry Ember
+Licensed under the MIT License.
+See LICENSE file in the project root for full license information.
+
+Unit tests for irreversible irrInferno simulation class.
+"""
 
 import os
 import sys

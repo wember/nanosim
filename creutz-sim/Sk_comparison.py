@@ -1,4 +1,9 @@
-"""Entropy Comparison Visualization
+"""
+Copyright (c) 2026 Winry Ember
+Licensed under the MIT License.
+See LICENSE file in the project root for full license information.
+
+Entropy Comparison Visualization
 
 Compares entropy (S/Nk) evolution between reversible and irreversible
 simulations across different demon-coupling radii (R=0 to R=10).

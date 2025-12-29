@@ -1,4 +1,9 @@
-"""Numba JIT-compiled hot functions for Monte Carlo simulation.
+"""
+Copyright (c) 2026 Winry Ember
+Licensed under the MIT License.
+See LICENSE file in the project root for full license information.
+
+Numba JIT-compiled hot functions for Monte Carlo simulation.
 
 This module contains performance-critical functions compiled with Numba's JIT compiler.
 These functions are extracted from the SimulationBase class methods and optimized for

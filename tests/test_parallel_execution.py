@@ -1,4 +1,7 @@
 """Tests for parallel simulation execution.
+Copyright (c) 2026 Winry Ember
+Licensed under the MIT License.
+See LICENSE file in the project root for full license information.
 
 Tests verify that parallel implementations produce correct results,
 handle resources properly, and match sequential simulation outputs.

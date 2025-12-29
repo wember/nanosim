@@ -1,4 +1,8 @@
 """
+Copyright (c) 2026 Winry Ember
+Licensed under the MIT License.
+See LICENSE file in the project root for full license information.
+
 Shared utilities for Monte Carlo simulations.
 
 This module contains common functionality shared between Inferno and irrInferno

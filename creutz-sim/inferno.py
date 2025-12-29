@@ -1,4 +1,9 @@
-"""Reversible Creutz Demon Simulation (Inferno)
+"""
+Copyright (c) 2026 Winry Ember
+Licensed under the MIT License.
+See LICENSE file in the project root for full license information.
+
+Reversible Creutz Demon Simulation (Inferno)
 
 Implements the reversible version of the Creutz demon algorithm for 1D Ising lattice.
 This class uses pre-computed radius arrays to enable exact time-reversibility testing.

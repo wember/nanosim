@@ -1,4 +1,9 @@
-"""Irreversible Creutz Demon Simulation (irrInferno)
+"""
+Copyright (c) 2026 Winry Ember
+Licensed under the MIT License.
+See LICENSE file in the project root for full license information.
+
+Irreversible Creutz Demon Simulation (irrInferno)
 
 Implements an irreversible version of the Creutz demon algorithm for 1D Ising lattice.
 Unlike the reversible Inferno class, this generates truly random demon-coupling radii
