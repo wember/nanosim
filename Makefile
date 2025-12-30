@@ -4,7 +4,7 @@ help:  ## Show this help message
 	@echo 'Usage: make [target]'
 	@echo ''
 	@printf '\033[1mEnvironment Setup:\033[0m\n'
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; /^(setup|clean|activate|test-env|compile):/ {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; /^(setup|setup-dev|clean|activate|test-env|compile):/ {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
 	@echo ''
 	@printf '\033[1mSimulations:\033[0m\n'
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; /^(run-sim|run-sim-irr|run-sim-small|run-sim-irr-small|run-legacy|run-legacy-irr):/ {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
@@ -39,6 +39,13 @@ setup:  ## Create virtual environment, install dependencies, and compile JIT fun
 	@echo "Compiling JIT functions (one-time setup, ~15-20 seconds)..."
 	@make compile
 
+setup-dev:  ## Create venv and install dev requirements (including pytest-cov, black, etc)
+	@./setup.sh
+	@echo "Installing development requirements..."
+	@source venv/bin/activate && pip install -r requirements-dev.txt
+	@echo "Compiling JIT functions (one-time setup, ~15-20 seconds)..."
+	@make compile
+
 clean:  ## Remove virtual environment and cached files
 	@echo "Cleaning up..."
 	rm -rf venv/
@@ -61,10 +68,6 @@ compile:  ## Warm up JIT compilation (run once after installation)
 	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
 	@./venv/bin/python creutz-sim/parallel_sim.py --n 100 --s 5 --r 3 --m 2 > /dev/null 2>&1
 	@echo "✓ JIT compilation complete (cached for future runs)"
-
-# =============================================================================
-# Simulations
-# =============================================================================
 
 # =============================================================================
 # Simulations

@@ -514,6 +514,64 @@ We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guid
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
+
+## Development, Testing, and Coverage
+
+### Development Environment Setup
+
+For development (including code formatting, linting, and coverage), run:
+
+```bash
+make setup-dev
+```
+
+This installs all base and development dependencies (see `requirements-dev.txt`).
+
+### Adding and Running Tests
+
+- Add new tests in the `tests/` directory. Name files as `test_*.py` and functions as `def test_*`.
+- Run all tests:
+   ```bash
+   make run-tests
+   ```
+- Run a single test file:
+   ```bash
+   make run-test-file FILE=test_inferno.py
+   ```
+- Filter by test name:
+   ```bash
+   make run-tests ARGS="-k <test_name>"
+   ```
+
+### Coverage Reporting
+
+To check code coverage:
+
+```bash
+make coverage
+```
+
+This runs the full test suite and generates a coverage report for the `creutz-sim` directory. For an HTML report:
+
+```bash
+make coverage-html
+```
+
+Open `htmlcov/index.html` in your browser to view detailed coverage results.
+
+### Code Quality Tools
+
+- Format code:
+   ```bash
+   make format
+   ```
+- Lint code:
+   ```bash
+   make lint
+   ```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for more on development workflow and best practices.
+
 ## Contact
 
 - **Authors**: Winry Ember, Wayne Mock
