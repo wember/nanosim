@@ -265,37 +265,35 @@ def test_process_message_queue_forced_refresh(monkeypatch):
     assert pbar.refreshed > 0
 
 
-@pytest.mark.skip(reason="Test is being skipped to avoid issues during test execution.")
 def test_process_message_queue_exception_branch(monkeypatch):
     # Test the except Exception: pass branch
     class DummyResult:
         def __init__(self):
-            self._called = False
+            self._ready_count = 0
 
         def ready(self):
-            if not self._called:
-                self._called = True
-                return False
-            return True
+            # Return True after a few calls to exit the loop
+            self._ready_count += 1
+            return self._ready_count > 3
 
         def get(self):
             return ["done"]
-
-        def empty(self):
-            return True
 
     class DummyQueue:
         def __init__(self):
             self._count = 0
 
         def empty(self):
-            return False
+            # Become empty after a few exceptions to let the loop continue
+            return self._count > 2
 
         def get(self, timeout=None):
             self._count += 1
-            if self._count > 5:
-                raise RuntimeError("Test exceeded max iterations")
-            raise ValueError("test exception")
+            # Raise a few exceptions, then let the queue be empty
+            if self._count <= 2:
+                raise ValueError("test exception")
+            # After exceptions, just block (won't be called since empty() returns True)
+            time.sleep(0.01)
 
     class DummyPbar:
         def close(self):
@@ -312,7 +310,8 @@ def test_process_message_queue_exception_branch(monkeypatch):
 
     pool = MagicMock()
     monkeypatch.setattr("time.time", lambda: 0)
-    sim_utils.process_message_queue(
+    result = sim_utils.process_message_queue(
         DummyQueue(), {}, 10, DummyPbar(), 0, [], 1, 1, 0, DummyResult(), pool
     )
-    # If no exception is raised, the test passes
+    # Should complete without hanging - the exceptions should be caught and ignored
+    assert result is not None
