@@ -25,6 +25,7 @@ Usage:
 import glob
 import os
 import sys
+from typing import List, Tuple
 
 import numpy as np
 import pandas as pd
@@ -35,97 +36,162 @@ from scipy.special import loggamma as logg
 
 pio.templates.default = "plotly_white"
 
-# =============================================================================
-# Create 1x3 Subplot Layout
-# =============================================================================
-fig = make_subplots(rows=1, cols=3, horizontal_spacing=0.2)
 
-# =============================================================================
-# File Discovery
-# =============================================================================
-# Auto-discover CSV files from data/r{0-10}/ directories using project root
-project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+def find_radius_csv_files(
+    project_root: str, max_radius: int = 11
+) -> Tuple[List[str], List[str]]:
+    """
+    Find CSV files for each radius from R=0 to R=max_radius-1.
 
-# Build list of CSV files and display names
-file_names = []
-data_names = []
+    Args:
+        project_root: Root directory of the project
+        max_radius: Maximum radius value (exclusive), default 11 searches R=0 to R=10
 
-for R in range(11):  # R=0 to R=10
-    folder_path = os.path.join(project_root, "data", f"r{R}")
-    # Look for any sim_data CSV files in this radius directory
-    csv_pattern = os.path.join(folder_path, "sim_data*.csv")
-    csv_files = glob.glob(csv_pattern)
+    Returns:
+        Tuple of (file_paths, display_names)
+    """
+    file_names = []
+    data_names = []
 
-    if csv_files:
-        # Use the first CSV found (or most recent if multiple)
-        csv_files.sort(key=lambda x: os.path.getmtime(x), reverse=True)
-        file_names.append(csv_files[0])
-        data_names.append(f"radius = {R}")
-    else:
-        print(f"Warning: No CSV files found in {folder_path}")
+    for R in range(max_radius):
+        folder_path = os.path.join(project_root, "data", f"r{R}")
+        csv_pattern = os.path.join(folder_path, "sim_data*.csv")
+        csv_files = glob.glob(csv_pattern)
 
-# Check if we found any files
-if not file_names:
-    print("Error: No simulation CSV files found in data/r{0-10}/ directories")
-    print("Run a simulation first to generate data:")
-    print("  make run-sim")
-    sys.exit(1)
+        if csv_files:
+            # Use most recent CSV if multiple found
+            csv_files.sort(key=lambda x: os.path.getmtime(x), reverse=True)
+            file_names.append(csv_files[0])
+            data_names.append(f"radius = {R}")
+        else:
+            print(f"Warning: No CSV files found in {folder_path}")
 
-print(f"Found {len(file_names)} CSV files to plot")
+    return file_names, data_names
 
-# =============================================================================
-# Process Each Radius
-# =============================================================================
-for idx, file in enumerate(file_names):
-    df = pd.read_csv(file)
 
-    # Extract data columns
-    n = df["n"][0]  # Lattice size
-    t = df["t"]  # Sweep number (time step)
-    U = df["U"]  # Lattice energy per site
-    K = df["K"]  # Demon energy per site (kinetic)
-    Nx = df["Nx"]  # Anti-aligned neighbor pairs per site
-    N0 = df["N0"]  # Broken bonds per site
+def calculate_entropy_with_n0_handling(df: pd.DataFrame) -> pd.Series:
+    """
+    Calculate total entropy per site handling N0=0 edge case.
 
-    # Handle N0=0 edge case: use 2^(N0+1) instead of 2^N0 to avoid log(0)
-    df["N0_exp"] = df["N0"].replace(0, 1)
-    N0_exp = df["N0_exp"]
+    Args:
+        df: DataFrame with columns n, K, N0, Nx
 
-    # Entropy calculation (high-precision using loggamma)
-    Sk = lambda N, K: logg(K + N) - logg(K + 1) - logg(N)  # Kinetic entropy
+    Returns:
+        Series with total entropy per site (S/Nk)
+    """
+    n = df["n"][0]
+    K = df["K"]
+    N0 = df["N0"]
+    Nx = df["Nx"]
+
+    # Handle N0=0 edge case: use 2^(N0+1) instead of 2^N0
+    N0_exp = df["N0"].replace(0, 1)
+
+    # Kinetic entropy
+    Sk = logg(K + n) - logg(K + 1) - logg(n)
+
+    # Configurational entropy
     Su = (
-        lambda N, N0, Nx: logg(N + 1)
+        logg(n + 1)
         + np.log(2**N0_exp)
-        - (logg(N - N0 - Nx + 1) + logg(N0 + 1) + logg(Nx + 1))
-    )  # Configurational entropy
-
-    # Total entropy per site (in units of Boltzmann constant)
-    total_entropy = (Sk(n, K) + Su(n, N0, Nx)) / n
-
-    # Plot 1: Demon Energy vs Time (all radii overlaid)
-    fig.add_trace(go.Scatter(x=t, y=K, name=data_names[idx]), row=1, col=1)
-    fig.update_xaxes(title_text="Sweeps", row=1, col=1)
-    fig.update_yaxes(title_text="Demon Energy", row=1, col=1)
-    fig.add_vline(
-        x=len(df) // 2, line_width=1, line_dash="dash", line_color="Red", row=1, col=1
+        - (logg(n - N0 - Nx + 1) + logg(N0 + 1) + logg(Nx + 1))
     )
 
-    # Plot 2: Lattice Temperature vs Time (all radii overlaid)
-    fig.add_trace(go.Scatter(x=t, y=U, name=data_names[idx]), row=1, col=2)
-    fig.update_xaxes(title_text="Sweeps", row=1, col=2)
-    fig.update_yaxes(title_text="Lattice Temp", row=1, col=2)
+    # Total entropy per site
+    return (Sk + Su) / n
+
+
+def add_radius_trace_to_subplot(
+    fig: go.Figure,
+    df: pd.DataFrame,
+    data_name: str,
+    row: int,
+    col: int,
+    y_column: str,
+    y_label: str,
+) -> None:
+    """
+    Add a single trace to a subplot with standard formatting.
+
+    Args:
+        fig: Plotly figure object
+        df: DataFrame with data
+        data_name: Name for legend
+        row: Subplot row
+        col: Subplot column
+        y_column: Column name for y-axis data
+        y_label: Label for y-axis
+    """
+    t = df["t"]
+    y = df[y_column]
+
+    fig.add_trace(go.Scatter(x=t, y=y, name=data_name), row=row, col=col)
+    fig.update_xaxes(title_text="Sweeps", row=row, col=col)
+    fig.update_yaxes(title_text=y_label, row=row, col=col)
     fig.add_vline(
-        x=len(df) // 2, line_width=1, line_dash="dash", line_color="Red", row=1, col=2
+        x=len(df) // 2,
+        line_width=1,
+        line_dash="dash",
+        line_color="Red",
+        row=row,
+        col=col,
     )
 
-    # Plot 3: Total Entropy vs Time (all radii overlaid)
-    fig.add_trace(go.Scatter(x=t, y=total_entropy, name=data_names[idx]), row=1, col=3)
-    fig.update_xaxes(title_text="Sweeps", row=1, col=3)
-    fig.update_yaxes(title_text="S/Nk", row=1, col=3)
-    fig.add_vline(
-        x=len(df) // 2, line_width=1, line_dash="dash", line_color="Red", row=1, col=3
-    )
 
-# Display interactive plot
-fig.update_layout(title_text=f"Multi-Radius Comparison (Lattice Size: {n})")
-fig.show()
+def create_multi_radius_plot(file_names: List[str], data_names: List[str]) -> go.Figure:
+    """
+    Create 1x3 subplot figure comparing multiple radii.
+
+    Args:
+        file_names: List of CSV file paths
+        data_names: List of display names for legend
+
+    Returns:
+        Plotly Figure object
+    """
+    fig = make_subplots(rows=1, cols=3, horizontal_spacing=0.2)
+
+    lattice_size = None
+
+    for idx, file in enumerate(file_names):
+        df = pd.read_csv(file)
+
+        if lattice_size is None:
+            lattice_size = df["n"][0]
+
+        # Calculate entropy for plot 3
+        df["entropy"] = calculate_entropy_with_n0_handling(df)
+
+        # Add traces for all three subplots
+        add_radius_trace_to_subplot(fig, df, data_names[idx], 1, 1, "K", "Demon Energy")
+        add_radius_trace_to_subplot(fig, df, data_names[idx], 1, 2, "U", "Lattice Temp")
+        add_radius_trace_to_subplot(fig, df, data_names[idx], 1, 3, "entropy", "S/Nk")
+
+    fig.update_layout(
+        title_text=f"Multi-Radius Comparison (Lattice Size: {lattice_size})"
+    )
+    return fig
+
+
+def main():
+    """Main entry point for multi-radius plotting script."""
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+    # Find CSV files
+    file_names, data_names = find_radius_csv_files(project_root)
+
+    if not file_names:
+        print("Error: No simulation CSV files found in data/r{0-10}/ directories")
+        print("Run a simulation first to generate data:")
+        print("  make run-sim")
+        sys.exit(1)
+
+    print(f"Found {len(file_names)} CSV files to plot")
+
+    # Create and display plot
+    fig = create_multi_radius_plot(file_names, data_names)
+    fig.show()
+
+
+if __name__ == "__main__":
+    main()

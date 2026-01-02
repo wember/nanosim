@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Comprehensive Test Coverage** (2026-01-02): Achieved 84% coverage with 337 tests
+
+  - JIT functions: 28 comprehensive behavioral tests (coverage tool limitation documented)
+  - sim_utils.py: 100% coverage with exception handling tests
+  - parallel_sim.py & parallel_sim_irr.py: 65% coverage (35% is unmeasurable **main** blocks)
+  - Visualization files: Main function tests added (99%/98% coverage)
+  - Performance test stability: Fixed intermittent timing-based test failures
+  - Test suite reliability: All tests pass consistently with proper thresholds
+
 - **Numba JIT Compilation** (2025-01-18): ~3,881x speedup via machine code compilation
   - New files: `jit_functions.py`, `jit_inferno.py`, `jit_inferno_irr.py`
   - Benchmark script: `benchmark_jit.py` with comprehensive performance testing
@@ -37,7 +46,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Structured logging system with file and console outputs
 - JSON metadata output for each simulation run (includes timestamp, parameters, simulation type)
 - Comprehensive docstrings with type hints for all major functions
-- Unit tests using pytest (135 tests total: 92 core + 21 parallel + 22 JIT)
+- Unit tests using pytest (337 tests total with 84% coverage)
 - Performance benchmarks and stress tests (large lattices, long runs, validation mechanisms)
 - Examples directory with sample scripts including benchmark_validation.py
 - Type hints throughout codebase for better IDE support

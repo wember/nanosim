@@ -11,7 +11,7 @@ A high-performance Python implementation of microcanonical ensemble Monte Carlo 
 - 🚀 **~8,900x speedup** with parallel JIT compilation (Numba + multiprocessing)
 - 🔄 **Reversible vs irreversible dynamics** for studying entropy production
 - 📊 **Interactive visualizations** with Plotly
-- ✅ **150+ unit tests** ensuring correctness
+- ✅ **337 unit tests** with 84% coverage ensuring correctness
 - 🎯 **Production-ready** with comprehensive documentation
 
 ## What Does This Simulate?
@@ -306,7 +306,7 @@ nanosim/
 │   ├── Sk_comparison.py     # Entropy comparison plotter
 │   ├── legacy/              # Original single-core implementations
 │   └── batch_jobs/          # SLURM HPC batch scripts
-├── tests/                   # Comprehensive test suite (150+ tests)
+├── tests/                   # Comprehensive test suite (337 tests, 84% coverage)
 ├── tools/                   # Benchmarking and profiling tools
 ├── docs/                    # Detailed documentation
 ├── data/                    # Output data (auto-generated)

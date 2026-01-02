@@ -315,3 +315,285 @@ def test_process_message_queue_exception_branch(monkeypatch):
     )
     # Should complete without hanging - the exceptions should be caught and ignored
     assert result is not None
+
+
+def test_process_message_queue_malformed_messages(monkeypatch):
+    """Test that malformed messages are caught and ignored."""
+    import queue
+
+    class MalformedQueue:
+        def __init__(self):
+            self._messages = [
+                {"type": "start"},  # Missing required fields - will cause KeyError
+                {"type": "progress"},  # Missing required fields
+                {"type": "complete"},  # Missing required fields
+            ]
+            self._index = 0
+
+        def empty(self):
+            return self._index >= len(self._messages)
+
+        def get(self, timeout=None):
+            if self._index >= len(self._messages):
+                raise queue.Empty()
+            msg = self._messages[self._index]
+            self._index += 1
+            return msg
+
+    class QuickResult:
+        def __init__(self):
+            self._ready = False
+
+        def ready(self):
+            # Becomes ready once all messages are processed
+            self._ready = True
+            return self._ready
+
+        def get(self):
+            return []
+
+    class MockPbar:
+        def __init__(self):
+            self.closed = False
+            self.refreshed = False
+
+        def close(self):
+            self.closed = True
+
+        def update(self, n):
+            pass
+
+        def refresh(self):
+            self.refreshed = True
+
+        def set_description(self, desc):
+            pass
+
+    pool = MagicMock()
+    pbar = MockPbar()
+
+    # Use real time to test refresh logic
+    start_time = time.time()
+
+    result = sim_utils.process_message_queue(
+        MalformedQueue(),
+        {},
+        10,
+        pbar,
+        start_time - 2.0,
+        [],
+        1,
+        1,
+        0,
+        QuickResult(),
+        pool,
+    )
+
+    # Should complete without crashing despite malformed messages
+    assert result is not None
+    # Pbar should have been refreshed due to time elapsed
+    assert pbar.refreshed
+
+
+def test_process_message_queue_complete_with_unknown_sim(monkeypatch):
+    """Test that complete messages for unknown sim_num are handled gracefully."""
+    import queue
+
+    class CompleteMsgQueue:
+        def __init__(self):
+            self._messages = [
+                {"type": "complete", "sim_num": 999},  # sim_num not in active_sims
+            ]
+            self._index = 0
+
+        def empty(self):
+            return self._index >= len(self._messages)
+
+        def get(self, timeout=None):
+            if self._index >= len(self._messages):
+                raise queue.Empty()
+            msg = self._messages[self._index]
+            self._index += 1
+            return msg
+
+    class QuickResult:
+        def ready(self):
+            return True
+
+        def get(self):
+            return []
+
+    class MockPbar:
+        def __init__(self):
+            self.update_count = 0
+
+        def close(self):
+            pass
+
+        def update(self, n):
+            self.update_count += n
+
+        def refresh(self):
+            pass
+
+        def set_description(self, desc):
+            pass
+
+    pool = MagicMock()
+    pbar = MockPbar()
+    active_sims = {}  # Empty - complete message won't find sim_num
+    completed = 0
+
+    sim_utils.process_message_queue(
+        CompleteMsgQueue(),
+        active_sims,
+        10,
+        pbar,
+        time.time(),
+        [],
+        1,
+        1,
+        completed,
+        QuickResult(),
+        pool,
+    )
+
+    # Should handle gracefully - no update since sim not in active_sims
+    assert pbar.update_count == 0
+    assert len(active_sims) == 0
+
+
+def test_process_message_queue_progress_updates(monkeypatch):
+    """Test that progress messages trigger proper updates."""
+    import queue
+
+    class ProgressQueue:
+        def __init__(self):
+            self._messages = [
+                {"type": "start", "sim_num": 1, "R": 5, "M": 2},
+                {"type": "progress", "sim_num": 1, "phase": "forward", "progress": 50},
+                {"type": "complete", "sim_num": 1},
+            ]
+            self._index = 0
+
+        def empty(self):
+            return self._index >= len(self._messages)
+
+        def get(self, timeout=None):
+            if self._index >= len(self._messages):
+                raise queue.Empty()
+            msg = self._messages[self._index]
+            self._index += 1
+            return msg
+
+    class QuickResult:
+        def __init__(self):
+            self._count = 0
+
+        def ready(self):
+            self._count += 1
+            return self._count > 5
+
+        def get(self):
+            return []
+
+    class MockPbar:
+        def __init__(self):
+            self.update_count = 0
+            self.descriptions = []
+
+        def close(self):
+            pass
+
+        def update(self, n):
+            self.update_count += n
+
+        def refresh(self):
+            pass
+
+        def set_description(self, desc):
+            self.descriptions.append(desc)
+
+    pool = MagicMock()
+    pbar = MockPbar()
+    active_sims = {}
+    sim_times = []
+
+    current_time = time.time()
+    monkeypatch.setattr("time.time", lambda: current_time)
+
+    completed, last_refresh, results = sim_utils.process_message_queue(
+        ProgressQueue(),
+        active_sims,
+        10,
+        pbar,
+        current_time - 2.0,
+        sim_times,
+        5,
+        2,
+        0,
+        QuickResult(),
+        pool,
+    )
+
+    # Should have processed all messages
+    assert completed == 1  # One complete message
+    assert pbar.update_count == 1  # One update call
+    assert len(sim_times) == 1  # One completion time recorded
+    assert len(active_sims) == 0  # Sim removed after completion
+
+
+def test_process_message_queue_keyboard_interrupt_graceful(monkeypatch):
+    """Test that KeyboardInterrupt is properly handled."""
+
+    class InterruptQueue:
+        def empty(self):
+            return False
+
+        def get(self, timeout=None):
+            raise KeyboardInterrupt()
+
+    class NeverReady:
+        def ready(self):
+            return False
+
+    class MockPbar:
+        def __init__(self):
+            self.closed = False
+
+        def close(self):
+            self.closed = True
+
+        def update(self, n):
+            pass
+
+        def refresh(self):
+            pass
+
+        def set_description(self, desc):
+            pass
+
+    class MockPool:
+        def __init__(self):
+            self.terminated = False
+
+        def terminate(self):
+            self.terminated = True
+
+        def join(self):
+            pass
+
+    pool = MockPool()
+    pbar = MockPbar()
+
+    # This should raise SystemExit(130) after handling KeyboardInterrupt
+    with pytest.raises(SystemExit) as exc_info:
+        sim_utils.process_message_queue(
+            InterruptQueue(), {}, 10, pbar, time.time(), [], 1, 1, 0, NeverReady(), pool
+        )
+
+    # Should exit with code 130 (standard for SIGINT)
+    assert exc_info.value.code == 130
+    # Pool should be terminated and pbar closed
+    assert pool.terminated
+    assert pbar.closed
