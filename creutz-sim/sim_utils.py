@@ -82,7 +82,7 @@ def create_argument_parser(sim_type: str) -> argparse.ArgumentParser:
     """Create command-line argument parser for parallel simulations.
 
     Args:
-        sim_type: Either 'reversible' or 'irreversible'
+        sim_type: Either 'reversible', 'irreversible', or 'combined'
 
     Returns:
         Configured ArgumentParser instance
@@ -145,7 +145,7 @@ def print_simulation_info(
     """Print simulation configuration information.
 
     Args:
-        sim_type: Either 'reversible' or 'irreversible'
+        sim_type: Either 'reversible', 'irreversible', or 'combined'
         n: Lattice size
         s: Number of sweeps
         r: Max radius value
@@ -155,7 +155,11 @@ def print_simulation_info(
         use_jit: Whether JIT compilation is enabled
     """
     total_sims = r * m
-    print(f"Parallel {sim_type} simulation:")
+    if sim_type == "combined":
+        total_sims *= 2  # Both reversible and irreversible
+        print(f"Parallel COMBINED simulation (reversible + irreversible):")
+    else:
+        print(f"Parallel {sim_type} simulation:")
     print(f"  Lattice size: n={n}")
     print(f"  Sweeps: s={s}")
     print(f"  Radii: R=0 to R={r-1}")
@@ -188,10 +192,16 @@ def create_data_directories(project_root: str, r: int, sim_type: str):
     Args:
         project_root: Project root directory path
         r: Max radius value (creates directories for R=0 to R=r-1)
-        sim_type: Either 'reversible' or 'irreversible'
+        sim_type: Either 'reversible', 'irreversible', or 'combined'
     """
     for R in range(r):
         if sim_type == "irreversible":
+            os.makedirs(
+                os.path.join(project_root, "data", "irr", f"r{R}"), exist_ok=True
+            )
+        elif sim_type == "combined":
+            # Create both directories
+            os.makedirs(os.path.join(project_root, "data", f"r{R}"), exist_ok=True)
             os.makedirs(
                 os.path.join(project_root, "data", "irr", f"r{R}"), exist_ok=True
             )

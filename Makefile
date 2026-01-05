@@ -7,7 +7,7 @@ help:  ## Show this help message
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; /^(setup|setup-dev|clean|activate|test-env|compile):/ {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
 	@echo ''
 	@printf '\033[1mSimulations:\033[0m\n'
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; /^(run-sim|run-sim-irr|run-sim-small|run-sim-irr-small|run-legacy|run-legacy-irr):/ {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; /^(run-sim|run-sim-irr|run-sims|run-sim-small|run-sim-irr-small|run-legacy|run-legacy-irr):/ {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
 	@echo ''
 	@printf '\033[1mHPC / SLURM:\033[0m\n'
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; /^(sbatch-sim|sbatch-irr-sim):/ {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
@@ -72,6 +72,11 @@ compile:  ## Warm up JIT compilation (run once after installation)
 # =============================================================================
 # Simulations
 # =============================================================================
+
+run-sims:  ## Run BOTH reversible AND irreversible simulations together (halves total time!)
+	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
+	@echo "Running COMBINED simulation (reversible + irreversible together)..."
+	@./venv/bin/python creutz-sim/parallel_sim_combined.py $(ARGS)
 
 run-sim:  ## Run reversible simulation with parallel JIT (fastest, use ARGS="--cores 1" for single-core)
 	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
@@ -252,6 +257,4 @@ pre-commit-run:  ## Run pre-commit hooks on all files
 	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
 	@echo "Running pre-commit hooks on all files..."
 	@./venv/bin/python -m pre_commit run --all-files
-	@make coverage
-	@echo "Opening coverage report in browser..."
-	@open htmlcov/index.html || xdg-open htmlcov/index.html 2>/dev/null || echo "Please open htmlcov/index.html manually"
+	@echo "✓ Pre-commit checks complete. Run 'make coverage' to generate coverage report."

@@ -208,7 +208,8 @@ def run_single_simulation(
     }
 
 
-if __name__ == "__main__":
+def main():
+    """Main execution function."""
     # Parse command-line arguments
     parser = create_argument_parser("reversible")
     args = parser.parse_args()
@@ -306,3 +307,7 @@ if __name__ == "__main__":
 
     end_time = datetime.now()
     print_final_results(results, start_time, end_time, "reversible")
+
+
+if __name__ == "__main__":
+    main()

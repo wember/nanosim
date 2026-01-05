@@ -9,6 +9,7 @@ A high-performance Python implementation of microcanonical ensemble Monte Carlo 
 **Key Features:**
 
 - 🚀 **~8,900x speedup** with parallel JIT compilation (Numba + multiprocessing)
+- ⚡ **Combined simulation mode** runs both reversible + irreversible simultaneously (2x faster for full datasets)
 - 🔄 **Reversible vs irreversible dynamics** for studying entropy production
 - 📊 **Interactive visualizations** with Plotly
 - ✅ **337 unit tests** with 84% coverage ensuring correctness
@@ -89,7 +90,12 @@ make run-sim ARGS="--n 10000 --s 1000"
 # Full production run (1-2 minutes with JIT)
 # Uses: n=1000000, s=5000, r=11 (tests R=1-10), m=5 runs
 make run-sim
+
+# ⚡ NEW: Run BOTH reversible AND irreversible together (halves total time!)
+make run-sims
 ```
+
+> **Time Saver!** The `run-sims` target runs both reversible and irreversible simulations simultaneously, cutting your wall-clock time in half. See [COMBINED_SIMS.md](docs/COMBINED_SIMS.md) for details.
 
 **Common parameters:**
 
