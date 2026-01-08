@@ -6,139 +6,131 @@ import math
 import socket
 from datetime import datetime
 
-# Use stable logarithm calculations for large factorials
-def Sk_stable(N, K):
-    """Stable entropy calculation for kinetic energy"""
-    return logg(K + N) - logg(K + 1) - logg(N)
+def add_row(filename, row_data):    # appends a new row to csv file
+    try:
+        with open(filename, 'a', newline='') as file:
+            writer = csv.writer(file)
+            writer.writerow(row_data)
+    except Exception as e:
+         print(f"An error occurred: {e}")
 
-def Su_stable(N, N0, Nx, N0_exp):
-    """Stable entropy calculation for potential energy"""
-    # Use log1p for better precision when N0_exp is large
-    # log(2^N0_exp) = N0_exp * log(2)
-    log_2_term = N0_exp * np.log(2)
-    return logg(N + 1) + log_2_term - (logg(N - N0 - Nx + 1) + logg(N0 + 1) + logg(Nx + 1))
+Sk = lambda N, K: logg(K + N) - logg(K+1) - logg(N) # N == lattice size, K == kinetic energy
+Su = lambda N, N0, Nx, N0_exp: logg(N+1) + math.log(2**N0_exp) - (logg(N-N0-Nx+1) + logg(N0+1) + logg(Nx+1)) # N == lattice size, N0 == broken bonds, Nx == bonds between anti-aligned spins
 
-# lattice size
-n = 1000000
-# sweeps
-s = 5000
-# max bond-demon couple radius
-r = 11
-# number of sims
-m = 5
+
+n=10            # lattice size
+s = 100         # sweeps
+flag = 0        # 0 for rev, 1 for irr dynamics
+k = 100         # number of sweeps before switching dynamics
+r = 11          # max bond-demon couple radius
+m = 5           # number of sims
+
+
+
 
 folder = "/Users/winry/Documents/ASU/thesis/dev/data/"
+init_folder = "/Users/winry/Documents/ASU/thesis/dev/init-fin/"
 
 host = socket.gethostname()
-if host != 'Luli.local':
-    folder = '/home/wember/2025thesis/nanosim/data/'
+if host != 'Luli':
+  folder = '/home/wember/2025thesis/nanosim/data/'
 
 status_file = f"{folder}sim_status.csv"
-file_names = [f'{folder}r0/sim_data',
-              f'{folder}r1/sim_data_r1',
-              f'{folder}r2/sim_data_r2',
-              f'{folder}r3/sim_data_r3',
-              f'{folder}r4/sim_data_r4',
-              f'{folder}r5/sim_data_r5',
-              f'{folder}r6/sim_data_r6',
-              f'{folder}r7/sim_data_r7',
-              f'{folder}r8/sim_data_r8',
-              f'{folder}r9/sim_data_r9',
-              f'{folder}r10/sim_data_r10']
+
+file_names = [f'{folder}r{i}/sim_data_r{i}' for i in range(11)]
+irr_files = [f'{folder}irr/r{i}/irr_sim_data_r{i}' for i in range(11)]
+init_files = [f'{init_folder}r{i}/sim_data_r{i}' for i in range(11)]
 
 for M in range(m):
     for R in range(r):
         x = Inferno(n, R+1)
+
         filename = f"{file_names[R]}_{M}.csv"
+        irr_filename = f"{irr_files[R]}_{M}.csv"
+        init_filename = f"{init_files[R]}_{M}.csv"
+        filenames = [filename, irr_filename, init_filename]
 
-        # Pre-allocate array for all results - use float64 for final calculations
-        all_results = np.zeros((2*s, 7), dtype=np.float64)
+        data_types = ['t', 'K', 'U', 'N0', 'Nx', 'S/nk', 'n'] # step counter, lattice energy, demon energy, total energy, broken bonds, anti-aligned spins, lattice size
 
-        print(f"Starting M={M}, R={R}")
+        # rev only
+        filenames = [filename]
+        # # irr only
+        # filenames = [irr_filename]
+        for fname in filenames:
+            with open(fname, 'w+', newline='') as file:
+                writer = csv.writer(file)
+                writer.writerow(data_types)
 
-        # Forward simulation
-        for i in range(s):
+        # Separate counters for each file type
+        t_counter = 0
+        t_irr_counter = 0
+
+        ### Forward simulation
+        for i in range(s//2):
+            # flag = (i // (n//k)) % 2    # if 0, perform reversible dynamics
+            data = np.zeros(5)
             # Attempt to flip each spin in lattice
             for j in range(n):
-                x.demon_move()
+                x.demon_move(flag)
+                # Calculate total entropy
+                N0e = int(x.bond_count[1])
+                if N0e == 0:
+                    N0e = 1
+                total_entropy = (Sk(n, sum(x.E_demon)) + Su(n, x.bond_count[1], x.bond_count[2], N0e))/n
+                # Add results to totals
+                data += [sum(x.E_demon), x.E_lattice, x.bond_count[1]/n, x.bond_count[2]/n, total_entropy]
 
-            # Get validated state after each sweep
-            state = x.get_validated_state()
+            # Increment appropriate counter
+            if flag == 0:
+                t_counter += 1
+                t_value = t_counter
+            else:
+                t_irr_counter += 1
+                t_value = t_irr_counter
 
-            # Calculate entropy with stable functions
-            N0e = max(1, int(state['bond_count'][1]))
+            # write avg sweep results to csv
+            new_row = np.array([t_value, data[0]/n, data[1]/n, data[2]/n, data[3]/n, data[4]/n, n])
 
-            # Use stable entropy calculations
-            try:
-                Sk_val = Sk_stable(n, state['E_demon_sum'])
-                Su_val = Su_stable(n, state['bond_count'][1], state['bond_count'][2], N0e)
-                total_entropy = (Sk_val + Su_val) / n
-            except (ValueError, OverflowError) as e:
-                print(f"Warning: Entropy calculation error at sweep {i}: {e}")
-                total_entropy = np.nan
+            # Save initial and final states to init_filename, all states to appropriate file
+            # if (i == 0):
+            #     add_row(init_filename, new_row)
 
-            # Store results - division by n done in float64
-            all_results[i] = [
-                np.float64(i + 1),
-                np.float64(state['E_demon_sum']) / n,
-                np.float64(state['E_lattice']) / n,
-                np.float64(state['bond_count'][1]) / n,
-                np.float64(state['bond_count'][2]) / n,
-                total_entropy,
-                np.float64(n)
-            ]
+            if (flag == 0):
+                add_row(filename, new_row)
+            else:
+                add_row(irr_filename, new_row)
 
-            # Progress indicator
-            if (i + 1) % 1000 == 0:
-                print(f"  Forward sweep {i+1}/{s} complete")
-                # Verify energy conservation
-                assert state['E_total'] == x._initial_total_energy, \
-                    f"Energy conservation violated: {state['E_total']} != {x._initial_total_energy}"
-
-        # Reverse simulation
-        print(f"  Starting reverse simulation")
-        for i in range(s):
-            # Attempt to flip each spin in lattice
+        ### Reverse simulation
+        for i in range(s//2):
+            # flag = (i // (n//k)) % 2    # if 0, perform reversible dynamics
+            data = np.zeros(5)
+            # Attempt to flip each spin in lattice (full sweep)
             for j in range(n):
-                x.demon_reverse()
+                x.demon_reverse(flag)
+                # Calculate total entropy
+                N0_exp = int(x.bond_count[1])
+                if N0_exp == 0:
+                    N0_exp = 1
+                total_entropy = (Sk(n, sum(x.E_demon)) + Su(n, x.bond_count[1], x.bond_count[2], N0_exp))/n
+                # Add results to totals
+                data += [sum(x.E_demon), x.E_lattice, x.bond_count[1]/n, x.bond_count[2]/n, total_entropy]
 
-            # Get validated state
-            state = x.get_validated_state()
+            # Increment appropriate counter
+            if flag == 0:
+                t_counter += 1
+                t_value = t_counter
+            else:
+                t_irr_counter += 1
+                t_value = t_irr_counter
 
-            # Calculate entropy
-            N0_exp = max(1, int(state['bond_count'][1]))
+            # write avg sweep results to csv
+            new_row = np.array([t_value, data[0]/n, data[1]/n, data[2]/n, data[3]/n, data[4]/n, n])
 
-            try:
-                Sk_val = Sk_stable(n, state['E_demon_sum'])
-                Su_val = Su_stable(n, state['bond_count'][1], state['bond_count'][2], N0_exp)
-                total_entropy = (Sk_val + Su_val) / n
-            except (ValueError, OverflowError) as e:
-                print(f"Warning: Entropy calculation error at reverse sweep {i}: {e}")
-                total_entropy = np.nan
+            # Save initial and final states to init_filename, all states to appropriate file
+            # if (i == (s//2-1)):
+            #     add_row(init_filename, new_row)
 
-            # Store results
-            all_results[s + i] = [
-                np.float64(s + i + 1),
-                np.float64(state['E_demon_sum']) / n,
-                np.float64(state['E_lattice']) / n,
-                np.float64(state['bond_count'][1]) / n,
-                np.float64(state['bond_count'][2]) / n,
-                total_entropy,
-                np.float64(n)
-            ]
-
-            # Progress indicator
-            if (i + 1) % 1000 == 0:
-                print(f"  Reverse sweep {i+1}/{s} complete")
-                # Verify energy conservation
-                assert state['E_total'] == x._initial_total_energy, \
-                    f"Energy conservation violated: {state['E_total']} != {x._initial_total_energy}"
-
-        # Write all results at once
-        with open(filename, 'w', newline='') as file:
-            writer = csv.writer(file)
-            writer.writerow(['t', 'K', 'U', 'N0', 'Nx', 'S/nk', 'n'])
-            writer.writerows(all_results)
-
-        print(f"Completed M={M}, R={R} - saved to {filename}")
-        print(f"  Final energy check: {state['E_total']} == {x._initial_total_energy}")
+            if (flag == 0):
+                add_row(filename, new_row)
+            else:
+                add_row(irr_filename, new_row)
