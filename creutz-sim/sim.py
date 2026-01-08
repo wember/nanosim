@@ -3,8 +3,9 @@ import numpy as np
 import csv
 from scipy.special import loggamma as logg
 import math
-import socket
 from datetime import datetime
+import os
+from pathlib import Path
 
 def add_row(filename, row_data):    # appends a new row to csv file
     try:
@@ -28,12 +29,10 @@ m = 5           # number of sims
 
 
 
-folder = "/Users/winry/Documents/ASU/thesis/dev/data/"
-init_folder = "/Users/winry/Documents/ASU/thesis/dev/init-fin/"
-
-host = socket.gethostname()
-if host != 'Luli':
-  folder = '/home/wember/2025thesis/nanosim/data/'
+# Use relative path from repo root
+repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+folder = os.path.join(repo_root, 'data') + '/'
+init_folder = os.path.join(repo_root, 'init-fin') + '/'
 
 status_file = f"{folder}sim_status.csv"
 
@@ -56,6 +55,11 @@ for M in range(m):
         filenames = [filename]
         # # irr only
         # filenames = [irr_filename]
+        
+        # Create directories if they don't exist
+        for fname in filenames:
+            Path(fname).parent.mkdir(parents=True, exist_ok=True)
+        
         for fname in filenames:
             with open(fname, 'w+', newline='') as file:
                 writer = csv.writer(file)

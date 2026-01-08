@@ -6,6 +6,7 @@ import math
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import plotly.io as pio
+from pathlib import Path
 pio.templates.default = "plotly_white"
 
 # Max radius
@@ -40,19 +41,30 @@ irr_colors = ['#005A5E',
           '#A1F3FF',
           '#BCEEF7']
 
-filepath = "/Users/winry/Documents/ASU/thesis/dev/Sol_sims/data/"
-### for test data
-filepath = "/Users/winry/Documents/ASU/thesis/dev/data/"
+# Use relative path from repo root
+repo_root = Path(__file__).parent.parent
+filepath = repo_root / 'data'
+
+# Check if data directory exists
+if not filepath.exists():
+    print(f"Error: Data directory not found at {filepath}")
+    print("Please run 'make sim' first to generate simulation data.")
+    exit(1)
 
 avg_Sk = np.array([])
 irr_avg_Sk = np.array([])
 SEM = np.array([])
 irr_SEM = np.array([])
 
-######### Plot irreversible data
+######### Plot irreversible data (if available)
 for R in range(r):
-    folder_path = f'{filepath}irr/r{R}'
-    all_csv_files = glob.glob(os.path.join(folder_path, '*.csv'))
+    folder_path = filepath / 'irr' / f'r{R}'
+    if not folder_path.exists():
+        continue
+    
+    all_csv_files = glob.glob(str(folder_path / '*.csv'))
+    if not all_csv_files:
+        continue
 
     # Create an empty list to store individual DataFrames
     list_of_dfs = []
@@ -88,10 +100,13 @@ for R in range(r):
     irr_avg_Sk = np.append(irr_avg_Sk, np.mean(zoom['S/nk']))
     irr_SEM = np.append(irr_SEM, np.std(zoom['S/nk']/math.sqrt(len(zoom['S/nk']))))
 
-########### Reversible sims with radius 0 to r
+######### Plot reversible data
 for R in range(r):
-    folder_path = f'{filepath}r{R}'
-    all_csv_files = glob.glob(os.path.join(folder_path, '*.csv'))
+    folder_path = filepath / f'r{R}'
+    all_csv_files = glob.glob(str(folder_path / '*.csv'))
+    
+    if not all_csv_files:
+        continue
 
     # Create an empty list to store individual DataFrames
     list_of_dfs = []

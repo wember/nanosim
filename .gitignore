@@ -66,3 +66,7 @@ wheels/
 # SLURM batch job outputs
 slurm-*.out
 *.out
+
+# Simulation data and output
+data/
+init-fin/
