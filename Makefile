@@ -41,8 +41,7 @@ activate:
 
 clean-venv:
 	@echo "Removing virtual environment..."
-	rm -rf $(VENV_NAME)
-	@echo "Virtual environment removed."
+	@rm -rf $(VENV_NAME)
 
 # ============================================================================
 # Simulation
@@ -50,13 +49,12 @@ clean-venv:
 
 sim: clean
 	@echo "Running simulation..."
-	$(VENV_PYTHON) creutz-sim/sim.py
+	@$(VENV_PYTHON) creutz-sim/sim.py
 
 plot:
 	@echo "Generating plots..."
-	$(VENV_PYTHON) creutz-sim/Sk_comparison.py
+	@$(VENV_PYTHON) creutz-sim/Sk_comparison.py
 
 clean:
 	@echo "Removing simulation data..."
-	rm -rf data/ init-fin/
-	@echo "Simulation data removed."
+	@rm -rf data/ init-fin/

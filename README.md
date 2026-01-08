@@ -2,18 +2,18 @@
 
 Nanoscale simulation tools for statistical mechanics.
 
-## What's This?
+## Introduction
 
 Monte Carlo simulations for studying statistical mechanics at the nanoscale. Built with Python and NumPy/SciPy for number crunching, with Plotly for visualization.
 
-## Setup
+## Environment
 
 ### Prerequisites
 
 - Python 3.11 or higher
 - Make (optional, but recommended)
 
-### Quick Start
+### Setup
 
 #### Using Make (Recommended)
 
@@ -27,8 +27,6 @@ source venv/bin/activate
 
 #### Manual Setup
 
-Use these steps if you don't have `make` or want to go old school
-
 ```bash
 # Create virtual environment
 python3 -m venv venv
@@ -41,29 +39,45 @@ pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-## Usage
+### Cleanup
 
 ```bash
-# Activate the virtual environment
-source venv/bin/activate
+# Remove the virtual environment
+make clean-venv
 
-# Run simulations
+# Deactivate when done
+deactivate
+```
+
+## Simulation
+
+### Running Simulations
+
+```bash
+# Run the Monte Carlo simulation
+make sim
+
+# Or manually:
+source venv/bin/activate
 cd creutz-sim
 python sim.py
 ```
 
-## Deactivating the Environment
+### Generating Plots
 
 ```bash
-deactivate
+# Generate comparison plots from simulation data
+make plot
+
+# Or manually:
+source venv/bin/activate
+cd creutz-sim
+python Sk_comparison.py
 ```
 
-## Cleaning Up
-
-To remove the virtual environment:
+### Cleaning Data
 
 ```bash
+# Remove simulation output directories
 make clean
-# or manually:
-rm -rf venv
 ```
