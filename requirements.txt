@@ -1,0 +1,7 @@
+# Core scientific computing packages
+numpy==2.3.4
+scipy==1.16.3
+pandas==2.3.3
+
+# Visualization
+plotly==6.4.0
