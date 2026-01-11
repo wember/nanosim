@@ -69,4 +69,4 @@ slurm-*.out
 
 # Simulation data and output
 data/
-init-fin/
+test_data/

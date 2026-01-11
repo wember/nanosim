@@ -1,5 +1,7 @@
 #!/bin/bash
 
+# Usage: sbatch sim_sbatch.sh [args for sim.py]
+
 #SBATCH -N 1  		# number of nodes
 #SBATCH -c 1  		# number of "tasks" (cores)
 #SBATCH --mem=1G        # GigaBytes of memory required (per node)
@@ -11,9 +13,12 @@
 #SBATCH --mail-type=ALL # Send an e-mail when a job starts, stops, or fails
 ##SBATCH --mail-user=wember@asu.edu # Mail-to address
 
-source /home/wember/2025thesis/my_venv/bin/activate
+# Get the directory where this script is located
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
-python /home/wember/2025thesis/nanosim/creutz-sim/sim.py
+# Activate virtual environment
+source "$REPO_ROOT/venv/bin/activate"
 
-/home/wember/2025thesis/nanosim/data
-
+# Run simulation, add any additional arguments passed to the script
+python "$REPO_ROOT/creutz-sim/sim.py" $@

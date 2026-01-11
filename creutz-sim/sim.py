@@ -8,6 +8,9 @@ from pathlib import Path
 import argparse
 from tqdm import tqdm
 import time
+import signal
+import sys
+import atexit
 
 def add_row(filename, row_data):    # appends a new row to csv file
     try:
@@ -29,6 +32,7 @@ def get_params():
     parser.add_argument('-f', '--flag', type=int, choices=[0, 1], help='Dynamics flag: 0=reversible, 1=irreversible (default: 0)')
     parser.add_argument('-r', '--radius', type=int, help='Max bond-demon couple radius (default: 11)')
     parser.add_argument('-m', '--runs', type=int, help='Number of simulation runs (default: 5)')
+    parser.add_argument('-d', '--data-dir', type=str, default='data', help='Data output directory (default: data)')
     parser.add_argument('-i', '--interactive', action='store_true', help='Interactive mode')
     
     args = parser.parse_args()
@@ -42,8 +46,8 @@ def get_params():
         'm': 5
     }
     
-    # Interactive mode
-    if args.interactive or not any([args.lattice_size, args.sweeps, args.flag is not None, args.radius, args.runs]):
+    # Interactive mode (only if -i flag is set)
+    if args.interactive:
         print("=== Monte Carlo Simulation Configuration ===")
         print()
         
@@ -82,10 +86,10 @@ def get_params():
     print(f"Running simulation: n={defaults['n']}, sweeps={defaults['s']}, flag={defaults['flag']}, radius={defaults['r']}, runs={defaults['m']}")
     print()
     
-    return defaults['n'], defaults['s'], defaults['flag'], defaults['r'], defaults['m']
+    return defaults['n'], defaults['s'], defaults['flag'], defaults['r'], defaults['m'], args.data_dir
 
 
-n, s, flag, r, m = get_params()
+n, s, flag, r, m, data_dir = get_params()
 k = 100  # number of sweeps before switching dynamics
 
 # Calculate total iterations for progress tracking
@@ -97,10 +101,53 @@ print()
 
 # Use relative path from repo root
 repo_root = Path(__file__).parent.parent
-data_folder = repo_root / 'data'
-init_folder = repo_root / 'init-fin'
+data_folder = repo_root / data_dir
+init_folder = data_folder / 'init_fin'
 
-status_file = data_folder / 'sim_status.csv'
+# Create data folder structure
+data_folder.mkdir(parents=True, exist_ok=True)
+
+# Status tracking files
+status_file = data_folder / 'sim_status.txt'
+start_marker = data_folder / 'sim_started.txt'
+completion_marker = data_folder / 'sim_completed.txt'
+
+# Write simulation start marker with parameters
+with open(start_marker, 'w') as f:
+    f.write(f"Simulation started: {datetime.now().isoformat()}\n")
+    f.write(f"Parameters: n={n}, sweeps={s}, flag={flag}, radius={r}, runs={m}\n")
+    f.write(f"Total simulations: {total_sims}\n")
+
+# Clean handler for interrupted simulations
+def write_interrupted_status(signum=None, frame=None):
+    """Write interrupted status before exiting."""
+    with open(status_file, 'w') as f:
+        f.write(f"Status: INTERRUPTED\n")
+        f.write(f"Time: {datetime.now().isoformat()}\n")
+        f.write(f"Completed: {sim_counter}/{total_sims} simulations\n")
+        if signum:
+            f.write(f"Signal: {signum}\n")
+    print(f"\n\nSimulation interrupted! Status written to {status_file}")
+    sys.exit(1)
+
+def write_error_status(exc_type, exc_value, exc_traceback):
+    """Write error status on uncaught exceptions."""
+    if exc_type is KeyboardInterrupt:
+        write_interrupted_status()
+        return
+    with open(status_file, 'w') as f:
+        f.write(f"Status: ERROR\n")
+        f.write(f"Time: {datetime.now().isoformat()}\n")
+        f.write(f"Completed: {sim_counter}/{total_sims} simulations\n")
+        f.write(f"Error: {exc_type.__name__}: {exc_value}\n")
+    print(f"\n\nSimulation crashed! Status written to {status_file}")
+
+# Register signal handlers for Ctrl-C and termination
+signal.signal(signal.SIGINT, write_interrupted_status)
+signal.signal(signal.SIGTERM, write_interrupted_status)
+
+# Register exception handler for crashes
+sys.excepthook = write_error_status
 
 file_names = [data_folder / f'r{i}' / f'sim_data_r{i}' for i in range(11)]
 irr_files = [data_folder / 'irr' / f'r{i}' / f'irr_sim_data_r{i}' for i in range(11)]
@@ -248,3 +295,17 @@ print(f"\nSimulation complete!")
 print(f"  Total time: {time_str}")
 print(f"  Average: {avg_time_per_sim:.2f}s per simulation")
 print(f"  Throughput: {total_sweeps/total_time:.0f} sweeps/sec")
+
+# Write completion status
+with open(completion_marker, 'w') as f:
+    f.write(f"Simulation completed: {datetime.now().isoformat()}\n")
+    f.write(f"Total time: {time_str}\n")
+    f.write(f"Average: {avg_time_per_sim:.2f}s per simulation\n")
+    f.write(f"Throughput: {total_sweeps/total_time:.0f} sweeps/sec\n")
+
+with open(status_file, 'w') as f:
+    f.write(f"Status: COMPLETED\n")
+    f.write(f"Time: {datetime.now().isoformat()}\n")
+    f.write(f"Completed: {total_sims}/{total_sims} simulations\n")
+
+print(f"Status written to {status_file}")
