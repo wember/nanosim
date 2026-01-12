@@ -56,6 +56,9 @@ irr_avg_Sk = np.array([])
 SEM = np.array([])
 irr_SEM = np.array([])
 
+# Track which radii already have legend entries
+legend_shown = set()
+
 ######### Plot irreversible data (if available)
 for R in range(r):
     folder_path = filepath / 'irr' / f'r{R}'
@@ -80,8 +83,13 @@ for R in range(r):
     average_df = combined_df.groupby(combined_df.index).mean()
 
     n = int(average_df['n'][0])
-    fig.add_trace(go.Scatter(x=average_df['t'], y=average_df['S/nk'], name=f"irr radius {R}", line=dict(color=irr_colors[R])),row=1, col=1)
-    fig.add_trace(go.Scatter(x=average_df['t'].rolling(window=bin_size).mean(), y=average_df['S/nk'].rolling(window=bin_size).mean(), name=f"radius{R}", line=dict(color=irr_colors[R])),row=1, col=2)
+    show_legend = R not in legend_shown
+    if show_legend:
+        legend_shown.add(R)
+    fig.add_trace(go.Scatter(x=average_df['t'], y=average_df['S/nk'], name=f"radius {R}", 
+                             line=dict(color=irr_colors[R]), legendgroup=f"r{R}", showlegend=show_legend),row=1, col=1)
+    fig.add_trace(go.Scatter(x=average_df['t'].rolling(window=bin_size).mean(), y=average_df['S/nk'].rolling(window=bin_size).mean(), 
+                             name=f"radius{R}", line=dict(color=irr_colors[R]), legendgroup=f"r{R}", showlegend=False),row=1, col=2)
 
     # Zoomed in portion about center of dataframe
     num_elements = len(average_df['t']) // 4
@@ -95,14 +103,19 @@ for R in range(r):
 
     # Extract the middle elements
     zoom = average_df.iloc[start_index:end_index]
-    fig.add_trace(go.Scatter(x=zoom['t'], y=zoom['S/nk'], name=f"radius {R}", line=dict(color=irr_colors[R])),row=2, col=1)
-    fig.add_trace(go.Scatter(x=zoom['t'].rolling(window=bin_size).mean(), y=zoom['S/nk'].rolling(window=bin_size).mean(), name=f"radius {R}", line=dict(color=irr_colors[R])),row=2, col=2)
+    fig.add_trace(go.Scatter(x=zoom['t'], y=zoom['S/nk'], name=f"radius {R}", 
+                             line=dict(color=irr_colors[R]), legendgroup=f"r{R}", showlegend=False),row=2, col=1)
+    fig.add_trace(go.Scatter(x=zoom['t'].rolling(window=bin_size).mean(), y=zoom['S/nk'].rolling(window=bin_size).mean(), 
+                             name=f"radius {R}", line=dict(color=irr_colors[R]), legendgroup=f"r{R}", showlegend=False),row=2, col=2)
     irr_avg_Sk = np.append(irr_avg_Sk, np.mean(zoom['S/nk']))
     irr_SEM = np.append(irr_SEM, np.std(zoom['S/nk']/math.sqrt(len(zoom['S/nk']))))
 
 ######### Plot reversible data
+# Check if data is in irr subdirectory (when run with -f 1)
+rev_filepath = filepath / 'irr' if (filepath / 'irr').exists() and any((filepath / 'irr').iterdir()) else filepath
+
 for R in range(r):
-    folder_path = filepath / f'r{R}'
+    folder_path = rev_filepath / f'r{R}'
     all_csv_files = glob.glob(str(folder_path / '*.csv'))
     
     if not all_csv_files:
@@ -122,8 +135,13 @@ for R in range(r):
     average_df = combined_df.groupby(combined_df.index).mean()
 
     n = int(average_df['n'][0])
-    fig.add_trace(go.Scatter(x=average_df['t'], y=average_df['S/nk'], name=f"radius {R}", line=dict(color=colors[R])),row=1, col=1)
-    fig.add_trace(go.Scatter(x=average_df['t'].rolling(window=bin_size).mean(), y=average_df['S/nk'].rolling(window=bin_size).mean(), name=f"radius{R}", line=dict(color=colors[R])),row=1, col=2)
+    show_legend = R not in legend_shown
+    if show_legend:
+        legend_shown.add(R)
+    fig.add_trace(go.Scatter(x=average_df['t'], y=average_df['S/nk'], name=f"radius {R}", 
+                             line=dict(color=colors[R]), legendgroup=f"r{R}", showlegend=show_legend),row=1, col=1)
+    fig.add_trace(go.Scatter(x=average_df['t'].rolling(window=bin_size).mean(), y=average_df['S/nk'].rolling(window=bin_size).mean(), 
+                             name=f"radius{R}", line=dict(color=colors[R]), legendgroup=f"r{R}", showlegend=False),row=1, col=2)
 
     # Zoomed in portion about center of dataframe
     num_elements = len(average_df['t']) // 4
@@ -137,8 +155,10 @@ for R in range(r):
 
     # Extract the middle elements
     zoom = average_df.iloc[start_index:end_index]
-    fig.add_trace(go.Scatter(x=zoom['t'], y=zoom['S/nk'], name=f"radius {R}", line=dict(color=colors[R])),row=2, col=1)
-    fig.add_trace(go.Scatter(x=zoom['t'].rolling(window=bin_size).mean(), y=zoom['S/nk'].rolling(window=bin_size).mean(), name=f"radius {R}", line=dict(color=colors[R])),row=2, col=2)
+    fig.add_trace(go.Scatter(x=zoom['t'], y=zoom['S/nk'], name=f"radius {R}", 
+                             line=dict(color=colors[R]), legendgroup=f"r{R}", showlegend=False),row=2, col=1)
+    fig.add_trace(go.Scatter(x=zoom['t'].rolling(window=bin_size).mean(), y=zoom['S/nk'].rolling(window=bin_size).mean(), 
+                             name=f"radius {R}", line=dict(color=colors[R]), legendgroup=f"r{R}", showlegend=False),row=2, col=2)
     avg_Sk = np.append(avg_Sk, np.mean(zoom['S/nk']))
     SEM = np.append(SEM, np.std(zoom['S/nk']/math.sqrt(len(zoom['S/nk']))))
     # fig.add_trace(go.Histogram(x=average_df['S/nk'], nbinsx=1),row=1, col=2)
@@ -151,7 +171,40 @@ fig.add_vline(x=len(average_df['t'])//2, line_width=1, line_dash="dash", line_co
 fig.add_vrect(x0=start_index, x1=end_index, line_width=0, fillcolor="blue", opacity=0.1, row=1, col=1)
 fig.add_vrect(x0=start_index, x1=end_index, line_width=0, fillcolor="blue", opacity=0.1, row=1, col=2)
 
-fig.update_layout(title_text=f"Lattice Size: {n}")
+# Add toggle button to show/hide all traces
+num_traces = len(fig.data)
+fig.update_layout(
+    title_text=f"Lattice Size: {n}",
+    height=500,
+    updatemenus=[
+        dict(
+            type="buttons",
+            direction="right",
+            buttons=[
+                dict(
+                    args=[{"visible": True}],
+                    label="Show All",
+                    method="restyle"
+                ),
+                dict(
+                    args=[{"visible": "legendonly"}],
+                    label="Hide All",
+                    method="restyle"
+                )
+            ],
+            pad={"r": 0, "t": 0, "b": 0, "l": 0},
+            showactive=True,
+            x=0.98,
+            xanchor="left",
+            y=1.12,
+            yanchor="top",
+            bgcolor="rgba(255,255,255,0)",
+            borderwidth=0,
+            font=dict(size=11, color="#1f77b4"),
+            active=0
+        ),
+    ]
+)
 fig.show()
 
 ####################################################################################

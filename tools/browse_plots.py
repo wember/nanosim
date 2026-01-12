@@ -101,6 +101,30 @@ HTML_TEMPLATE = """
         a { color: #007bff; text-decoration: none; }
         a:hover { text-decoration: underline; }
         
+        /* Toast notification */
+        .toast {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: #155724;
+            color: white;
+            padding: 12px 24px;
+            border-radius: 4px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+            z-index: 2000;
+            animation: slideIn 0.3s ease-out;
+        }
+        @keyframes slideIn {
+            from {
+                transform: translateX(400px);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+        
         /* Modal styles */
         .modal {
             display: none;
@@ -231,6 +255,45 @@ HTML_TEMPLATE = """
             }
         }
         
+        function showToast(message) {
+            const toast = document.createElement('div');
+            toast.className = 'toast';
+            toast.textContent = message;
+            document.body.appendChild(toast);
+            setTimeout(() => {
+                toast.remove();
+            }, 3000);
+        }
+        
+        // Show toast on page load if there's a pending message
+        window.addEventListener('DOMContentLoaded', () => {
+            const toastMessage = sessionStorage.getItem('toastMessage');
+            if (toastMessage) {
+                sessionStorage.removeItem('toastMessage');
+                showToast(toastMessage);
+            }
+        });
+        
+        function archiveCurrentRun() {
+            if (confirm('Archive the current run?\\n\\nThis will move all data to the archive directory.')) {
+                fetch('/archive-current', {
+                    method: 'POST'
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        sessionStorage.setItem('toastMessage', 'Current run archived successfully');
+                        window.location.reload();
+                    } else {
+                        alert('Error archiving current run: ' + data.error);
+                    }
+                })
+                .catch(error => {
+                    alert('Error archiving current run: ' + error);
+                });
+            }
+        }
+        
         function deleteArchive(dirname) {
             if (confirm('Are you sure you want to delete this archived run? This cannot be undone.\\n\\nArchive: ' + dirname)) {
                 fetch('/delete/' + dirname, {
@@ -239,7 +302,7 @@ HTML_TEMPLATE = """
                 .then(response => response.json())
                 .then(data => {
                     if (data.success) {
-                        alert('Archive deleted successfully');
+                        sessionStorage.setItem('toastMessage', 'Archive deleted successfully');
                         window.location.reload();
                     } else {
                         alert('Error deleting archive: ' + data.error);
@@ -282,9 +345,9 @@ HTML_TEMPLATE = """
             <div class="details">
                 {% if archive.params %}
                 <div class="details-grid">
+                    <div><strong>Dynamics:</strong> <span class="param">{{ 'Irreversible' if archive.params.flag == '1' else 'Reversible' }}</span></div>
                     <div><strong>Lattice:</strong> <span class="param">n={{ archive.params.n }}</span></div>
                     <div><strong>Sweeps:</strong> <span class="param">s={{ archive.params.sweeps }}</span></div>
-                    <div><strong>Flag:</strong> <span class="param">{{ archive.params.flag }}</span></div>
                     <div><strong>Radius:</strong> <span class="param">r={{ archive.params.radius }}</span></div>
                     <div><strong>Runs:</strong> <span class="param">m={{ archive.params.runs }}</span></div>
                     <div><strong>Total sims:</strong> <span class="param">{{ archive.params.total }}</span></div>
@@ -316,7 +379,10 @@ HTML_TEMPLATE = """
                     <span style="color: #ccc; margin: 0 8px;">|</span>
                     <a href="#" data-dirname="{{ archive.dirname }}" data-notes="" onclick="openNotesModalFromLink(this); return false;">📝 Add notes</a>
                     {% endif %}
-                    {% if archive.dirname != 'current' %}
+                    {% if archive.dirname == 'current' %}
+                    <span style="color: #ccc; margin: 0 8px;">|</span>
+                    <a href="#" onclick="archiveCurrentRun(); return false;" style="color: #28a745;">📦 Archive</a>
+                    {% else %}
                     <span style="color: #ccc; margin: 0 8px;">|</span>
                     <a href="#" onclick="deleteArchive('{{ archive.dirname }}'); return false;" style="color: #dc3545;">🗑️ Delete</a>
                     {% endif %}
@@ -452,46 +518,54 @@ def index():
     """Main page listing all archived runs."""
     archives = []
     
-    # Add current data directory if it exists
-    if DATA_DIR.exists() and any(DATA_DIR.iterdir()):
-        # Get status
-        status_info = parse_status_file(DATA_DIR)
-        if status_info:
-            status = status_info.get('Status', 'UNKNOWN')
-            progress = status_info.get('Completed', None)
-        else:
-            status = 'IN PROGRESS' if (DATA_DIR / 'sim_started.txt').exists() else 'UNKNOWN'
-            progress = None
+    # Add current data directory if it exists and has relevant data files
+    if DATA_DIR.exists():
+        # Check if there are any data files (not just archive directory or empty notes)
+        has_data = False
+        for item in DATA_DIR.iterdir():
+            if item.name != 'archive' and not (item.name == 'sim_notes.txt' and item.stat().st_size == 0):
+                has_data = True
+                break
         
-        # Get parameters
-        params = parse_start_file(DATA_DIR)
-        
-        # Get completion info
-        completion_info = parse_completion_file(DATA_DIR)
-        
-        # Get notes
-        notes = read_notes(DATA_DIR)
-        
-        # Get modification time as display time
-        try:
-            status_file = DATA_DIR / 'sim_status.txt'
-            if status_file.exists():
-                mtime = datetime.fromtimestamp(status_file.stat().st_mtime)
-            elif (DATA_DIR / 'sim_started.txt').exists():
-                mtime = datetime.fromtimestamp((DATA_DIR / 'sim_started.txt').stat().st_mtime)
+        if has_data:
+            # Get status
+            status_info = parse_status_file(DATA_DIR)
+            if status_info:
+                status = status_info.get('Status', 'UNKNOWN')
+                progress = status_info.get('Completed', None)
             else:
-                mtime = datetime.fromtimestamp(DATA_DIR.stat().st_mtime)
-            display_time = f"Current Run (updated {mtime.strftime('%H:%M:%S')})"
-        except:
-            display_time = "Current Run"
-        
-        archives.append({
-            'dirname': 'current',
-            'display_time': display_time,
-            'status': status,
-            'status_class': 'current',
-            'params': params,
-            'progress': progress,
+                status = 'IN PROGRESS' if (DATA_DIR / 'sim_started.txt').exists() else 'UNKNOWN'
+                progress = None
+            
+            # Get parameters
+            params = parse_start_file(DATA_DIR)
+            
+            # Get completion info
+            completion_info = parse_completion_file(DATA_DIR)
+            
+            # Get notes
+            notes = read_notes(DATA_DIR)
+            
+            # Get modification time as display time
+            try:
+                status_file = DATA_DIR / 'sim_status.txt'
+                if status_file.exists():
+                    mtime = datetime.fromtimestamp(status_file.stat().st_mtime)
+                elif (DATA_DIR / 'sim_started.txt').exists():
+                    mtime = datetime.fromtimestamp((DATA_DIR / 'sim_started.txt').stat().st_mtime)
+                else:
+                    mtime = datetime.fromtimestamp(DATA_DIR.stat().st_mtime)
+                display_time = f"Current Run (updated {mtime.strftime('%H:%M:%S')})"
+            except:
+                display_time = "Current Run"
+            
+            archives.append({
+                'dirname': 'current',
+                'display_time': display_time,
+                'status': status,
+                'status_class': 'current',
+                'params': params,
+                'progress': progress,
             'completion_info': completion_info,
             'notes': notes
         })
@@ -506,7 +580,7 @@ def index():
             dirname = archive_dir.name
             try:
                 dt = datetime.strptime(dirname, '%Y%m%d_%H%M%S')
-                display_time = dt.strftime('%Y-%m-%d %H:%M:%S')
+                display_time = dt.strftime('%b %d, %Y %H:%M:%S')
             except ValueError:
                 display_time = dirname
             
@@ -564,6 +638,49 @@ def update_notes(dirname):
         # Write notes to file
         with open(notes_path, 'w') as f:
             f.write(notes)
+        
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/archive-current', methods=['POST'])
+def archive_current():
+    """Archive the current data directory."""
+    from flask import jsonify
+    import shutil
+    from datetime import datetime
+    import os
+    
+    # Check if current data directory exists
+    if not DATA_DIR.exists():
+        return jsonify({'success': False, 'error': 'No current data to archive'}), 400
+    
+    # Check if there are any files to archive (excluding archive directory and empty notes)
+    has_data = False
+    items_to_move = []
+    for item in DATA_DIR.iterdir():
+        if item.name != 'archive' and not (item.name == 'sim_notes.txt' and item.stat().st_size == 0):
+            has_data = True
+            items_to_move.append(item)
+    
+    if not has_data:
+        return jsonify({'success': False, 'error': 'No current data to archive'}), 400
+    
+    # Create archive directory if it doesn't exist
+    ARCHIVE_DIR.mkdir(parents=True, exist_ok=True)
+    
+    # Generate timestamp for archive directory name
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    archive_path = ARCHIVE_DIR / timestamp
+    
+    try:
+        # Create the archive directory
+        archive_path.mkdir(parents=True, exist_ok=True)
+        
+        # Move each file/directory from data to archive (except the archive directory itself)
+        for item in items_to_move:
+            dest = archive_path / item.name
+            shutil.move(str(item), str(dest))
         
         return jsonify({'success': True})
     except Exception as e:
@@ -688,6 +805,22 @@ def plot_data(dirname):
             
             # Combine plots into a single page
             title = 'Current Run' if dirname == 'current' else dirname
+            
+            # Get parameters for this run
+            params = parse_start_file(data_path)
+            params_html = ""
+            if params:
+                dynamics = "Irreversible" if params.get('flag') == '1' else "Reversible"
+                params_html = f"""
+                <div style="text-align: center; margin: 20px 0; padding: 15px; background: #f8f9fa; border-radius: 5px;">
+                    <strong>Dynamics:</strong> {dynamics} | 
+                    <strong>Lattice:</strong> n={params.get('n', 'N/A')} | 
+                    <strong>Sweeps:</strong> s={params.get('sweeps', 'N/A')} | 
+                    <strong>Radius:</strong> r={params.get('radius', 'N/A')} | 
+                    <strong>Runs:</strong> m={params.get('runs', 'N/A')}
+                </div>
+                """
+            
             html_content = f"""
             <!DOCTYPE html>
             <html>
@@ -705,6 +838,7 @@ def plot_data(dirname):
             <body>
                 <div class="back-link"><a href="/">← Back to browser</a></div>
                 <h1>Simulation Plots - {title}</h1>
+                {params_html}
             """
             
             if plot1.exists():
