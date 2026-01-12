@@ -3,5 +3,11 @@ numpy==2.3.4
 scipy==1.16.3
 pandas==2.3.3
 
+# Progress bar for long-running simulations
+tqdm==4.67.1
+
 # Visualization
 plotly==6.4.0
+
+# Web interface for browsing archives
+flask==3.1.0
