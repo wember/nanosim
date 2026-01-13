@@ -101,6 +101,6 @@ sim-test-clean:
 	@rm -rf test_data/
 
 browse:
-	@echo "Starting archive browser at http://127.0.0.1:5000"
-	@(sleep 1.5 && open http://127.0.0.1:5000 2>/dev/null || xdg-open http://127.0.0.1:5000 2>/dev/null) &
+	@echo "Starting archive browser at http://127.0.0.1:5001"
+	@(sleep 1.5 && open http://127.0.0.1:5001 2>/dev/null || xdg-open http://127.0.0.1:5001 2>/dev/null) &
 	@$(VENV_PYTHON) tools/browse_plots.py

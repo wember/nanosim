@@ -294,6 +294,21 @@ HTML_TEMPLATE = """
             }
         }
         
+        function toggleNotesExpand(dirname) {
+            const notesDiv = document.getElementById('notesContent_' + dirname);
+            const toggleBtn = document.getElementById('toggleNotes_' + dirname);
+            
+            if (notesDiv.style.maxHeight === 'none') {
+                // Collapse
+                notesDiv.style.maxHeight = '4.5em';
+                toggleBtn.textContent = '▼ Show more';
+            } else {
+                // Expand
+                notesDiv.style.maxHeight = 'none';
+                toggleBtn.textContent = '▲ Show less';
+            }
+        }
+        
         function deleteArchive(dirname) {
             if (confirm('Are you sure you want to delete this archived run? This cannot be undone.\\n\\nArchive: ' + dirname)) {
                 fetch('/delete/' + dirname, {
@@ -368,8 +383,20 @@ HTML_TEMPLATE = """
                 <div style="margin-top: 8px;">
                     <strong>Notes:</strong> 
                     <a href="#" data-dirname="{{ archive.dirname }}" data-notes="{{ archive.notes|escape }}" onclick="openNotesModalFromLink(this); return false;" style="font-size: 0.9em;">📝 Edit</a>
-                    <div style="font-style: italic; white-space: pre-wrap; margin-top: 4px;">{{ archive.notes }}</div>
+                    <div id="notesContent_{{ archive.dirname }}" style="font-style: italic; white-space: pre-wrap; margin-top: 4px; overflow: hidden; line-height: 1.5; max-height: 4.5em; transition: max-height 0.3s ease;">{{ archive.notes }}</div>
+                    <a href="#" id="toggleNotes_{{ archive.dirname }}" onclick="toggleNotesExpand('{{ archive.dirname }}'); return false;" style="font-size: 0.9em; display: none;">▼ Show more</a>
                 </div>
+                <script>
+                    (function() {
+                        const notesDiv = document.getElementById('notesContent_{{ archive.dirname }}');
+                        const toggleBtn = document.getElementById('toggleNotes_{{ archive.dirname }}');
+                        
+                        // Check if content overflows (more than 3 lines)
+                        if (notesDiv.scrollHeight > notesDiv.clientHeight) {
+                            toggleBtn.style.display = 'inline';
+                        }
+                    })();
+                </script>
                 {% endif %}
                 <div style="margin-top: 12px;">
                     <a href="/plot/{{ archive.dirname }}">📈 Plot data</a>
@@ -821,6 +848,26 @@ def plot_data(dirname):
                 </div>
                 """
             
+            # Get notes for this run
+            notes = read_notes(data_path)
+            import html
+            notes_escaped = html.escape(notes) if notes else ""
+            
+            notes_html = f"""
+            <div style="margin: 20px 0; padding: 15px; background: #f8f9fa; border-radius: 5px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                    <strong>Notes:</strong>
+                    <div>
+                        <button id="editNotesBtn" onclick="toggleEditMode()" style="padding: 6px 12px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px;">✏️ Edit</button>
+                        <span id="saveStatus" style="display: none; margin-left: 8px; font-size: 14px;"></span>
+                        <button id="saveNotesBtn" onclick="saveNotes()" style="padding: 6px 12px; background: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; display: none; margin-left: 8px;">💾 Save</button>
+                    </div>
+                </div>
+                <div id="notesDisplay" onclick="if(!isEditMode) toggleEditMode()" style="white-space: pre-wrap; min-height: 50px; padding: 10px; background: white; border-radius: 4px; font-size: 11pt; cursor: pointer;">{notes_escaped if notes else '<span style="color: #999;">No notes yet. Click Edit to add notes.</span>'}</div>
+                <textarea id="notesTextarea" data-dirname="{dirname}" placeholder="Add notes about this simulation run..." rows="10" style="display: none; width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; font-family: inherit; font-size: 14px; resize: vertical; box-sizing: border-box;">{notes_escaped}</textarea>
+            </div>
+            """
+            
             html_content = f"""
             <!DOCTYPE html>
             <html>
@@ -834,11 +881,122 @@ def plot_data(dirname):
                     .back-link a {{ color: #007bff; text-decoration: none; font-size: 16px; }}
                     .back-link a:hover {{ text-decoration: underline; }}
                 </style>
+                <script>
+                    let originalNotes = '';
+                    let isEditMode = false;
+                    
+                    document.addEventListener('DOMContentLoaded', function() {{
+                        const textarea = document.getElementById('notesTextarea');
+                        const saveBtn = document.getElementById('saveNotesBtn');
+                        originalNotes = textarea.value;
+                        
+                        // Show save button when content changes
+                        textarea.addEventListener('input', function() {{
+                            if (isEditMode && textarea.value !== originalNotes) {{
+                                saveBtn.style.display = 'inline-block';
+                                saveStatus.style.display = 'none';
+                            }} else {{
+                                saveBtn.style.display = 'none';
+                            }}
+                        }});
+                        
+                        // Save with Ctrl+S or Cmd+S
+                        textarea.addEventListener('keydown', function(e) {{
+                            if ((e.ctrlKey || e.metaKey) && e.key === 's') {{
+                                e.preventDefault();
+                                if (isEditMode) {{
+                                    saveNotes();
+                                }}
+                            }}
+                        }});
+                        
+                        // Auto-save on blur (when clicking away from textarea)
+                        textarea.addEventListener('blur', function() {{
+                            if (isEditMode && textarea.value !== originalNotes) {{
+                                saveNotes();
+                            }}
+                        }});
+                    }});
+                    
+                    function toggleEditMode() {{
+                        isEditMode = true;
+                        document.getElementById('notesDisplay').style.display = 'none';
+                        document.getElementById('notesTextarea').style.display = 'block';
+                        document.getElementById('editNotesBtn').style.display = 'none';
+                        document.getElementById('notesTextarea').focus();
+                    }}
+                    
+                    function exitEditMode() {{
+                        isEditMode = false;
+                        const textarea = document.getElementById('notesTextarea');
+                        const notesDisplay = document.getElementById('notesDisplay');
+                        
+                        // Update display with current content
+                        const notes = textarea.value;
+                        if (notes.trim()) {{
+                            notesDisplay.innerHTML = notes.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\\n/g, '<br>');
+                        }} else {{
+                            notesDisplay.innerHTML = '<span style=\"color: #999;\">No notes yet. Click Edit to add notes.</span>';
+                        }}
+                        
+                        document.getElementById('notesDisplay').style.display = 'block';
+                        document.getElementById('notesTextarea').style.display = 'none';
+                        document.getElementById('editNotesBtn').style.display = 'inline-block';
+                        document.getElementById('saveNotesBtn').style.display = 'none';
+                    }}
+                    
+                    function saveNotes() {{
+                        const textarea = document.getElementById('notesTextarea');
+                        const saveBtn = document.getElementById('saveNotesBtn');
+                        const saveStatus = document.getElementById('saveStatus');
+                        const dirname = textarea.getAttribute('data-dirname');
+                        const notes = textarea.value;
+                        
+                        saveBtn.disabled = true;
+                        saveBtn.style.display = 'none';
+                        saveStatus.style.display = 'inline-block';
+                        saveStatus.textContent = 'Saving...';
+                        saveStatus.style.color = '#666';
+                        
+                        fetch(window.location.origin + '/notes/' + dirname, {{
+                            method: 'POST',
+                            headers: {{
+                                'Content-Type': 'application/json'
+                            }},
+                            body: JSON.stringify({{ notes: notes }})
+                        }})
+                        .then(response => response.json())
+                        .then(data => {{
+                            if (data.success) {{
+                                originalNotes = notes;
+                                saveBtn.disabled = false;
+                                saveStatus.textContent = '✓ Saved';
+                                saveStatus.style.color = '#28a745';
+                                
+                                setTimeout(() => {{
+                                    saveStatus.style.display = 'none';
+                                }}, 2000);
+                            }} else {{
+                                saveBtn.disabled = false;
+                                saveBtn.style.display = 'inline-block';
+                                saveStatus.style.display = 'none';
+                                alert('Error saving notes: ' + data.error);
+                            }}
+                        }})
+                        .catch(error => {{
+                            saveBtn.disabled = false;
+                            saveBtn.style.display = 'inline-block';
+                            saveStatus.style.display = 'none';
+                            alert('Error saving notes');
+                        }});
+                    }}
+                </script>
             </head>
             <body>
                 <div class="back-link"><a href="/">← Back to browser</a></div>
                 <h1>Simulation Plots - {title}</h1>
                 {params_html}
+                {notes_html}
             """
             
             if plot1.exists():
@@ -868,7 +1026,7 @@ if __name__ == '__main__':
     print("="*60)
     print(f"\n  📂 Data directory: {DATA_DIR}")
     print(f"  📦 Archive directory: {ARCHIVE_DIR}")
-    print(f"\n  🌐 Open in browser: http://127.0.0.1:5000")
+    print(f"\n  🌐 Open in browser: http://127.0.0.1:5001")
     print("\n  Press Ctrl+C to stop\n")
     
-    app.run(debug=True, port=5000, host='127.0.0.1')
+    app.run(debug=True, port=5001, host='127.0.0.1')
