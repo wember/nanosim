@@ -61,15 +61,27 @@ sim-i: sim-archive
 	@$(VENV_PYTHON) creutz-sim/sim.py -i $(ARGS)
 
 sim-archive:
-	@if [ -d data ] && [ -n "$$(find data -maxdepth 1 -type f -o -type d ! -name data -name archive 2>/dev/null)" ]; then \
-		timestamp=$$(date +%Y%m%d_%H%M%S); \
-		archive_dir="data/archive/$$timestamp"; \
-		echo "Archiving existing data to $$archive_dir..."; \
-		mkdir -p "$$archive_dir"; \
+	@if [ -d data ]; then \
+		has_data=false; \
 		for item in data/*; do \
-			[ "$$(basename $$item)" != "archive" ] && cp -r "$$item" "$$archive_dir/" 2>/dev/null || true; \
+			if [ -e "$$item" ] && [ "$$(basename $$item)" != "archive" ]; then \
+				has_data=true; \
+				break; \
+			fi; \
 		done; \
-		echo "Archive complete."; \
+		if [ "$$has_data" = true ]; then \
+			timestamp=$$(date +%Y%m%d_%H%M%S); \
+			archive_dir="data/archive/$$timestamp"; \
+			echo "Archiving existing data to $$archive_dir..."; \
+			mkdir -p "$$archive_dir"; \
+			for item in data/*; do \
+				[ "$$(basename $$item)" != "archive" ] && cp -r "$$item" "$$archive_dir/" 2>/dev/null || true; \
+			done; \
+			for item in data/*; do \
+				[ "$$(basename $$item)" != "archive" ] && rm -rf "$$item" 2>/dev/null || true; \
+			done; \
+			echo "Archive complete."; \
+		fi; \
 	fi
 
 sim-test: sim-test-clean
@@ -89,6 +101,6 @@ sim-test-clean:
 	@rm -rf test_data/
 
 browse:
-	@echo "Starting archive browser at http://127.0.0.1:5000"
-	@(sleep 1.5 && open http://127.0.0.1:5000 2>/dev/null || xdg-open http://127.0.0.1:5000 2>/dev/null) &
+	@echo "Starting archive browser at http://127.0.0.1:5001"
+	@(sleep 1.5 && open http://127.0.0.1:5001 2>/dev/null || xdg-open http://127.0.0.1:5001 2>/dev/null) &
 	@$(VENV_PYTHON) tools/browse_plots.py

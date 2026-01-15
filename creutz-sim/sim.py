@@ -159,8 +159,30 @@ start_time = time.time()
 total_sweeps = total_sims * s
 completed_sweeps = 0
 
-pbar = tqdm(total=total_sweeps, desc="Progress", unit="sweep", 
-            bar_format='{desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt} [elapsed {elapsed}|remaining {remaining}|{rate_fmt}]')
+def format_time(seconds):
+    """Format time in days/hours/minutes"""
+    if seconds >= 86400:  # More than 1 day
+        return f"{seconds / 86400:.1f}d"
+    elif seconds >= 3600:  # More than 1 hour
+        return f"{seconds / 3600:.1f}h"
+    elif seconds >= 60:  # More than 1 minute
+        return f"{seconds / 60:.0f}m"
+    else:
+        return f"{seconds:.1f}s"
+
+def update_progress_time():
+    """Update progress bar with elapsed/remaining time"""
+    elapsed = time.time() - pbar_start_time
+    rate = pbar.n / elapsed if elapsed > 0 else 0
+    remaining = (total_sweeps - pbar.n) / rate if rate > 0 else 0
+    pbar.set_postfix_str(f"[elapsed {format_time(elapsed)}|remaining {format_time(remaining)}|{rate:.2f}sweep/s]", refresh=True)
+
+# Create progress bar with custom format
+pbar = tqdm(total=total_sweeps, desc="Progress", unit="sweep",
+            bar_format='{desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt} {postfix}')
+
+# Track for custom time display
+pbar_start_time = time.time()
 
 for M in range(m):
     for R in range(r):
@@ -173,10 +195,10 @@ for M in range(m):
 
         data_types = ['t', 'K', 'U', 'N0', 'Nx', 'S/nk', 'n'] # step counter, lattice energy, demon energy, total energy, broken bonds, anti-aligned spins, lattice size
 
-        # rev only
-        filenames = [filename]
-        # # irr only
-        # filenames = [irr_filename]
+        if flag == 0:  # rev only
+            filenames = [filename]
+        elif flag:  # irr only
+            filenames = [irr_filename]
         
         # Create directories if they don't exist
         for fname in filenames:
@@ -232,6 +254,7 @@ for M in range(m):
             # Update sweep progress
             completed_sweeps += 1
             pbar.update(1)
+            update_progress_time()
 
         ### Reverse simulation
         for i in range(s//2):
@@ -274,6 +297,7 @@ for M in range(m):
             # Update sweep progress
             completed_sweeps += 1
             pbar.update(1)
+            update_progress_time()
         
         # Update simulation counter
         sim_counter += 1
