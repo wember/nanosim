@@ -38,8 +38,9 @@ class Inferno:
         self.N = N
         self.order = a
         self.rev_order = np.flip(a)
-        self.radius_spin = self.rev_radius_bond = np.random.randint(0, R, size=N)*np.random.choice([-1, 1], size=N)
-        self.rev_radius_spin = self.radius_bond = np.flip(self.radius_spin)
+        self.radius = R
+        # self.radius_spin = self.rev_radius_bond = np.random.randint(0, R, size=N)*np.random.choice([-1, 1], size=N)
+        # self.rev_radius_spin = self.radius_bond = np.flip(self.radius_spin)
         self.lattice = np.concatenate((np.ones(N//2, dtype=int), (-1)*np.ones(N//2, dtype=int)))
         self.bonds = np.ones(N, dtype=int)*(-1)
         self.bonds[[N//2-1, -1]] = 1
@@ -239,39 +240,24 @@ class Inferno:
                 self.bond_count[index] = 0
             index += 1
 
-
-    def demon_move_vectorized(self, flag, batch_size=None):
-        """
-        Process multiple non-adjacent spins in parallel
-        """
-        if batch_size is None:
-            batch_size = max(1, self.N // 4)  # Process every 4th spin simultaneously
-
-        # Process spins that don't affect each other (non-adjacent)
-        for offset in range(4):  # Process in 4 passes to avoid conflicts
-            indices = np.arange(offset, self.N, 4)
-
-            for idx in indices:
-                a = self.order[idx] if flag == 0 else np.random.randint(0, self.N)
-                self.spin_flip(a, (a + self.radius_spin[idx]) % self.N)
-                self.bond_change(a, (a + self.radius_bond[idx]) % self.N)
-
-    def demon_move(self, flag):
+    def demon_move(self, flag, sweep_count):
         """
             "Randomly" move the demon around and flip spins & change bonds
         """
         a = self.order[0]
+        radius_cycle = 2 * self.radius + 1
+        R = (sweep_count % radius_cycle) - self.radius
+        #print (R)
         # If irr flag is on, generate a random number instead
         if (flag != 0):
             a = np.random.randint(0, self.N)
+            R = 0
 
         # Attempt to flip spin
-        self.spin_flip(a, (a + self.radius_spin[0])%self.N)
-        self.radius_spin = np.roll(self.radius_spin, -1)
+        self.spin_flip(a, (a + R)%self.N)
 
         # Attempt to change bond
-        self.bond_change(a, (a + self.radius_bond[0])%self.N)
-        self.radius_bond = np.roll(self.radius_bond, -1)
+        self.bond_change(a, (a + R)%self.N)
 
         # Update bond count
         self.count_bonds()
@@ -280,22 +266,23 @@ class Inferno:
         if (flag == 0):
             self.order = np.roll(self.order, -1)
 
-    def demon_reverse(self, flag):
+    def demon_reverse(self, flag, sweep_count):
         """
             In reverse order, flip spins & change bonds
         """
         a = self.rev_order[0]
+        radius_cycle = 2 * self.radius + 1 
+        R = (sweep_count % radius_cycle) - self.radius
+        #print (R)
         # If irr flag is on, generate a random number instead
         if (flag != 0):
             a = np.random.randint(0, self.N)
-
+            R = 0
         # Attempt to change bond
-        self.bond_change(a, (a + self.rev_radius_bond[0])%self.N)
-        self.rev_radius_bond = np.roll(self.rev_radius_bond, -1)
+        self.bond_change(a, (a + R)%self.N)
 
         # Attempt to flip spin
-        self.spin_flip(a, (a + self.rev_radius_spin[0])%self.N)
-        self.rev_radius_spin = np.roll(self.rev_radius_spin, -1)
+        self.spin_flip(a, (a + R)%self.N)
 
         # Update bond count
         self.count_bonds()

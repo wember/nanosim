@@ -42,7 +42,7 @@ def get_params():
         'n': 10,
         's': 100,
         'flag': 0,
-        'r': 11,
+        'r': 10,
         'm': 5
     }
     
@@ -149,9 +149,9 @@ signal.signal(signal.SIGTERM, write_interrupted_status)
 # Register exception handler for crashes
 sys.excepthook = write_error_status
 
-file_names = [data_folder / f'r{i}' / f'sim_data_r{i}' for i in range(11)]
-irr_files = [data_folder / 'irr' / f'r{i}' / f'irr_sim_data_r{i}' for i in range(11)]
-init_files = [init_folder / f'r{i}' / f'sim_data_r{i}' for i in range(11)]
+file_names = [data_folder / f'r{i}' / f'sim_data_r{i}' for i in range(r+1)]
+irr_files = [data_folder / 'irr' / f'r{i}' / f'irr_sim_data_r{i}' for i in range(r+1)]
+init_files = [init_folder / f'r{i}' / f'sim_data_r{i}' for i in range(r+1)]
 
 # Progress tracking
 sim_counter = 0
@@ -184,9 +184,12 @@ pbar = tqdm(total=total_sweeps, desc="Progress", unit="sweep",
 # Track for custom time display
 pbar_start_time = time.time()
 
+######################################################################################
+##################################### begin sim ######################################
+######################################################################################
 for M in range(m):
-    for R in range(r):
-        x = Inferno(n, R+1)
+    for R in range(r+1):
+        x = Inferno(n, R)
 
         filename = file_names[R].parent / f"{file_names[R].name}_{M}.csv"
         irr_filename = irr_files[R].parent / f"{irr_files[R].name}_{M}.csv"
@@ -222,7 +225,7 @@ for M in range(m):
             data = np.zeros(5)
             # Attempt to flip each spin in lattice
             for j in range(n):
-                x.demon_move(flag)
+                x.demon_move(flag, i*n + j)
                 # Calculate total entropy
                 N0e = int(x.bond_count[1])
                 if N0e == 0:
@@ -265,7 +268,9 @@ for M in range(m):
             data = np.zeros(5)
             # Attempt to flip each spin in lattice (full sweep)
             for j in range(n):
-                x.demon_reverse(flag)
+                total_forward_iterations = (s//2) * n
+                reverse_iteration = total_forward_iterations - 1 - (i*n + j)
+                x.demon_reverse(flag, reverse_iteration)
                 # Calculate total entropy
                 N0_exp = int(x.bond_count[1])
                 if N0_exp == 0:
