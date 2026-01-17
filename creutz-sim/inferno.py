@@ -2,278 +2,291 @@ import numpy as np
 import random
 import math
 
-from scipy.special import loggamma as logg
 
-# Use high-precision log calculations
-Sk = lambda N, K: logg(K + N) - logg(K+1) - logg(N)
-Su = lambda N, N0, Nx: logg(N+1) + np.log(2**(N0)) - (logg(N-N0-Nx+1) + logg(N0+1) + logg(Nx+1))
-Su0 = lambda N, N0, Nx: logg(N+1) + np.log(2**(N0+1)) - (logg(N-N0-Nx+1) + logg(N0+1) + logg(Nx+1))
+# test #
+from scipy.special import factorial as f
+from scipy.special import loggamma as logg
+Sk = lambda N, K: logg(K + N) - logg(K+1) - logg(N) # N == lattice size, K == kinetic energy
+Su = lambda N, N0, Nx: logg(N+1) + np.log(2**(N0)) - (logg(N-N0-Nx+1) + logg(N0+1) + logg(Nx+1)) # N == lattice size, N0 == broken bonds, Nx == bonds between anti-aligned spins
+Su0 = lambda N, N0, Nx: logg(N+1) + np.log(2**(N0+1)) - (logg(N-N0-Nx+1) + logg(N0+1) + logg(Nx+1)) # N == lattice size, N0 == broken bonds, Nx == bonds between anti-aligned spins
 
 class Inferno:
     """
-        Optimized Inferno class with roundoff error prevention
+        Inferno:
+            - Main class for implementing microcanonical Monte Carlo simulation
+
+        :instance methods:
+            calc_E_lat - calculates the energy of a given latice configuration
+            demon_move - updates the lattice by moving the demon around
     """
 
-    def __init__(self, N, R):
+    def __init__(self,N, R):
+        """
+            :params:
+                N - size of lattice
+                lattice - state of lattice
+                bonds - state of the bonds
+                E_lattice - energy of lattice
+                E_demon - energy of the demon
+        """
+        # every integer from 0-N placed in a random order
         a = np.arange(N)
         np.random.shuffle(a)
 
-        total_energy = 2*N
+        total_energy = 2*N # total energy of the system
 
         self.N = N
         self.order = a
         self.rev_order = np.flip(a)
-        self.radius_spin = np.random.randint(0, R, size=N)*np.random.choice([-1, 1], size=N)
-        self.rev_radius_spin = np.flip(self.radius_spin)
-        self.radius_bond = np.flip(self.radius_spin)
-        self.rev_radius_bond = self.radius_spin.copy()
-
-        self.lattice = np.concatenate((np.ones(N//2, dtype=np.int8),
-                                       (-1)*np.ones(N//2, dtype=np.int8)))
-        self.bonds = np.ones(N, dtype=np.int8)*(-1)
+        self.radius = R
+        # self.radius_spin = self.rev_radius_bond = np.random.randint(0, R, size=N)*np.random.choice([-1, 1], size=N)
+        # self.rev_radius_spin = self.radius_bond = np.flip(self.radius_spin)
+        self.lattice = np.concatenate((np.ones(N//2, dtype=int), (-1)*np.ones(N//2, dtype=int)))
+        self.bonds = np.ones(N, dtype=int)*(-1)
         self.bonds[[N//2-1, -1]] = 1
+        self.bond_count = np.ones(3, dtype=int)
+        self.count_bonds()
+        self.E_lattice = sum(self.bonds)
 
-        # Initialize bond counts incrementally
-        self.bond_count = np.array([N-2, 0, 2], dtype=np.int64)
-
-        self.E_lattice = np.sum(self.bonds, dtype=np.int64)  # Use int64 for sum
         self.d_energy = total_energy - self.E_lattice
+        # randomly assign energy to einstein oscillators
+        result = np.zeros(N, dtype=int)
+        for i in range(self.d_energy):
+            result[random.randint(0,N-1)] += 1
 
-        # Energy distribution
-        result = np.zeros(N, dtype=np.int64)  # Use int64 for demon energies
-        indices = np.random.randint(0, N, size=self.d_energy)
-        np.add.at(result, indices, 1)
+        self.E_demon = np.array(result)
+        self.E_total = self.E_lattice + sum(self.E_demon)
 
-        self.E_demon = result
-        self.E_demon_sum = np.int64(self.d_energy)  # Explicit int64
-        self.E_total = self.E_lattice + self.E_demon_sum
+################################################################################
+                ###            TEST SETUP           ###
+################################################################################
+        # a = np.arange(N)
+        # total_energy = N # total energy of the system
+        # self.N = N
+        # self.order = a
+        # self.rev_order = np.flip(a)
+        # self.lattice = np.array([1,1])
+        # self.bonds = [-1,-1]
+        # self.bond_count = np.ones(3, dtype=int)
+        # self.count_bonds()
+        # self.E_lattice = sum(self.bonds)
+        # self.E_demon = np.array([4,0])
+        # self.d_energy = total_energy - self.E_lattice
+        # self.E_total = self.E_lattice + sum(self.E_demon)
 
-        # Store initial values for validation
-        self._initial_total_energy = np.int64(total_energy)
-        self._check_counter = 0
-        self._check_interval = N  # Check every sweep
+################################################################################
+################################################################################
+################################################################################
 
-        # Indices for rolling
-        self.order_idx = 0
-        self.rev_order_idx = 0
-        self.radius_spin_idx = 0
-        self.radius_bond_idx = 0
-        self.rev_radius_spin_idx = 0
-        self.rev_radius_bond_idx = 0
-
-    def validate_energy_conservation(self):
-        """
-            Periodic energy conservation check to catch drift
-        """
-        current_total = self.E_lattice + self.E_demon_sum
-        if current_total != self._initial_total_energy:
-            # Recalculate from scratch
-            actual_lattice = np.sum(self.bonds, dtype=np.int64)
-            actual_demon = np.sum(self.E_demon, dtype=np.int64)
-
-            print(f"WARNING: Energy drift detected!")
-            print(f"  Expected total: {self._initial_total_energy}")
-            print(f"  Tracked total: {current_total}")
-            print(f"  Actual total: {actual_lattice + actual_demon}")
-            print(f"  Drift: {current_total - self._initial_total_energy}")
-
-            # Correct the cached values
-            self.E_lattice = actual_lattice
-            self.E_demon_sum = actual_demon
-            self.d_energy = self.E_demon_sum
-
-            return False
-        return True
-
-    def validate_bond_counts(self):
-        """
-            Periodic bond count validation to catch drift
-        """
-        actual_counts = np.bincount(self.bonds + 1, minlength=3).astype(np.int64)
-        if not np.array_equal(actual_counts, self.bond_count):
-            print(f"WARNING: Bond count drift detected!")
-            print(f"  Tracked: {self.bond_count}")
-            print(f"  Actual: {actual_counts}")
-
-            # Correct the cached values
-            self.bond_count = actual_counts
-            return False
-        return True
+    # def calc_E_lat(self,lattice,N):
+    #     """
+    #         Calculate energy of the lattice configuration.
+    #     """
+    #     ETOT = 0
+    #
+    #     # Loop over the entire lattice calculating nearest neighbor interactions
+    #     for a in range(N):
+    #         # Grab the lattice site spin value
+    #         s =  lattice[a]
+    #         # Calculate the energy of the configuration based on
+    #         # nearest neighbors
+    #         nb = lattice[(a+1)%N] + lattice[(a-1)%N]
+    #         # running sum of energy of Ising latus
+    #         ETOT += 2 * s * nb
+    #
+    #     # Update the value of the lattice energy
+    #     return ETOT
 
     def spin_flip(self, a, i):
+        # print(self.lattice, "lattice: ", self.E_lattice,  "demon: ", self.E_demon,  self.d_energy, "total: ", self.E_lattice+sum(self.E_demon))
+        # print(self.bonds, self.bond_count)
+        # ### entropy calc for testing
+        # self.count_bonds()
+        #
+        # print(" N0 | Nx | U/J | Su/k  | K/J | Sk/k  | Se/k | p(u,k)")
+        # if (self.bond_count[1] == 0):
+        #     uk = (f(self.N)*2**(self.bond_count[1]+1))/(f(self.N-self.bond_count[1]-self.bond_count[2])*f(self.bond_count[1])*f(self.bond_count[2]))
+        #     SUtest = Su0(self.N, self.bond_count[1], self.bond_count[2])
+        # else:
+        #     uk = (f(self.N)*2**(self.bond_count[1]))/(f(self.N-self.bond_count[1]-self.bond_count[2])*f(self.bond_count[1])*f(self.bond_count[2]))
+        #     SUtest = Su(self.N, self.bond_count[1], self.bond_count[2])
+        # sk = f(self.d_energy+self.N-1)/(f(self.d_energy)*f(self.N-1))
+        # # print(f" {self.bond_count[1]}  |  {self.bond_count[2]} | {self.E_lattice}  |ln({uk})|  {self.d_energy}  |ln({sk})|ln({sk*uk})")
+        #
+        # print("Su : ", SUtest, math.log(uk))
+        # print("Sk : ", Sk(self.N, self.d_energy), math.log(sk))
+        # print("----------------------")
         """
-            Attempt to flip the spin - all integer arithmetic
+            Attempt to flip the spin of a given lattice site
         """
-        s = self.lattice[a]
+        # Grab the lattice site spin value
+        s =  self.lattice[a]
         d = self.E_demon[i]
-
-        # All operations in integer arithmetic
-        nb = (self.lattice[(a+1) % self.N] * abs(self.bonds[a]) +
-              self.lattice[(a-1) % self.N] * abs(self.bonds[(a-1) % self.N]))
-
-        cost = 2 * s * nb  # Always an integer
-        bonds_changed = False
-
-        if cost < 0 or cost <= d:
+        # Calculate the energy of the configuration based on
+        # nearest neighbors
+        nb = self.lattice[(a+1)%self.N]*abs(self.bonds[(a)%self.N]) + self.lattice[(a-1)%self.N]*abs(self.bonds[(a-1)%self.N])
+        # Check the cost of flipping the spin
+        cost = 2*s*nb
+        # If energetically favorable, flip and add energy to demon
+        if cost < 0:
             s *= -1
-            # Update energies using integer arithmetic only
+            # Notice we substract the cost to maintain net0 energy
+
             self.E_demon[i] -= cost
-            self.E_demon_sum -= cost
             self.d_energy -= cost
             self.E_lattice += cost
-            self.lattice[a] = s
-            bonds_changed = True
+        # If it costs energy, only flip if demon has enough energy
+        elif cost <= self.E_demon[i]:
+            s *= -1
+            self.E_demon[i] -= cost
+            self.d_energy -= cost
+            self.E_lattice += cost
+        # Otherwise, pass
+        else:
+            pass
 
-        return bonds_changed
+        # Update spin
+        self.lattice[a] = s
 
-    def update_bonds_incremental(self, a):
-        """
-            Update bonds with careful integer counting
-        """
-        # Update right bond
-        if self.bonds[a] != 0:
-            old_bond = self.bonds[a]
-            new_bond = np.int8(-1 if self.lattice[a] == self.lattice[(a+1) % self.N] else 1)
+        # Update bond of lattice site and of leftmost neighbor
+        if (self.bonds[a] != 0):
+            if (self.lattice[a] == self.lattice[(a+1)%self.N]):
+                self.bonds[a] = -1
+            else:
+                self.bonds[a] = 1
 
-            if old_bond != new_bond:
-                self.bonds[a] = new_bond
-                # Update counts with explicit indexing
-                old_idx = 0 if old_bond == -1 else 2
-                new_idx = 0 if new_bond == -1 else 2
-                self.bond_count[old_idx] -= 1
-                self.bond_count[new_idx] += 1
 
-        # Update left bond
-        left_idx = (a-1) % self.N
-        if self.bonds[left_idx] != 0:
-            old_bond = self.bonds[left_idx]
-            new_bond = np.int8(-1 if self.lattice[a] == self.lattice[left_idx] else 1)
-
-            if old_bond != new_bond:
-                self.bonds[left_idx] = new_bond
-                old_idx = 0 if old_bond == -1 else 2
-                new_idx = 0 if new_bond == -1 else 2
-                self.bond_count[old_idx] -= 1
-                self.bond_count[new_idx] += 1
+        if (self.bonds[(a-1)%self.N] != 0):
+            if (self.lattice[a] == self.lattice[(a-1)%self.N]):
+                self.bonds[(a-1)%self.N] = -1
+            else:
+                self.bonds[(a-1)%self.N] = 1
 
     def bond_change(self, a, i):
+        # print(self.lattice, "lattice: ", self.E_lattice, "demon: ", self.E_demon,  self.d_energy, "total: ", self.E_lattice+sum(self.E_demon))
+        # print(self.bonds, self.bond_count)
+        # ### entropy calc for testing
+        # self.count_bonds()
+        #
+        # print(" N0 | Nx | U/J | Su/k  | K/J | Sk/k  | Se/k | p(u,k)")
+        # if (self.bond_count[1] == 0):
+        #     uk = (f(self.N)*2**(self.bond_count[1]+1))/(f(self.N-self.bond_count[1]-self.bond_count[2])*f(self.bond_count[1])*f(self.bond_count[2]))
+        #     SUtest = Su0(self.N, self.bond_count[1], self.bond_count[2])
+        # else:
+        #     uk = (f(self.N)*2**(self.bond_count[1]))/(f(self.N-self.bond_count[1]-self.bond_count[2])*f(self.bond_count[1])*f(self.bond_count[2]))
+        #     SUtest = Su(self.N, self.bond_count[1], self.bond_count[2])
+        # sk = f(self.d_energy+self.N-1)/(f(self.d_energy)*f(self.N-1))
+        # # print(f" {self.bond_count[1]}  |  {self.bond_count[2]} | {self.E_lattice}  |ln({uk})|  {self.d_energy}  |ln({sk})|ln({sk*uk})")
+        #
+        # print("Su : ", SUtest, math.log(uk))
+        # print("Sk : ", Sk(self.N, self.d_energy), math.log(sk))
+        # print("----------------------")
         """
-            Attempt to change the bond - integer arithmetic only
+            Attempt to change the bond given lattice site
         """
-        s = self.lattice[a]
-        b = self.bonds[a]
+        # Grab the lattice site spin, bond value, and demon energy
+        s =  self.lattice[a]
+        b =  self.bonds[a]
         d = self.E_demon[i]
-        n = self.lattice[(a+1) % self.N]
+        # Grab value of bonded neighbor
+        n = self.lattice[(a+1)%self.N]
+        # Check the cost of breaking the bond
+        if (s == n):
+            cost = -1
+        else:
+            cost = 1
 
-        cost = -1 if s == n else 1  # Always ±1
+        # if bond is broken, attempt to remake
+        if (b == 0) and (d - cost >= 0):
+            b = cost
 
-        if b == 0 and d - cost >= 0:
-            # Update energies
-            self.E_lattice += cost
-            self.E_demon[i] -= cost
-            self.E_demon_sum -= cost
-            self.d_energy -= cost
-            self.bonds[a] = np.int8(cost)
+            if (self.bonds[a] == 0):
+                self.E_lattice += cost
+                self.E_demon[i] -= cost
+                self.d_energy -= cost
+                self.bonds[a] = b
 
-            # Update bond_count: broken -> aligned/misaligned
-            self.bond_count[1] -= 1
-            self.bond_count[0 if cost == -1 else 2] += 1
+        # if bond is made, attempt to break
+        elif (d + cost >= 0):
+            b = 0
 
-        elif b != 0 and d + cost >= 0:
-            # Update energies
-            self.E_lattice -= cost
-            self.E_demon[i] += cost
-            self.E_demon_sum += cost
-            self.d_energy += cost
+            if (self.bonds[a] != 0):
+                self.E_lattice -= cost
+                self.E_demon[i] += cost
+                self.d_energy += cost
+                self.bonds[a] = b
 
-            # Update bond_count
-            old_idx = 0 if self.bonds[a] == -1 else 2
-            self.bond_count[old_idx] -= 1
-            self.bond_count[1] += 1
+        else:
+            pass
 
-            self.bonds[a] = 0
+        if (self.bonds[(a-1)%self.N] != 0):
+            if (self.lattice[a] == self.lattice[(a-1)%self.N]):
+                self.bonds[(a-1)%self.N] = -1
+            else:
+                self.bonds[(a-1)%self.N] = 1
 
-        # Update left neighbor bond
-        left_idx = (a-1) % self.N
-        if self.bonds[left_idx] != 0:
-            old_bond = self.bonds[left_idx]
-            new_bond = np.int8(-1 if self.lattice[a] == self.lattice[left_idx] else 1)
-
-            if old_bond != new_bond:
-                self.bonds[left_idx] = new_bond
-                old_idx = 0 if old_bond == -1 else 2
-                new_idx = 0 if new_bond == -1 else 2
-                self.bond_count[old_idx] -= 1
-                self.bond_count[new_idx] += 1
-
-    def demon_move(self):
+    def count_bonds(self):
         """
-            Move the demon with periodic validation
+            Updates the bond-count array of number of aligned (-1), broken (0), and misaligned (-1) bonds
         """
-        a = self.order[self.order_idx]
+        unique, counts = np.unique(self.bonds, return_counts=True)
+        list = dict(zip(unique.astype(str), counts.astype(str)))
+        index = 0
+        for i in [-1,0,1]:
+            bond_type = str(i)
+            if i in unique:
+                self.bond_count[index] = list[bond_type]
+            else:
+                self.bond_count[index] = 0
+            index += 1
+
+    def demon_move(self, flag, sweep_count):
+        """
+            "Randomly" move the demon around and flip spins & change bonds
+        """
+        a = self.order[0]
+        radius_cycle = 2 * self.radius + 1
+        R = (sweep_count % radius_cycle) - self.radius
+        #print (R)
+        # If irr flag is on, generate a random number instead
+        if (flag != 0):
+            a = np.random.randint(0, self.N)
+            R = 0
 
         # Attempt to flip spin
-        bonds_changed = self.spin_flip(a, (a + self.radius_spin[self.radius_spin_idx]) % self.N)
-        if bonds_changed:
-            self.update_bonds_incremental(a)
-
-        self.radius_spin_idx = (self.radius_spin_idx + 1) % self.N
+        self.spin_flip(a, (a + R)%self.N)
 
         # Attempt to change bond
-        self.bond_change(a, (a + self.radius_bond[self.radius_bond_idx]) % self.N)
-        self.radius_bond_idx = (self.radius_bond_idx + 1) % self.N
+        self.bond_change(a, (a + R)%self.N)
 
-        # Move to next in order
-        self.order_idx = (self.order_idx + 1) % self.N
+        # Update bond count
+        self.count_bonds()
 
-        # Periodic validation (expensive, so do it infrequently)
-        self._check_counter += 1
-        if self._check_counter >= self._check_interval:
-            self._check_counter = 0
-            self.validate_energy_conservation()
-            self.validate_bond_counts()
+        # Move first element in order to back
+        if (flag == 0):
+            self.order = np.roll(self.order, -1)
 
-    def demon_reverse(self):
+    def demon_reverse(self, flag, sweep_count):
         """
-            Reverse order with periodic validation
+            In reverse order, flip spins & change bonds
         """
-        a = self.rev_order[self.rev_order_idx]
-
+        a = self.rev_order[0]
+        radius_cycle = 2 * self.radius + 1 
+        R = (sweep_count % radius_cycle) - self.radius
+        #print (R)
+        # If irr flag is on, generate a random number instead
+        if (flag != 0):
+            a = np.random.randint(0, self.N)
+            R = 0
         # Attempt to change bond
-        self.bond_change(a, (a + self.rev_radius_bond[self.rev_radius_bond_idx]) % self.N)
-        self.rev_radius_bond_idx = (self.rev_radius_bond_idx + 1) % self.N
+        self.bond_change(a, (a + R)%self.N)
 
         # Attempt to flip spin
-        bonds_changed = self.spin_flip(a, (a + self.rev_radius_spin[self.rev_radius_spin_idx]) % self.N)
-        if bonds_changed:
-            self.update_bonds_incremental(a)
+        self.spin_flip(a, (a + R)%self.N)
 
-        self.rev_radius_spin_idx = (self.rev_radius_spin_idx + 1) % self.N
+        # Update bond count
+        self.count_bonds()
 
-        # Move to next in order
-        self.rev_order_idx = (self.rev_order_idx + 1) % self.N
-
-        # Periodic validation
-        self._check_counter += 1
-        if self._check_counter >= self._check_interval:
-            self._check_counter = 0
-            self.validate_energy_conservation()
-            self.validate_bond_counts()
-
-    def get_validated_state(self):
-        """
-            Return current state with validation
-        """
-        # Force validation
-        actual_lattice = np.sum(self.bonds, dtype=np.int64)
-        actual_demon = np.sum(self.E_demon, dtype=np.int64)
-        actual_bond_counts = np.bincount(self.bonds + 1, minlength=3).astype(np.int64)
-
-        # Return validated values
-        return {
-            'E_lattice': actual_lattice,
-            'E_demon_sum': actual_demon,
-            'E_total': actual_lattice + actual_demon,
-            'bond_count': actual_bond_counts,
-            'd_energy': actual_demon
-        }
+        # Move first element in order to back
+        if (flag == 0):
+            self.rev_order = np.roll(self.rev_order, -1)
