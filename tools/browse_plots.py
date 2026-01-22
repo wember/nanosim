@@ -1523,6 +1523,11 @@ def index():
             if archive_dir.name == 'init_fin':
                 continue
             
+            # Skip already combined archives (those with both rev/ and irr/ subdirectories)
+            is_combined = (archive_dir / 'rev').exists() and (archive_dir / 'irr').exists()
+            if is_combined:
+                continue
+            
             # Get status - only include completed
             status_info = parse_status_file(archive_dir)
             if not status_info or status_info.get('Status') != 'COMPLETED':
@@ -1547,11 +1552,12 @@ def index():
                 'params': params
             }
             
-            # Check if rev or irr based on flag parameter
+            # Determine if rev or irr - check flag parameter (supports both old 0/1 and new r/i values)
             flag = params.get('flag', 'r')
-            if flag == 'r':
+            # Map old numeric flags: 0 = reversible, 1 = irreversible
+            if flag in ['r', 'rev', '0', 0]:
                 rev_archives.append(archive_info)
-            elif flag == 'i':
+            elif flag in ['i', 'irr', '1', 1]:
                 irr_archives.append(archive_info)
     
     return render_template_string(HTML_TEMPLATE, archives=archives, rev_archives=rev_archives, irr_archives=irr_archives)
