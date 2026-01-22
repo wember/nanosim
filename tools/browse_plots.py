@@ -10,7 +10,7 @@ app = Flask(__name__)
 
 REPO_ROOT = Path(__file__).parent.parent
 DATA_DIR = REPO_ROOT / 'data'
-ARCHIVE_DIR = DATA_DIR / 'archive'
+ARCHIVE_DIR = DATA_DIR  # Runs stored directly in data directory
 
 HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -18,18 +18,63 @@ HTML_TEMPLATE = """
 <head>
     <title>Simulation Browser</title>
     <style>
+        :root {
+            --bg-primary: #1e1e1e;
+            --bg-secondary: #2d2d2d;
+            --bg-hover: #3a3a3a;
+            --text-primary: #e0e0e0;
+            --text-secondary: #b0b0b0;
+            --border-color: #404040;
+            --shadow: rgba(0,0,0,0.3);
+            --param-bg: #383838;
+        }
+        
+        [data-theme="light"] {
+            --bg-primary: #f5f5f5;
+            --bg-secondary: #ffffff;
+            --bg-hover: #fafafa;
+            --text-primary: #333333;
+            --text-secondary: #666666;
+            --border-color: #eeeeee;
+            --shadow: rgba(0,0,0,0.1);
+            --param-bg: #f8f9fa;
+        }
+        
         body { 
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
             max-width: 1200px; 
             margin: 40px auto; 
             padding: 0 20px;
-            background: #f5f5f5;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            transition: background-color 0.3s ease, color 0.3s ease;
         }
         h1 { 
-            color: #333;
+            color: var(--text-primary);
             display: flex;
             align-items: center;
             justify-content: space-between;
+        }
+        .header-controls {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        .theme-toggle {
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 18px;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            height: 38px;
+        }
+        .theme-toggle:hover {
+            background: var(--bg-hover);
         }
         .refresh-btn {
             background: #007bff;
@@ -47,20 +92,20 @@ HTML_TEMPLATE = """
             background: #0056b3;
         }
         .archive-list { 
-            background: white;
+            background: var(--bg-secondary);
             border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            box-shadow: 0 2px 4px var(--shadow);
         }
         .archive-item { 
             padding: 20px;
-            border-bottom: 1px solid #eee;
+            border-bottom: 1px solid var(--border-color);
         }
         .archive-item:last-child { border-bottom: none; }
-        .archive-item:hover { background: #fafafa; }
+        .archive-item:hover { background: var(--bg-hover); }
         .timestamp { 
             font-size: 1.2em; 
             font-weight: bold; 
-            color: #333;
+            color: var(--text-primary);
             margin-bottom: 8px;
         }
         .status { 
@@ -70,14 +115,41 @@ HTML_TEMPLATE = """
             font-weight: 600;
             font-size: 0.85em;
             margin-bottom: 8px;
+            margin-right: 8px;
         }
-        .status-completed { background: #d4edda; color: #155724; }
-        .status-interrupted { background: #fff3cd; color: #856404; }
-        .status-error { background: #f8d7da; color: #721c24; }
+        .status-completed { background: #28a745; color: white; }
+        .status-interrupted { background: #ffc107; color: black; }
+        .status-error { background: #dc3545; color: white; }
         .status-unknown { background: #e2e3e5; color: #383d41; }
         .status-current { background: #cfe2ff; color: #084298; }
+        .combined-chip {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 4px;
+            font-weight: 600;
+            font-size: 0.85em;
+            margin-bottom: 8px;
+            background: linear-gradient(90deg, #ab63fa 0%, #00b8d4 100%);
+            color: white;
+        }
+        .dynamics-chip {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 4px;
+            font-weight: 600;
+            font-size: 0.85em;
+            margin-bottom: 8px;
+        }
+        .dynamics-chip.reversible {
+            background: #ab63fa;
+            color: white;
+        }
+        .dynamics-chip.irreversible {
+            background: #00b8d4;
+            color: black;
+        }
         .details { 
-            color: #666; 
+            color: var(--text-secondary); 
             font-size: 0.9em;
             line-height: 1.6;
         }
@@ -89,17 +161,44 @@ HTML_TEMPLATE = """
         }
         .param { 
             font-family: 'Courier New', monospace;
-            background: #f8f9fa;
+            background: var(--param-bg);
             padding: 4px 8px;
             border-radius: 4px;
         }
         .no-archives {
             text-align: center;
             padding: 60px 20px;
-            color: #999;
+            color: var(--text-secondary);
         }
         a { color: #007bff; text-decoration: none; }
         a:hover { text-decoration: underline; }
+        .edit-link {
+            display: inline-block;
+            padding: 2px 8px;
+            border: 1px solid #007bff;
+            border-radius: 3px;
+            font-size: 0.85em;
+            transition: all 0.2s;
+        }
+        .edit-link:hover {
+            background: #007bff;
+            color: white;
+            text-decoration: none;
+        }
+        .delete-link {
+            display: inline-block;
+            padding: 2px 8px;
+            border: 1px solid #dc3545;
+            border-radius: 3px;
+            font-size: 0.85em;
+            color: #dc3545;
+            transition: all 0.2s;
+        }
+        .delete-link:hover {
+            background: #dc3545;
+            color: white;
+            text-decoration: none;
+        }
         
         /* Toast notification */
         .toast {
@@ -134,13 +233,14 @@ HTML_TEMPLATE = """
             top: 0;
             width: 100%;
             height: 100%;
-            background-color: rgba(0,0,0,0.4);
+            background-color: rgba(0,0,0,0.6);
         }
         .modal-content {
-            background-color: #fefefe;
+            background-color: var(--bg-secondary);
+            color: var(--text-primary);
             margin: 10% auto;
             padding: 20px;
-            border: 1px solid #888;
+            border: 1px solid var(--border-color);
             border-radius: 8px;
             width: 80%;
             max-width: 600px;
@@ -170,11 +270,13 @@ HTML_TEMPLATE = """
             width: 100%;
             min-height: 150px;
             padding: 10px;
-            border: 1px solid #ddd;
+            border: 1px solid var(--border-color);
             border-radius: 4px;
             font-family: inherit;
             font-size: 14px;
             resize: vertical;
+            background: var(--bg-primary);
+            color: var(--text-primary);
         }
         .modal-footer {
             margin-top: 15px;
@@ -203,9 +305,133 @@ HTML_TEMPLATE = """
         .btn-secondary:hover {
             background: #545b62;
         }
+        .btn-success {
+            background: #28a745;
+            color: white;
+        }
+        .btn-success:hover {
+            background: #218838;
+        }
+        .btn-success:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
+        }
+        .combine-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin: 20px 0;
+        }
+        .sim-column {
+            border: 2px solid var(--border-color);
+            border-radius: 8px;
+            padding: 15px;
+            background: var(--bg-primary);
+        }
+        .sim-column:first-child {
+            border-color: #ab63fa;
+        }
+        .sim-column:last-child {
+            border-color: #00d9ff;
+        }
+        .sim-column h3 {
+            margin-top: 0;
+            margin-bottom: 10px;
+            font-size: 1.1em;
+            padding-bottom: 8px;
+            border-bottom: 2px solid var(--border-color);
+        }
+        .sim-column:first-child h3 {
+            color: #ab63fa;
+            border-bottom-color: #ab63fa;
+        }
+        .sim-column:last-child h3 {
+            color: #00d9ff;
+            border-bottom-color: #00d9ff;
+        }
+        .sim-list {
+            max-height: 400px;
+            overflow-y: auto;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            background: var(--bg-secondary);
+        }
+        .sim-option {
+            padding: 12px;
+            border-bottom: 1px solid var(--border-color);
+            cursor: pointer;
+            transition: all 0.2s;
+            background: var(--bg-secondary);
+        }
+        .sim-option:last-child {
+            border-bottom: none;
+        }
+        .sim-option:hover:not(.disabled) {
+            background: var(--bg-hover);
+        }
+        .rev-option.selected {
+            background: #ab63fa;
+            color: white;
+        }
+        .rev-option.selected:hover {
+            background: #9a4eeb;
+        }
+        .irr-option.selected {
+            background: #00d9ff;
+            color: #1e1e1e;
+        }
+        .irr-option.selected:hover {
+            background: #00c4e6;
+        }
+        .sim-option.disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+        .sim-option-title {
+            font-weight: bold;
+            margin-bottom: 4px;
+        }
+        .sim-option-details {
+            font-size: 0.85em;
+            opacity: 0.8;
+        }
+        .sim-option.selected .sim-option-details {
+            opacity: 0.9;
+        }
     </style>
     <script>
         let currentDirname = null;
+        
+        // Theme management
+        function initTheme() {
+            const savedTheme = localStorage.getItem('theme') || 'dark';
+            document.documentElement.setAttribute('data-theme', savedTheme);
+            updateThemeIcon();
+        }
+        
+        function toggleTheme() {
+            const currentTheme = document.documentElement.getAttribute('data-theme');
+            const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+            document.documentElement.setAttribute('data-theme', newTheme);
+            localStorage.setItem('theme', newTheme);
+            updateThemeIcon();
+        }
+        
+        function updateThemeIcon() {
+            const theme = document.documentElement.getAttribute('data-theme');
+            const btn = document.getElementById('themeToggle');
+            btn.textContent = theme === 'dark' ? '☀️' : '🌙';
+            btn.title = theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode';
+        }
+        
+        // Initialize theme on page load
+        document.addEventListener('DOMContentLoaded', initTheme);
+        
+        function addThemeToUrl(event, link) {
+            event.preventDefault();
+            const theme = document.documentElement.getAttribute('data-theme');
+            window.location.href = link.href + '?theme=' + theme;
+        }
         
         function openNotesModal(dirname, currentNotes) {
             currentDirname = dirname;
@@ -221,6 +447,226 @@ HTML_TEMPLATE = """
         
         function closeNotesModal() {
             document.getElementById('notesModal').style.display = 'none';
+        }
+        
+        // Combine dialog functions
+        let selectedRev = null;
+        let selectedIrr = null;
+        
+        function openCombineModal() {
+            document.getElementById('combineModal').style.display = 'block';
+            updateCombineButton();
+        }
+        
+        function closeCombineModal() {
+            document.getElementById('combineModal').style.display = 'none';
+            selectedRev = null;
+            selectedIrr = null;
+            document.querySelectorAll('.sim-option.selected').forEach(el => el.classList.remove('selected'));
+            // Reset all hidden states
+            document.querySelectorAll('.sim-option').forEach(el => {
+                el.style.display = 'block';
+            });
+            // Hide all no-match messages
+            document.querySelectorAll('.no-match-message').forEach(msg => {
+                msg.style.display = 'none';
+            });
+        }
+        
+        function selectRev(dirname) {
+            const selectedEl = event.target.closest('.sim-option');
+            
+            // If clicking already selected item, deselect it
+            if (selectedRev === dirname) {
+                selectedRev = null;
+                selectedEl.classList.remove('selected');
+                
+                // Show all irr options again
+                document.querySelectorAll('.irr-option').forEach(el => {
+                    el.style.display = 'block';
+                });
+                
+                // Hide no-match message
+                const irrList = document.getElementById('irrList');
+                const noMatchMsg = irrList.querySelector('.no-match-message');
+                if (noMatchMsg) {
+                    noMatchMsg.style.display = 'none';
+                }
+                
+                updateCombineButton();
+                return;
+            }
+            
+            selectedRev = dirname;
+            document.querySelectorAll('.rev-option').forEach(el => el.classList.remove('selected'));
+            selectedEl.classList.add('selected');
+            
+            // Get parameters from selected rev
+            const revParams = {
+                n: selectedEl.dataset.n,
+                sweeps: selectedEl.dataset.sweeps,
+                radius: selectedEl.dataset.radius,
+                runs: selectedEl.dataset.runs
+            };
+            
+            // Update irr options - hide incompatible ones
+            let hasCompatible = false;
+            document.querySelectorAll('.irr-option').forEach(el => {
+                const irrParams = {
+                    n: el.dataset.n,
+                    sweeps: el.dataset.sweeps,
+                    radius: el.dataset.radius,
+                    runs: el.dataset.runs
+                };
+                
+                const isCompatible = revParams.n === irrParams.n &&
+                                   revParams.sweeps === irrParams.sweeps &&
+                                   revParams.radius === irrParams.radius &&
+                                   revParams.runs === irrParams.runs;
+                
+                if (isCompatible) {
+                    el.style.display = 'block';
+                    hasCompatible = true;
+                } else {
+                    el.style.display = 'none';
+                    if (el.classList.contains('selected')) {
+                        el.classList.remove('selected');
+                        selectedIrr = null;
+                    }
+                }
+            });
+            
+            // Show/hide no match message
+            const irrList = document.getElementById('irrList');
+            let noMatchMsg = irrList.querySelector('.no-match-message');
+            if (!hasCompatible) {
+                if (!noMatchMsg) {
+                    noMatchMsg = document.createElement('div');
+                    noMatchMsg.className = 'no-match-message';
+                    noMatchMsg.style.cssText = 'padding: 20px; text-align: center; color: var(--text-secondary); font-style: italic;';
+                    noMatchMsg.textContent = 'No irreversible simulations with matching parameters';
+                    irrList.appendChild(noMatchMsg);
+                }
+                noMatchMsg.style.display = 'block';
+            } else if (noMatchMsg) {
+                noMatchMsg.style.display = 'none';
+            }
+            
+            updateCombineButton();
+        }
+        
+        function selectIrr(dirname) {
+            const selectedEl = event.target.closest('.sim-option');
+            
+            // If clicking already selected item, deselect it
+            if (selectedIrr === dirname) {
+                selectedIrr = null;
+                selectedEl.classList.remove('selected');
+                
+                // Show all rev options again
+                document.querySelectorAll('.rev-option').forEach(el => {
+                    el.style.display = 'block';
+                });
+                
+                // Hide no-match message
+                const revList = document.getElementById('revList');
+                const noMatchMsg = revList.querySelector('.no-match-message');
+                if (noMatchMsg) {
+                    noMatchMsg.style.display = 'none';
+                }
+                
+                updateCombineButton();
+                return;
+            }
+            
+            selectedIrr = dirname;
+            document.querySelectorAll('.irr-option').forEach(el => el.classList.remove('selected'));
+            selectedEl.classList.add('selected');
+            
+            // Get parameters from selected irr
+            const irrParams = {
+                n: selectedEl.dataset.n,
+                sweeps: selectedEl.dataset.sweeps,
+                radius: selectedEl.dataset.radius,
+                runs: selectedEl.dataset.runs
+            };
+            
+            // Update rev options - hide incompatible ones
+            let hasCompatible = false;
+            document.querySelectorAll('.rev-option').forEach(el => {
+                const revParams = {
+                    n: el.dataset.n,
+                    sweeps: el.dataset.sweeps,
+                    radius: el.dataset.radius,
+                    runs: el.dataset.runs
+                };
+                
+                const isCompatible = revParams.n === irrParams.n &&
+                                   revParams.sweeps === irrParams.sweeps &&
+                                   revParams.radius === irrParams.radius &&
+                                   revParams.runs === irrParams.runs;
+                
+                if (isCompatible) {
+                    el.style.display = 'block';
+                    hasCompatible = true;
+                } else {
+                    el.style.display = 'none';
+                    if (el.classList.contains('selected')) {
+                        el.classList.remove('selected');
+                        selectedRev = null;
+                    }
+                }
+            });
+            
+            // Show/hide no match message
+            const revList = document.getElementById('revList');
+            let noMatchMsg = revList.querySelector('.no-match-message');
+            if (!hasCompatible) {
+                if (!noMatchMsg) {
+                    noMatchMsg = document.createElement('div');
+                    noMatchMsg.className = 'no-match-message';
+                    noMatchMsg.style.cssText = 'padding: 20px; text-align: center; color: var(--text-secondary); font-style: italic;';
+                    noMatchMsg.textContent = 'No reversible simulations with matching parameters';
+                    revList.appendChild(noMatchMsg);
+                }
+                noMatchMsg.style.display = 'block';
+            } else if (noMatchMsg) {
+                noMatchMsg.style.display = 'none';
+            }
+            
+            updateCombineButton();
+        }
+        
+        function updateCombineButton() {
+            const btn = document.getElementById('doCombineBtn');
+            btn.disabled = !(selectedRev && selectedIrr);
+        }
+        
+        function doCombine() {
+            if (!selectedRev || !selectedIrr) return;
+            
+            fetch('/combine-sims', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    rev: selectedRev,
+                    irr: selectedIrr
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    sessionStorage.setItem('toastMessage', 'Simulations combined successfully: ' + data.archive_name);
+                    window.location.reload();
+                } else {
+                    alert('Error combining simulations: ' + data.error);
+                }
+            })
+            .catch(error => {
+                alert('Error combining simulations: ' + error);
+            });
         }
         
         function saveNotes() {
@@ -274,26 +720,6 @@ HTML_TEMPLATE = """
             }
         });
         
-        function archiveCurrentRun() {
-            if (confirm('Archive the current run?\\n\\nThis will move all data to the archive directory.')) {
-                fetch('/archive-current', {
-                    method: 'POST'
-                })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.success) {
-                        sessionStorage.setItem('toastMessage', 'Current run archived successfully');
-                        window.location.reload();
-                    } else {
-                        alert('Error archiving current run: ' + data.error);
-                    }
-                })
-                .catch(error => {
-                    alert('Error archiving current run: ' + error);
-                });
-            }
-        }
-        
         function toggleNotesExpand(dirname) {
             const notesDiv = document.getElementById('notesContent_' + dirname);
             const toggleBtn = document.getElementById('toggleNotes_' + dirname);
@@ -346,9 +772,75 @@ HTML_TEMPLATE = """
         </div>
     </div>
     
+    <div id="combineModal" class="modal">
+        <div class="modal-content" style="max-width: 800px;">
+            <div class="modal-header">
+                <h2>Combine Simulations</h2>
+                <button class="close-btn" onclick="closeCombineModal()">&times;</button>
+            </div>
+            <p style="margin-bottom: 15px; color: var(--text-secondary);">Select one reversible and one irreversible simulation to combine into a new archive.</p>
+            <div class="combine-grid">
+                <div class="sim-column">
+                    <h3>Reversible Simulations</h3>
+                    <div class="sim-list" id="revList">
+                        {% for archive in rev_archives %}
+                        <div class="sim-option rev-option" onclick="selectRev('{{ archive.dirname }}')"
+                             data-dirname="{{ archive.dirname }}"
+                             data-n="{{ archive.params.n if archive.params else '' }}"
+                             data-sweeps="{{ archive.params.sweeps if archive.params else '' }}"
+                             data-radius="{{ archive.params.radius if archive.params else '' }}"
+                             data-runs="{{ archive.params.runs if archive.params else '' }}">
+                            <div class="sim-option-title">{{ archive.display_time }}</div>
+                            <div class="sim-option-details">
+                                {% if archive.params %}
+                                n={{ archive.params.n }}, s={{ archive.params.sweeps }}, r={{ archive.params.radius }}
+                                {% endif %}
+                            </div>
+                        </div>
+                        {% endfor %}
+                        {% if not rev_archives %}
+                        <div style="padding: 20px; text-align: center; color: var(--text-secondary);">No completed reversible simulations found</div>
+                        {% endif %}
+                    </div>
+                </div>
+                <div class="sim-column">
+                    <h3>Irreversible Simulations</h3>
+                    <div class="sim-list" id="irrList">
+                        {% for archive in irr_archives %}
+                        <div class="sim-option irr-option" onclick="selectIrr('{{ archive.dirname }}')"
+                             data-dirname="{{ archive.dirname }}"
+                             data-n="{{ archive.params.n if archive.params else '' }}"
+                             data-sweeps="{{ archive.params.sweeps if archive.params else '' }}"
+                             data-radius="{{ archive.params.radius if archive.params else '' }}"
+                             data-runs="{{ archive.params.runs if archive.params else '' }}">
+                            <div class="sim-option-title">{{ archive.display_time }}</div>
+                            <div class="sim-option-details">
+                                {% if archive.params %}
+                                n={{ archive.params.n }}, s={{ archive.params.sweeps }}, r={{ archive.params.radius }}
+                                {% endif %}
+                            </div>
+                        </div>
+                        {% endfor %}
+                        {% if not irr_archives %}
+                        <div style="padding: 20px; text-align: center; color: var(--text-secondary);">No completed irreversible simulations found</div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeCombineModal()">Cancel</button>
+                <button id="doCombineBtn" class="btn btn-success" onclick="doCombine()" disabled>Combine</button>
+            </div>
+        </div>
+    </div>
+    
     <h1>
         <span>📊 Simulation Browser</span>
-        <button class="refresh-btn" onclick="window.location.reload()">🔄 Refresh</button>
+        <div class="header-controls">
+            <button class="refresh-btn" onclick="openCombineModal()">Combine</button>
+            <button class="refresh-btn" onclick="window.location.reload()">Refresh</button>
+            <button id="themeToggle" class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">🌙</button>
+        </div>
     </h1>
     
     {% if archives %}
@@ -356,11 +848,43 @@ HTML_TEMPLATE = """
         {% for archive in archives %}
         <div class="archive-item">
             <div class="timestamp">{{ archive.display_time }}</div>
-            <span class="status status-{{ archive.status_class }}">{{ archive.status }}</span>
+            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px;">
+                {% if archive.is_combined %}
+                <span class="combined-chip">COMBINED</span>
+                {% elif archive.params %}
+                <span class="dynamics-chip {{ 'irreversible' if archive.params.flag == '1' else 'reversible' }}">{{ 'IRREVERSIBLE' if archive.params.flag == '1' else 'REVERSIBLE' }}</span>
+                {% endif %}
+                <span class="status status-{{ archive.status_class }}">{{ archive.status }}</span>
+            </div>
             <div class="details">
-                {% if archive.params %}
+                {% if archive.is_combined %}
+                {% if archive.params_mismatch %}
+                <div style="margin-bottom: 12px; padding: 10px; background: var(--param-bg); border-radius: 4px;">
+                    <div style="background: #ff9800; color: white; padding: 8px 12px; border-radius: 4px; margin-bottom: 8px; font-size: 0.9em;">
+                        ⚠️ Warning: Reversible and irreversible parameters don't match
+                    </div>
+                    {% if archive.rev_params and archive.irr_params %}
+                    <div class="details-grid">
+                        <div><strong>Reversible:</strong></div>
+                        <div><span class="param">n={{ archive.rev_params.n }}, s={{ archive.rev_params.sweeps }}, r={{ archive.rev_params.radius }}, m={{ archive.rev_params.runs }}</span></div>
+                        <div><strong>Irreversible:</strong></div>
+                        <div><span class="param">n={{ archive.irr_params.n }}, s={{ archive.irr_params.sweeps }}, r={{ archive.irr_params.radius }}, m={{ archive.irr_params.runs }}</span></div>
+                    </div>
+                    {% endif %}
+                </div>
+                {% else %}
+                {% if archive.rev_params %}
                 <div class="details-grid">
-                    <div><strong>Dynamics:</strong> <span class="param">{{ 'Irreversible' if archive.params.flag == '1' else 'Reversible' }}</span></div>
+                    <div><strong>Lattice:</strong> <span class="param">n={{ archive.rev_params.n }}</span></div>
+                    <div><strong>Sweeps:</strong> <span class="param">s={{ archive.rev_params.sweeps }}</span></div>
+                    <div><strong>Radius:</strong> <span class="param">r={{ archive.rev_params.radius }}</span></div>
+                    <div><strong>Runs:</strong> <span class="param">m={{ archive.rev_params.runs }}</span></div>
+                    <div><strong>Total sims:</strong> <span class="param">{{ archive.rev_params.total }}</span></div>
+                </div>
+                {% endif %}
+                {% endif %}
+                {% elif archive.params %}
+                <div class="details-grid">
                     <div><strong>Lattice:</strong> <span class="param">n={{ archive.params.n }}</span></div>
                     <div><strong>Sweeps:</strong> <span class="param">s={{ archive.params.sweeps }}</span></div>
                     <div><strong>Radius:</strong> <span class="param">r={{ archive.params.radius }}</span></div>
@@ -382,7 +906,7 @@ HTML_TEMPLATE = """
                 {% if archive.notes %}
                 <div style="margin-top: 8px;">
                     <strong>Notes:</strong> 
-                    <a href="#" data-dirname="{{ archive.dirname }}" data-notes="{{ archive.notes|escape }}" onclick="openNotesModalFromLink(this); return false;" style="font-size: 0.9em;">📝 Edit</a>
+                    <a href="#" class="edit-link" data-dirname="{{ archive.dirname }}" data-notes="{{ archive.notes|escape }}" onclick="openNotesModalFromLink(this); return false;">Edit</a>
                     <div id="notesContent_{{ archive.dirname }}" style="font-style: italic; white-space: pre-wrap; margin-top: 4px; overflow: hidden; line-height: 1.5; max-height: 4.5em; transition: max-height 0.3s ease;">{{ archive.notes }}</div>
                     <a href="#" id="toggleNotes_{{ archive.dirname }}" onclick="toggleNotesExpand('{{ archive.dirname }}'); return false;" style="font-size: 0.9em; display: none;">▼ Show more</a>
                 </div>
@@ -399,20 +923,15 @@ HTML_TEMPLATE = """
                 </script>
                 {% endif %}
                 <div style="margin-top: 12px;">
-                    <a href="/plot/{{ archive.dirname }}">📈 Plot data</a>
+                    <a href="/plot/{{ archive.dirname }}" class="edit-link" onclick="addThemeToUrl(event, this)">Plot data</a>
                     <span style="color: #ccc; margin: 0 8px;">|</span>
-                    <a href="/view/{{ archive.dirname }}">📂 View files</a>
+                    <a href="/view/{{ archive.dirname }}" class="edit-link">View files</a>
                     {% if not archive.notes %}
                     <span style="color: #ccc; margin: 0 8px;">|</span>
-                    <a href="#" data-dirname="{{ archive.dirname }}" data-notes="" onclick="openNotesModalFromLink(this); return false;">📝 Add notes</a>
+                    <a href="#" class="edit-link" data-dirname="{{ archive.dirname }}" data-notes="" onclick="openNotesModalFromLink(this); return false;">Add notes</a>
                     {% endif %}
-                    {% if archive.dirname == 'current' %}
                     <span style="color: #ccc; margin: 0 8px;">|</span>
-                    <a href="#" onclick="archiveCurrentRun(); return false;" style="color: #28a745;">📦 Archive</a>
-                    {% else %}
-                    <span style="color: #ccc; margin: 0 8px;">|</span>
-                    <a href="#" onclick="deleteArchive('{{ archive.dirname }}'); return false;" style="color: #dc3545;">🗑️ Delete</a>
-                    {% endif %}
+                    <a href="#" class="delete-link" onclick="deleteArchive('{{ archive.dirname }}'); return false;">Delete</a>
                 </div>
             </div>
         </div>
@@ -434,31 +953,108 @@ FILE_LIST_TEMPLATE = """
 <head>
     <title>Archive Files - {{ dirname }}</title>
     <style>
+        :root[data-theme="light"] {
+            --bg-primary: #ffffff;
+            --bg-secondary: #f8f9fa;
+            --text-primary: #333333;
+            --text-secondary: #666666;
+            --border-color: #eeeeee;
+            --link-color: #007bff;
+        }
+        
+        :root[data-theme="dark"] {
+            --bg-primary: #1a1a1a;
+            --bg-secondary: #2a2a2a;
+            --text-primary: #e0e0e0;
+            --text-secondary: #999999;
+            --border-color: #404040;
+            --link-color: #4dabf7;
+        }
+        
         body { 
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
             max-width: 1200px; 
             margin: 40px auto; 
             padding: 0 20px;
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+            transition: background-color 0.3s, color 0.3s;
         }
-        h1 { color: #333; }
-        .file-list { list-style: none; padding: 0; }
-        .file-item { 
-            padding: 12px;
-            border-bottom: 1px solid #eee;
+        
+        h1 { color: var(--text-primary); }
+        
+        .header {
             display: flex;
             justify-content: space-between;
             align-items: center;
+            margin-bottom: 20px;
         }
-        .file-item:hover { background: #f8f9fa; }
-        .file-name { font-family: 'Courier New', monospace; }
-        .file-size { color: #666; font-size: 0.9em; }
-        a { color: #007bff; text-decoration: none; }
-        a:hover { text-decoration: underline; }
-        .back-link { margin-bottom: 20px; }
+        
+        .theme-toggle {
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 18px;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            height: 38px;
+        }
+        
+        .theme-toggle:hover {
+            background: var(--bg-secondary);
+        }
+        
+        .file-list { 
+            list-style: none; 
+            padding: 0; 
+        }
+        
+        .file-item { 
+            padding: 12px;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: background-color 0.2s;
+        }
+        
+        .file-item:hover { 
+            background: var(--bg-secondary); 
+        }
+        
+        .file-name { 
+            font-family: 'Courier New', monospace;
+            color: var(--text-primary);
+        }
+        
+        .file-size { 
+            color: var(--text-secondary); 
+            font-size: 0.9em; 
+        }
+        
+        a { 
+            color: var(--link-color); 
+            text-decoration: none; 
+        }
+        
+        a:hover { 
+            text-decoration: underline; 
+        }
+        
+        .back-link { 
+            margin-bottom: 20px; 
+        }
     </style>
 </head>
 <body>
-    <div class="back-link"><a href="/">← Back to browser</a></div>
+    <div class="header">
+        <div class="back-link"><a href="/">← Back to browser</a></div>
+        <button id="themeToggle" class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">🌙</button>
+    </div>
     <h1>📂 Archive: {{ dirname }}</h1>
     <ul class="file-list">
         {% for file in files %}
@@ -468,14 +1064,36 @@ FILE_LIST_TEMPLATE = """
         </li>
         {% endfor %}
     </ul>
+    
+    <script>
+        // Load theme from localStorage or default to dark
+        const savedTheme = localStorage.getItem('theme') || 'dark';
+        document.documentElement.setAttribute('data-theme', savedTheme);
+        updateThemeIcon();
+        
+        function toggleTheme() {
+            const currentTheme = document.documentElement.getAttribute('data-theme');
+            const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+            document.documentElement.setAttribute('data-theme', newTheme);
+            localStorage.setItem('theme', newTheme);
+            updateThemeIcon();
+        }
+        
+        function updateThemeIcon() {
+            const theme = document.documentElement.getAttribute('data-theme');
+            const btn = document.getElementById('themeToggle');
+            btn.textContent = theme === 'dark' ? '☀️' : '🌙';
+            btn.title = theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode';
+        }
+    </script>
 </body>
 </html>
 """
 
 def parse_status_file(archive_path):
     """Parse sim_status.txt to get status info."""
-    status_file = archive_path / 'sim_status.txt'
-    if not status_file.exists():
+    status_file = find_status_file(archive_path, 'sim_status.txt')
+    if not status_file:
         return None
     
     info = {}
@@ -488,8 +1106,8 @@ def parse_status_file(archive_path):
 
 def parse_start_file(archive_path):
     """Parse sim_started.txt to get parameters."""
-    start_file = archive_path / 'sim_started.txt'
-    if not start_file.exists():
+    start_file = find_status_file(archive_path, 'sim_started.txt')
+    if not start_file:
         return None
     
     params = {}
@@ -507,8 +1125,8 @@ def parse_start_file(archive_path):
 
 def parse_completion_file(archive_path):
     """Parse sim_completed.txt to get completion info."""
-    completion_file = archive_path / 'sim_completed.txt'
-    if not completion_file.exists():
+    completion_file = find_status_file(archive_path, 'sim_completed.txt')
+    if not completion_file:
         return None
     
     info = {}
@@ -520,10 +1138,30 @@ def parse_completion_file(archive_path):
                 info['throughput'] = line.split(':', 1)[1].strip()
     return info
 
+def find_status_file(archive_path, filename):
+    """Find a status file in archive_path, checking rev/ and irr/ subdirectories."""
+    # Check in order: irr/, rev/, then root
+    for subdir in ['irr', 'rev', '']:
+        check_path = archive_path / subdir / filename if subdir else archive_path / filename
+        if check_path.exists():
+            return check_path
+    return None
+
 def read_notes(archive_path):
     """Read sim_notes.txt to get user notes."""
-    notes_file = archive_path / 'sim_notes.txt'
-    if not notes_file.exists():
+    # Check if this is a combined archive
+    is_combined = (archive_path / 'rev').exists() and (archive_path / 'irr').exists()
+    
+    if is_combined:
+        # For combined archives, read from root
+        notes_file = archive_path / 'sim_notes.txt'
+    else:
+        # For rev/irr archives, check subdirectories first
+        notes_file = find_status_file(archive_path, 'sim_notes.txt')
+        if not notes_file:
+            return None
+    
+    if not notes_file or not notes_file.exists():
         return None
     
     try:
@@ -545,62 +1183,14 @@ def index():
     """Main page listing all archived runs."""
     archives = []
     
-    # Add current data directory if it exists and has relevant data files
-    if DATA_DIR.exists():
-        # Check if there are any data files (not just archive directory or empty notes)
-        has_data = False
-        for item in DATA_DIR.iterdir():
-            if item.name != 'archive' and not (item.name == 'sim_notes.txt' and item.stat().st_size == 0):
-                has_data = True
-                break
-        
-        if has_data:
-            # Get status
-            status_info = parse_status_file(DATA_DIR)
-            if status_info:
-                status = status_info.get('Status', 'UNKNOWN')
-                progress = status_info.get('Completed', None)
-            else:
-                status = 'IN PROGRESS' if (DATA_DIR / 'sim_started.txt').exists() else 'UNKNOWN'
-                progress = None
-            
-            # Get parameters
-            params = parse_start_file(DATA_DIR)
-            
-            # Get completion info
-            completion_info = parse_completion_file(DATA_DIR)
-            
-            # Get notes
-            notes = read_notes(DATA_DIR)
-            
-            # Get modification time as display time
-            try:
-                status_file = DATA_DIR / 'sim_status.txt'
-                if status_file.exists():
-                    mtime = datetime.fromtimestamp(status_file.stat().st_mtime)
-                elif (DATA_DIR / 'sim_started.txt').exists():
-                    mtime = datetime.fromtimestamp((DATA_DIR / 'sim_started.txt').stat().st_mtime)
-                else:
-                    mtime = datetime.fromtimestamp(DATA_DIR.stat().st_mtime)
-                display_time = f"Current Run (updated {mtime.strftime('%H:%M:%S')})"
-            except:
-                display_time = "Current Run"
-            
-            archives.append({
-                'dirname': 'current',
-                'display_time': display_time,
-                'status': status,
-                'status_class': 'current',
-                'params': params,
-                'progress': progress,
-            'completion_info': completion_info,
-            'notes': notes
-        })
-    
     # Add archived runs
     if ARCHIVE_DIR.exists():
         for archive_dir in sorted(ARCHIVE_DIR.iterdir(), reverse=True):
             if not archive_dir.is_dir():
+                continue
+            
+            # Skip init_fin directory
+            if archive_dir.name == 'init_fin':
                 continue
             
             # Parse timestamp from directory name (YYYYMMDD_HHMMSS)
@@ -623,8 +1213,27 @@ def index():
             # Map status to CSS class
             status_class = status.lower()
             
+            # Check if this is a combined archive (has both rev and irr subdirectories)
+            is_combined = (archive_dir / 'rev').exists() and (archive_dir / 'irr').exists()
+            
             # Get parameters
             params = parse_start_file(archive_dir)
+            rev_params = None
+            irr_params = None
+            
+            if is_combined:
+                # Get parameters from both rev and irr subdirectories
+                rev_params = parse_start_file(archive_dir / 'rev')
+                irr_params = parse_start_file(archive_dir / 'irr')
+                
+                # Check if parameters match
+                params_mismatch = False
+                if rev_params and irr_params:
+                    # Compare key parameters (excluding flag which is expected to differ)
+                    for key in ['n', 'sweeps', 'radius', 'runs']:
+                        if rev_params.get(key) != irr_params.get(key):
+                            params_mismatch = True
+                            break
             
             # Get completion info
             completion_info = parse_completion_file(archive_dir)
@@ -640,23 +1249,83 @@ def index():
                 'params': params,
                 'progress': progress,
                 'completion_info': completion_info,
-                'notes': notes
+                'notes': notes,
+                'is_combined': is_combined,
+                'rev_params': rev_params,
+                'irr_params': irr_params,
+                'params_mismatch': params_mismatch if is_combined else False
             })
     
-    return render_template_string(HTML_TEMPLATE, archives=archives)
+    # Collect completed rev and irr archives for combine dialog
+    rev_archives = []
+    irr_archives = []
+    
+    # Add completed archives from archive directory
+    if ARCHIVE_DIR.exists():
+        for archive_dir in sorted(ARCHIVE_DIR.iterdir(), reverse=True):
+            if not archive_dir.is_dir():
+                continue
+            
+            # Skip init_fin directory
+            if archive_dir.name == 'init_fin':
+                continue
+            
+            # Get status - only include completed
+            status_info = parse_status_file(archive_dir)
+            if not status_info or status_info.get('Status') != 'COMPLETED':
+                continue
+            
+            # Get parameters to determine if rev or irr
+            params = parse_start_file(archive_dir)
+            if not params:
+                continue
+            
+            # Parse timestamp from directory name
+            dirname = archive_dir.name
+            try:
+                dt = datetime.strptime(dirname, '%Y%m%d_%H%M%S')
+                display_time = dt.strftime('%b %d, %Y %H:%M:%S')
+            except ValueError:
+                display_time = dirname
+            
+            archive_info = {
+                'dirname': dirname,
+                'display_time': display_time,
+                'params': params
+            }
+            
+            # Check if rev or irr based on flag parameter
+            flag = params.get('flag', '0')
+            if flag == '0':
+                rev_archives.append(archive_info)
+            elif flag == '1':
+                irr_archives.append(archive_info)
+    
+    return render_template_string(HTML_TEMPLATE, archives=archives, rev_archives=rev_archives, irr_archives=irr_archives)
 
 @app.route('/notes/<dirname>', methods=['POST'])
 def update_notes(dirname):
     """Update notes for a run."""
     from flask import jsonify, request
     
-    if dirname == 'current':
-        notes_path = DATA_DIR / 'sim_notes.txt'
-    else:
-        archive_path = ARCHIVE_DIR / dirname
-        if not archive_path.exists():
-            return jsonify({'success': False, 'error': 'Archive not found'}), 404
+    archive_path = ARCHIVE_DIR / dirname
+    if not archive_path.exists():
+        return jsonify({'success': False, 'error': 'Archive not found'}), 404
+    
+    # Check if this is a combined archive
+    is_combined = (archive_path / 'rev').exists() and (archive_path / 'irr').exists()
+    
+    if is_combined:
+        # For combined archives, store in root
         notes_path = archive_path / 'sim_notes.txt'
+    else:
+        # For rev/irr archives, store in subdirectory
+        if (archive_path / 'rev').exists():
+            notes_path = archive_path / 'rev' / 'sim_notes.txt'
+        elif (archive_path / 'irr').exists():
+            notes_path = archive_path / 'irr' / 'sim_notes.txt'
+        else:
+            notes_path = archive_path / 'sim_notes.txt'
     
     try:
         data = request.get_json()
@@ -670,47 +1339,74 @@ def update_notes(dirname):
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
-@app.route('/archive-current', methods=['POST'])
-def archive_current():
-    """Archive the current data directory."""
-    from flask import jsonify
+@app.route('/combine-sims', methods=['POST'])
+def combine_sims():
+    """Combine a reversible and irreversible simulation into a new archive."""
+    from flask import jsonify, request
     import shutil
     from datetime import datetime
-    import os
+    import time
     
-    # Check if current data directory exists
-    if not DATA_DIR.exists():
-        return jsonify({'success': False, 'error': 'No current data to archive'}), 400
+    data = request.get_json()
+    rev_dirname = data.get('rev')
+    irr_dirname = data.get('irr')
     
-    # Check if there are any files to archive (excluding archive directory and empty notes)
-    has_data = False
-    items_to_move = []
-    for item in DATA_DIR.iterdir():
-        if item.name != 'archive' and not (item.name == 'sim_notes.txt' and item.stat().st_size == 0):
-            has_data = True
-            items_to_move.append(item)
-    
-    if not has_data:
-        return jsonify({'success': False, 'error': 'No current data to archive'}), 400
-    
-    # Create archive directory if it doesn't exist
-    ARCHIVE_DIR.mkdir(parents=True, exist_ok=True)
-    
-    # Generate timestamp for archive directory name
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    archive_path = ARCHIVE_DIR / timestamp
+    if not rev_dirname or not irr_dirname:
+        return jsonify({'success': False, 'error': 'Both rev and irr must be specified'}), 400
     
     try:
-        # Create the archive directory
-        archive_path.mkdir(parents=True, exist_ok=True)
+        # Both should be in archives
+        rev_path = ARCHIVE_DIR / rev_dirname
+        irr_path = ARCHIVE_DIR / irr_dirname
         
-        # Move each file/directory from data to archive (except the archive directory itself)
-        for item in items_to_move:
-            dest = archive_path / item.name
-            shutil.move(str(item), str(dest))
+        if not rev_path.exists() or not irr_path.exists():
+            return jsonify({'success': False, 'error': 'One or both archives not found'}), 404
         
-        return jsonify({'success': True})
+        # Create new combined archive with current timestamp (guaranteed unique after sleep)
+        combined_timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        combined_path = ARCHIVE_DIR / combined_timestamp
+        
+        # Create the combined archive directory
+        combined_path.mkdir(parents=True, exist_ok=True)
+        
+        # Copy rev data to combined/rev
+        # Check if source has a rev subdirectory, otherwise copy the whole archive
+        rev_source = rev_path / 'rev' if (rev_path / 'rev').exists() else rev_path
+        rev_dest = combined_path / 'rev'
+        shutil.copytree(rev_source, rev_dest)
+        
+        # Copy irr data to combined/irr
+        # Check if source has an irr subdirectory, otherwise copy the whole archive
+        irr_source = irr_path / 'irr' if (irr_path / 'irr').exists() else irr_path
+        irr_dest = combined_path / 'irr'
+        shutil.copytree(irr_source, irr_dest)
+        
+        # Create a note documenting the combination
+        notes_file = combined_path / 'sim_notes.txt'
+        with open(notes_file, 'w') as f:
+            f.write(f"Combined simulation created {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write(f"Reversible: {rev_dirname}\n")
+            f.write(f"Irreversible: {irr_dirname}\n")
+            f.write(f"\n")
+            
+            # Read and append notes from rev archive
+            rev_notes = read_notes(rev_path)
+            if rev_notes:
+                f.write(f"=== Reversible Notes ===\n")
+                f.write(f"{rev_notes}\n")
+                f.write(f"\n")
+            
+            # Read and append notes from irr archive
+            irr_notes = read_notes(irr_path)
+            if irr_notes:
+                f.write(f"=== Irreversible Notes ===\n")
+                f.write(f"{irr_notes}\n")
+        
+        return jsonify({'success': True, 'archive_name': combined_timestamp})
     except Exception as e:
+        # Clean up on error
+        if 'combined_path' in locals() and combined_path.exists():
+            shutil.rmtree(combined_path)
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/delete/<dirname>', methods=['POST'])
@@ -718,10 +1414,6 @@ def delete_archive(dirname):
     """Delete an archived run."""
     from flask import jsonify
     import shutil
-    
-    # Don't allow deleting current data directory
-    if dirname == 'current':
-        return jsonify({'success': False, 'error': 'Cannot delete current data directory'}), 400
     
     archive_path = ARCHIVE_DIR / dirname
     if not archive_path.exists():
@@ -763,6 +1455,10 @@ def plot_data(dirname):
     import subprocess
     import tempfile
     import shutil
+    from flask import request
+    
+    # Get theme from query parameter, default to dark
+    theme = request.args.get('theme', 'dark')
     
     if dirname == 'current':
         data_path = DATA_DIR
@@ -792,6 +1488,9 @@ def plot_data(dirname):
         with open(plot_script, 'r') as f:
             script_content = f.read()
         
+        # Set the appropriate plotly template based on theme
+        plotly_template = 'plotly_dark' if theme == 'dark' else 'plotly_white'
+        
         # Replace the data path references and change .show() to .write_html()
         modified_script = script_content.replace(
             "repo_root = Path(__file__).parent.parent",
@@ -799,6 +1498,9 @@ def plot_data(dirname):
         ).replace(
             "filepath = repo_root / 'data'",
             f"filepath = Path('{temp_data}')"
+        ).replace(
+            'pio.templates.default = "plotly_white"',
+            f'pio.templates.default = "{plotly_template}"'
         ).replace(
             "fig.show()",
             f"fig.write_html('{tmpdir_path}/plot1.html')"
@@ -831,22 +1533,99 @@ def plot_data(dirname):
                 return f"<h1>No plots generated</h1><pre>stdout:\n{result.stdout}\n\nstderr:\n{result.stderr}</pre>", 500
             
             # Combine plots into a single page
-            title = 'Current Run' if dirname == 'current' else dirname
+            if dirname == 'current':
+                title = 'Current Run'
+            else:
+                # Format the title the same way as the cards
+                try:
+                    dt = datetime.strptime(dirname, '%Y%m%d_%H%M%S')
+                    title = dt.strftime('%b %d, %Y %H:%M:%S')
+                except ValueError:
+                    title = dirname
+            
+            # Check if this is a combined archive
+            is_combined = (data_path / 'rev').exists() and (data_path / 'irr').exists()
             
             # Get parameters for this run
-            params = parse_start_file(data_path)
             params_html = ""
-            if params:
-                dynamics = "Irreversible" if params.get('flag') == '1' else "Reversible"
-                params_html = f"""
-                <div style="text-align: center; margin: 20px 0; padding: 15px; background: #f8f9fa; border-radius: 5px;">
-                    <strong>Dynamics:</strong> {dynamics} | 
-                    <strong>Lattice:</strong> n={params.get('n', 'N/A')} | 
-                    <strong>Sweeps:</strong> s={params.get('sweeps', 'N/A')} | 
-                    <strong>Radius:</strong> r={params.get('radius', 'N/A')} | 
-                    <strong>Runs:</strong> m={params.get('runs', 'N/A')}
-                </div>
-                """
+            if is_combined:
+                # Get parameters from both rev and irr subdirectories
+                rev_params = parse_start_file(data_path / 'rev')
+                irr_params = parse_start_file(data_path / 'irr')
+                
+                # Check if parameters match
+                params_mismatch = False
+                if rev_params and irr_params:
+                    for key in ['n', 'sweeps', 'radius', 'runs']:
+                        if rev_params.get(key) != irr_params.get(key):
+                            params_mismatch = True
+                            break
+                
+                params_html = '<div style="text-align: center; margin: 20px 0; padding: 15px; background: var(--bg-secondary); color: var(--text-primary); border-radius: 5px;">'
+                
+                if params_mismatch:
+                    params_html += '<div style="display: inline-block; padding: 4px 12px; border-radius: 12px; font-size: 0.85em; font-weight: bold; margin-bottom: 12px; background: linear-gradient(90deg, #ab63fa 0%, #00b8d4 100%); color: white;">COMBINED</div>'
+                    params_html += '<div style="background: #ff9800; color: white; padding: 8px 12px; border-radius: 4px; margin-top: 8px; font-size: 0.9em;">⚠️ Warning: Reversible and irreversible parameters don\'t match</div>'
+                    
+                    # Show separate parameters when they don't match
+                    if rev_params:
+                        params_html += f"""
+                        <div style="margin-top: 10px; padding: 10px; background: var(--param-bg); border-radius: 4px;">
+                            <strong>Reversible:</strong>
+                            <strong>Lattice:</strong> n={rev_params.get('n', 'N/A')} | 
+                            <strong>Sweeps:</strong> s={rev_params.get('sweeps', 'N/A')} | 
+                            <strong>Radius:</strong> r={rev_params.get('radius', 'N/A')} | 
+                            <strong>Runs:</strong> m={rev_params.get('runs', 'N/A')}
+                        </div>
+                        """
+                    
+                    if irr_params:
+                        params_html += f"""
+                        <div style="margin-top: 10px; padding: 10px; background: var(--param-bg); border-radius: 4px;">
+                            <strong>Irreversible:</strong>
+                            <strong>Lattice:</strong> n={irr_params.get('n', 'N/A')} | 
+                            <strong>Sweeps:</strong> s={irr_params.get('sweeps', 'N/A')} | 
+                            <strong>Radius:</strong> r={irr_params.get('radius', 'N/A')} | 
+                            <strong>Runs:</strong> m={irr_params.get('runs', 'N/A')}
+                        </div>
+                        """
+                else:
+                    # Parameters match - show chip and params on same row
+                    if rev_params:
+                        params_html += f"""
+                        <div style="display: flex; align-items: center; justify-content: center; gap: 15px; flex-wrap: wrap;">
+                            <div style="padding: 4px 12px; border-radius: 12px; font-size: 0.85em; font-weight: bold; background: linear-gradient(90deg, #ab63fa 0%, #00b8d4 100%); color: white;">COMBINED</div>
+                            <div style="padding: 10px; background: var(--param-bg); border-radius: 4px;">
+                                <strong>Lattice:</strong> n={rev_params.get('n', 'N/A')} | 
+                                <strong>Sweeps:</strong> s={rev_params.get('sweeps', 'N/A')} | 
+                                <strong>Radius:</strong> r={rev_params.get('radius', 'N/A')} | 
+                                <strong>Runs:</strong> m={rev_params.get('runs', 'N/A')}
+                            </div>
+                        </div>
+                        """
+                
+                params_html += '</div>'
+            else:
+                # Single archive - show parameters normally
+                params = parse_start_file(data_path)
+                if params:
+                    is_irreversible = params.get('flag') == '1'
+                    dynamics_label = "IRREVERSIBLE" if is_irreversible else "REVERSIBLE"
+                    chip_color = "#00b8d4" if is_irreversible else "#ab63fa"
+                    text_color = "#000000" if is_irreversible else "#ffffff"
+                    params_html = f"""
+                    <div style="text-align: center; margin: 20px 0; padding: 15px; background: var(--bg-secondary); color: var(--text-primary); border-radius: 5px;">
+                        <div style="display: flex; align-items: center; justify-content: center; gap: 15px; flex-wrap: wrap;">
+                            <div style="background: {chip_color}; color: {text_color}; padding: 4px 12px; border-radius: 12px; font-size: 0.85em; font-weight: bold;">{dynamics_label}</div>
+                            <div style="padding: 10px; background: var(--param-bg); border-radius: 4px;">
+                                <strong>Lattice:</strong> n={params.get('n', 'N/A')} | 
+                                <strong>Sweeps:</strong> s={params.get('sweeps', 'N/A')} | 
+                                <strong>Radius:</strong> r={params.get('radius', 'N/A')} | 
+                                <strong>Runs:</strong> m={params.get('runs', 'N/A')}
+                            </div>
+                        </div>
+                    </div>
+                    """
             
             # Get notes for this run
             notes = read_notes(data_path)
@@ -854,17 +1633,17 @@ def plot_data(dirname):
             notes_escaped = html.escape(notes) if notes else ""
             
             notes_html = f"""
-            <div style="margin: 20px 0; padding: 15px; background: #f8f9fa; border-radius: 5px;">
+            <div style="margin: 20px 0; padding: 15px; background: var(--bg-secondary); border-radius: 5px;">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
                     <strong>Notes:</strong>
                     <div>
-                        <button id="editNotesBtn" onclick="toggleEditMode()" style="padding: 6px 12px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px;">✏️ Edit</button>
+                        <button id="editNotesBtn" onclick="toggleEditMode()" style="padding: 4px 10px; background: transparent; color: #007bff; border: 1px solid #007bff; border-radius: 3px; cursor: pointer; font-size: 0.85em; transition: all 0.2s;">Edit</button>
                         <span id="saveStatus" style="display: none; margin-left: 8px; font-size: 14px;"></span>
-                        <button id="saveNotesBtn" onclick="saveNotes()" style="padding: 6px 12px; background: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; display: none; margin-left: 8px;">💾 Save</button>
+                        <button id="saveNotesBtn" onclick="saveNotes()" style="padding: 6px 12px; background: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; display: none; margin-left: 8px;">Save</button>
                     </div>
                 </div>
-                <div id="notesDisplay" onclick="if(!isEditMode) toggleEditMode()" style="white-space: pre-wrap; min-height: 50px; padding: 10px; background: white; border-radius: 4px; font-size: 11pt; cursor: pointer;">{notes_escaped if notes else '<span style="color: #999;">No notes yet. Click Edit to add notes.</span>'}</div>
-                <textarea id="notesTextarea" data-dirname="{dirname}" placeholder="Add notes about this simulation run..." rows="10" style="display: none; width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; font-family: inherit; font-size: 14px; resize: vertical; box-sizing: border-box;">{notes_escaped}</textarea>
+                <div id="notesDisplay" onclick="if(!isEditMode) toggleEditMode()" style="white-space: pre-wrap; min-height: 50px; padding: 10px; background: var(--bg-primary); color: var(--text-primary); border-radius: 4px; font-size: 11pt; cursor: pointer;">{notes_escaped if notes else '<span style="color: var(--text-secondary);">No notes yet. Click Edit to add notes.</span>'}</div>
+                <textarea id="notesTextarea" data-dirname="{dirname}" placeholder="Add notes about this simulation run..." rows="10" style="display: none; width: 100%; padding: 10px; border: 1px solid var(--border-color); border-radius: 4px; font-family: inherit; font-size: 14px; resize: vertical; box-sizing: border-box; background: var(--bg-primary); color: var(--text-primary);">{notes_escaped}</textarea>
             </div>
             """
             
@@ -874,18 +1653,112 @@ def plot_data(dirname):
             <head>
                 <title>Simulation Plots</title>
                 <style>
-                    body {{ margin: 0; padding: 20px; font-family: Arial, sans-serif; }}
-                    h1 {{ text-align: center; }}
+                    :root {{
+                        --bg-primary: #1e1e1e;
+                        --bg-secondary: #2d2d2d;
+                        --text-primary: #e0e0e0;
+                        --text-secondary: #b0b0b0;
+                        --border-color: #404040;
+                        --param-bg: #383838;
+                    }}
+                    
+                    [data-theme="light"] {{
+                        --bg-primary: #ffffff;
+                        --bg-secondary: #f8f9fa;
+                        --text-primary: #333333;
+                        --text-secondary: #666666;
+                        --border-color: #dddddd;
+                        --param-bg: #f0f0f0;
+                    }}
+                    
+                    body {{ 
+                        margin: 0; 
+                        padding: 20px; 
+                        font-family: Arial, sans-serif;
+                        background: var(--bg-primary);
+                        color: var(--text-primary);
+                        transition: background-color 0.3s ease, color 0.3s ease;
+                    }}
+                    h1 {{ 
+                        text-align: center;
+                        color: var(--text-primary);
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        gap: 15px;
+                    }}
                     .plot-container {{ margin: 20px 0; }}
-                    .back-link {{ margin-bottom: 20px; }}
+                    .back-link {{ 
+                        margin-bottom: 20px;
+                        display: flex;
+                        justify-content: space-between;
+                        align-items: center;
+                    }}
                     .back-link a {{ color: #007bff; text-decoration: none; font-size: 16px; }}
                     .back-link a:hover {{ text-decoration: underline; }}
+                    .theme-toggle {{
+                        background: var(--bg-secondary);
+                        color: var(--text-primary);
+                        border: 1px solid var(--border-color);
+                        padding: 6px 10px;
+                        border-radius: 4px;
+                        cursor: pointer;
+                        font-size: 16px;
+                    }}
+                    .theme-toggle:hover {{
+                        opacity: 0.8;
+                    }}
                 </style>
                 <script>
+                    // Theme management
+                    function initTheme() {{
+                        // Check URL parameter first, then localStorage, default to dark
+                        const urlParams = new URLSearchParams(window.location.search);
+                        const urlTheme = urlParams.get('theme');
+                        const savedTheme = urlTheme || localStorage.getItem('theme') || 'dark';
+                        document.documentElement.setAttribute('data-theme', savedTheme);
+                        updateThemeIcon();
+                    }}
+                    
+                    function toggleTheme() {{
+                        const currentTheme = document.documentElement.getAttribute('data-theme');
+                        const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+                        localStorage.setItem('theme', newTheme);
+                        
+                        // Reload the page with the new theme parameter
+                        const url = new URL(window.location);
+                        url.searchParams.set('theme', newTheme);
+                        window.location.href = url.toString();
+                    }}
+                    
+                    function updateThemeIcon() {{
+                        const theme = document.documentElement.getAttribute('data-theme');
+                        const btn = document.getElementById('themeToggle');
+                        if (btn) {{
+                            btn.textContent = theme === 'dark' ? '☀️' : '🌙';
+                            btn.title = theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode';
+                        }}
+                    }}
+                    
                     let originalNotes = '';
                     let isEditMode = false;
                     
                     document.addEventListener('DOMContentLoaded', function() {{
+                        initTheme();  // Initialize theme on page load
+                        
+                        // Add hover effect to Edit button
+                        const editBtn = document.getElementById('editNotesBtn');
+                        if (editBtn) {{
+                            editBtn.addEventListener('mouseenter', function() {{
+                                this.style.background = '#007bff';
+                                this.style.color = 'white';
+                            }});
+                            editBtn.addEventListener('mouseleave', function() {{
+                                this.style.background = 'transparent';
+                                this.style.color = '#007bff';
+                            }});
+                        }}
+                        
                         const textarea = document.getElementById('notesTextarea');
                         const saveBtn = document.getElementById('saveNotesBtn');
                         originalNotes = textarea.value;
@@ -993,7 +1866,10 @@ def plot_data(dirname):
                 </script>
             </head>
             <body>
-                <div class="back-link"><a href="/">← Back to browser</a></div>
+                <div class="back-link">
+                    <a href="/">← Back to browser</a>
+                    <button id="themeToggle" class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">🌙</button>
+                </div>
                 <h1>Simulation Plots - {title}</h1>
                 {params_html}
                 {notes_html}

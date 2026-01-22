@@ -101,16 +101,26 @@ print()
 
 # Use relative path from repo root
 repo_root = Path(__file__).parent.parent
-data_folder = repo_root / data_dir
-init_folder = data_folder / 'init_fin'
+data_root = repo_root / data_dir
+init_folder = data_root / 'init_fin'
 
-# Create data folder structure
+# Create timestamped folder for this run directly in data directory
+timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+data_root.mkdir(parents=True, exist_ok=True)
+data_folder = data_root / timestamp
 data_folder.mkdir(parents=True, exist_ok=True)
 
+# Determine status file location based on flag
+if flag == 0:  # reversible only
+    status_folder = data_folder / 'rev'
+else:  # irreversible only
+    status_folder = data_folder / 'irr'
+status_folder.mkdir(parents=True, exist_ok=True)
+
 # Status tracking files
-status_file = data_folder / 'sim_status.txt'
-start_marker = data_folder / 'sim_started.txt'
-completion_marker = data_folder / 'sim_completed.txt'
+status_file = status_folder / 'sim_status.txt'
+start_marker = status_folder / 'sim_started.txt'
+completion_marker = status_folder / 'sim_completed.txt'
 
 # Write simulation start marker with parameters
 with open(start_marker, 'w') as f:
@@ -149,7 +159,7 @@ signal.signal(signal.SIGTERM, write_interrupted_status)
 # Register exception handler for crashes
 sys.excepthook = write_error_status
 
-file_names = [data_folder / f'r{i}' / f'sim_data_r{i}' for i in range(r+1)]
+file_names = [data_folder / 'rev' / f'r{i}' / f'sim_data_r{i}' for i in range(r+1)]
 irr_files = [data_folder / 'irr' / f'r{i}' / f'irr_sim_data_r{i}' for i in range(r+1)]
 init_files = [init_folder / f'r{i}' / f'sim_data_r{i}' for i in range(r+1)]
 
