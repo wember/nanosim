@@ -1369,6 +1369,25 @@ def parse_start_file(archive_path):
                 params['total'] = line.split(':')[1].strip()
     return params
 
+def parse_start_file_root_first(archive_path):
+    """Parse sim_started.txt checking root first, then subdirectories."""
+    start_file = find_status_file_root_first(archive_path, 'sim_started.txt')
+    if not start_file:
+        return None
+    
+    params = {}
+    with open(start_file) as f:
+        for line in f:
+            if 'Parameters:' in line:
+                # Parse: n=10, sweeps=100, flag=c, radius=11, runs=5
+                param_str = line.split('Parameters:')[1].strip()
+                for param in param_str.split(','):
+                    key, value = param.strip().split('=')
+                    params[key] = value
+            elif 'Total simulations:' in line:
+                params['total'] = line.split(':')[1].strip()
+    return params
+
 def parse_completion_file(archive_path):
     """Parse sim_completed.txt to get completion info."""
     completion_file = find_status_file(archive_path, 'sim_completed.txt')
@@ -1391,6 +1410,21 @@ def find_status_file(archive_path, filename):
         check_path = archive_path / subdir / filename if subdir else archive_path / filename
         if check_path.exists():
             return check_path
+    return None
+
+def find_status_file_root_first(archive_path, filename):
+    """Find a status file checking root first, then subdirectories."""
+    # Check root first
+    root_path = archive_path / filename
+    if root_path.exists():
+        return root_path
+    
+    # Then check subdirectories
+    for subdir in ['rev', 'irr']:
+        check_path = archive_path / subdir / filename
+        if check_path.exists():
+            return check_path
+    
     return None
 
 def read_notes(archive_path):
@@ -1475,9 +1509,17 @@ def index():
             irr_params = None
             
             if is_combined:
-                # Get parameters from both rev and irr subdirectories
-                rev_params = parse_start_file(archive_dir / 'rev')
-                irr_params = parse_start_file(archive_dir / 'irr')
+                # Check root first for combined archives
+                root_params = parse_start_file_root_first(archive_dir)
+                
+                if root_params:
+                    # Root has params - use them for both rev and irr
+                    rev_params = root_params
+                    irr_params = root_params
+                else:
+                    # Root doesn't have params - check subdirectories
+                    rev_params = parse_start_file(archive_dir / 'rev')
+                    irr_params = parse_start_file(archive_dir / 'irr')
                 
                 # Check if parameters match
                 params_mismatch = False
@@ -1767,7 +1809,7 @@ def export_archive(dirname):
         return send_file(
             zip_path,
             as_attachment=True,
-            download_name=f'{dirname}_export.zip',
+            download_name=f'ember_nanosim_{dirname}.zip',
             mimetype='application/zip'
         )
     except Exception as e:
@@ -1997,18 +2039,17 @@ def plot_data(dirname):
             # Get parameters for this run
             params_html = ""
             if is_combined:
-                # Try to get parameters from subdirectories first (for manually combined archives)
-                # If not found, get from root (for archives created with flag=c)
-                rev_params = parse_start_file(data_path / 'rev')
-                irr_params = parse_start_file(data_path / 'irr')
+                # Check root first for combined archives
+                root_params = parse_start_file_root_first(data_path)
                 
-                # If subdirectories don't have params, use root params
-                if not rev_params or not irr_params:
-                    root_params = parse_start_file(data_path)
-                    if not rev_params:
-                        rev_params = root_params
-                    if not irr_params:
-                        irr_params = root_params
+                if root_params:
+                    # Root has params - use them for both rev and irr
+                    rev_params = root_params
+                    irr_params = root_params
+                else:
+                    # Root doesn't have params - check subdirectories
+                    rev_params = parse_start_file(data_path / 'rev')
+                    irr_params = parse_start_file(data_path / 'irr')
                 
                 # Check if parameters match
                 params_mismatch = False
@@ -2018,48 +2059,13 @@ def plot_data(dirname):
                             params_mismatch = True
                             break
                 
-                params_html = '<div style="text-align: center; margin: 20px 0; padding: 15px; background: var(--bg-secondary); color: var(--text-primary); border-radius: 5px;">'
-                
-                if params_mismatch:
-                    params_html += '<div style="display: inline-block; padding: 4px 12px; border-radius: 12px; font-size: 0.85em; font-weight: bold; margin-bottom: 12px; background: linear-gradient(90deg, #ab63fa 0%, #00b8d4 100%); color: white;">COMBINED</div>'
-                    # Add status chip
-                    status_colors = {
-                        'COMPLETED': 'background: #28a745; color: white;',
-                        'RUNNING': 'background: #ff9800; color: white;',
-                        'INTERRUPTED': 'background: #ffc107; color: black;',
-                        'ERROR': 'background: #dc3545; color: white;',
-                        'UNKNOWN': 'background: #e2e3e5; color: #383d41;'
-                    }
-                    status_style = status_colors.get(status, 'background: #6c757d; color: white;')
-                    params_html += f'<div style="display: inline-block; padding: 4px 12px; border-radius: 12px; font-size: 0.85em; font-weight: bold; margin-bottom: 12px; margin-left: 8px; {status_style}">{status}</div>'
-                    params_html += '<div style="background: #ff9800; color: white; padding: 8px 12px; border-radius: 4px; margin-top: 8px; font-size: 0.9em;">⚠️ Warning: Reversible and irreversible parameters don\'t match</div>'
+                # Only show params section if we actually have parameters
+                if rev_params or irr_params:
+                    params_html = '<div style="text-align: center; margin: 20px 0; padding: 15px; background: var(--bg-secondary); color: var(--text-primary); border-radius: 5px;">'
                     
-                    # Show separate parameters when they don't match
-                    if rev_params:
-                        params_html += f"""
-                        <div style="margin-top: 10px; padding: 10px; background: var(--param-bg); border-radius: 4px;">
-                            <strong>Reversible:</strong>
-                            <strong>Lattice:</strong> n={rev_params.get('n', 'N/A')} | 
-                            <strong>Sweeps:</strong> s={rev_params.get('sweeps', 'N/A')} | 
-                            <strong>Radius:</strong> r={rev_params.get('radius', 'N/A')} | 
-                            <strong>Runs:</strong> m={rev_params.get('runs', 'N/A')}
-                        </div>
-                        """
-                    
-                    if irr_params:
-                        params_html += f"""
-                        <div style="margin-top: 10px; padding: 10px; background: var(--param-bg); border-radius: 4px;">
-                            <strong>Irreversible:</strong>
-                            <strong>Lattice:</strong> n={irr_params.get('n', 'N/A')} | 
-                            <strong>Sweeps:</strong> s={irr_params.get('sweeps', 'N/A')} | 
-                            <strong>Radius:</strong> r={irr_params.get('radius', 'N/A')} | 
-                            <strong>Runs:</strong> m={irr_params.get('runs', 'N/A')}
-                        </div>
-                        """
-                else:
-                    # Parameters match - show chip and params on same row
-                    if rev_params:
-                        # Build status chip HTML
+                    if params_mismatch:
+                        params_html += '<div style="display: inline-block; padding: 4px 12px; border-radius: 12px; font-size: 0.85em; font-weight: bold; margin-bottom: 12px; background: linear-gradient(90deg, #ab63fa 0%, #00b8d4 100%); color: white;">COMBINED</div>'
+                        # Add status chip
                         status_colors = {
                             'COMPLETED': 'background: #28a745; color: white;',
                             'RUNNING': 'background: #ff9800; color: white;',
@@ -2068,22 +2074,62 @@ def plot_data(dirname):
                             'UNKNOWN': 'background: #e2e3e5; color: #383d41;'
                         }
                         status_style = status_colors.get(status, 'background: #6c757d; color: white;')
-                        status_chip_html = f'<div style="padding: 4px 12px; border-radius: 12px; font-size: 0.85em; font-weight: bold; {status_style}">{status}</div>'
+                        params_html += f'<div style="display: inline-block; padding: 4px 12px; border-radius: 12px; font-size: 0.85em; font-weight: bold; margin-bottom: 12px; margin-left: 8px; {status_style}">{status}</div>'
+                        params_html += '<div style="background: #ff9800; color: white; padding: 8px 12px; border-radius: 4px; margin-top: 8px; font-size: 0.9em;">⚠️ Warning: Reversible and irreversible parameters don\'t match</div>'
                         
-                        params_html += f"""
-                        <div style="display: flex; align-items: center; justify-content: center; gap: 15px; flex-wrap: wrap;">
-                            <div style="padding: 4px 12px; border-radius: 12px; font-size: 0.85em; font-weight: bold; background: linear-gradient(90deg, #ab63fa 0%, #00b8d4 100%); color: white;">COMBINED</div>
-                            {status_chip_html}
-                            <div style="padding: 10px; background: var(--param-bg); border-radius: 4px;">
+                        # Show separate parameters when they don't match
+                        if rev_params:
+                            params_html += f"""
+                            <div style="margin-top: 10px; padding: 10px; background: var(--param-bg); border-radius: 4px;">
+                                <strong>Reversible:</strong>
                                 <strong>Lattice:</strong> n={rev_params.get('n', 'N/A')} | 
                                 <strong>Sweeps:</strong> s={rev_params.get('sweeps', 'N/A')} | 
                                 <strong>Radius:</strong> r={rev_params.get('radius', 'N/A')} | 
                                 <strong>Runs:</strong> m={rev_params.get('runs', 'N/A')}
                             </div>
-                        </div>
-                        """
-                
-                params_html += '</div>'
+                            """
+                        
+                        if irr_params:
+                            params_html += f"""
+                            <div style="margin-top: 10px; padding: 10px; background: var(--param-bg); border-radius: 4px;">
+                                <strong>Irreversible:</strong>
+                                <strong>Lattice:</strong> n={irr_params.get('n', 'N/A')} | 
+                                <strong>Sweeps:</strong> s={irr_params.get('sweeps', 'N/A')} | 
+                                <strong>Radius:</strong> r={irr_params.get('radius', 'N/A')} | 
+                                <strong>Runs:</strong> m={irr_params.get('runs', 'N/A')}
+                            </div>
+                            """
+                    else:
+                        # Parameters match - show chip and params on same row
+                        if rev_params:
+                            # Build status chip HTML
+                            status_colors = {
+                                'COMPLETED': 'background: #28a745; color: white;',
+                                'RUNNING': 'background: #ff9800; color: white;',
+                                'INTERRUPTED': 'background: #ffc107; color: black;',
+                                'ERROR': 'background: #dc3545; color: white;',
+                                'UNKNOWN': 'background: #e2e3e5; color: #383d41;'
+                            }
+                            status_style = status_colors.get(status, 'background: #6c757d; color: white;')
+                            status_chip_html = f'<div style="padding: 4px 12px; border-radius: 12px; font-size: 0.85em; font-weight: bold; {status_style}">{status}</div>'
+                            
+                            params_html += f"""
+                            <div style="display: flex; align-items: center; justify-content: center; gap: 15px; flex-wrap: wrap;">
+                                <div style="padding: 4px 12px; border-radius: 12px; font-size: 0.85em; font-weight: bold; background: linear-gradient(90deg, #ab63fa 0%, #00b8d4 100%); color: white;">COMBINED</div>
+                                {status_chip_html}
+                                <div style="padding: 10px; background: var(--param-bg); border-radius: 4px;">
+                                    <strong>Lattice:</strong> n={rev_params.get('n', 'N/A')} | 
+                                    <strong>Sweeps:</strong> s={rev_params.get('sweeps', 'N/A')} | 
+                                    <strong>Radius:</strong> r={rev_params.get('radius', 'N/A')} | 
+                                    <strong>Runs:</strong> m={rev_params.get('runs', 'N/A')}
+                                </div>
+                            </div>
+                            """
+                        else:
+                            # No parameters available
+                            params_html += '<div style="color: var(--text-secondary);">Parameters not available</div>'
+                    
+                    params_html += '</div>'
             else:
                 # Single archive - show parameters normally
                 params = parse_start_file(data_path)
