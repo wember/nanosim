@@ -1,9 +1,13 @@
 #!/usr/bin/env venv/bin/python
 """Simple web interface to browse current and archived simulation runs."""
 
-from flask import Flask, render_template_string
+from flask import Flask, render_template_string, send_file, request, jsonify
 from pathlib import Path
 from datetime import datetime
+import hashlib
+import zipfile
+import tempfile
+import shutil
 
 app = Flask(__name__)
 
@@ -63,7 +67,7 @@ HTML_TEMPLATE = """
             background: var(--bg-secondary);
             color: var(--text-primary);
             border: 1px solid var(--border-color);
-            padding: 8px 16px;
+            padding: 8px;
             border-radius: 4px;
             cursor: pointer;
             font-size: 18px;
@@ -76,19 +80,37 @@ HTML_TEMPLATE = """
             background: var(--bg-hover);
         }
         .refresh-btn {
-            background: #007bff;
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
+            padding: 8px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 18px;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            height: 38px;
+        }
+        .refresh-btn:hover {
+            background: var(--bg-hover);
+        }
+        .combine-btn {
+            background: linear-gradient(90deg, #ab63fa 0%, #00b8d4 100%);
             color: white;
             border: none;
             padding: 8px 16px;
             border-radius: 4px;
             cursor: pointer;
-            font-size: 14px;
+            font-size: 16px;
+            font-weight: 600;
             display: flex;
             align-items: center;
             gap: 6px;
+            min-height: 38px;
         }
-        .refresh-btn:hover {
-            background: #0056b3;
+        .combine-btn:hover {
+            background: linear-gradient(90deg, #9b4fe8 0%, #0099b8 100%);
         }
         .archive-list { 
             background: var(--bg-secondary);
@@ -197,6 +219,88 @@ HTML_TEMPLATE = """
             background: #dc3545;
             color: white;
             text-decoration: none;
+        }
+        
+        .export-link {
+            display: inline-block;
+            padding: 2px 8px;
+            border: 1px solid #28a745;
+            border-radius: 3px;
+            font-size: 0.85em;
+            color: #28a745;
+            transition: all 0.2s;
+        }
+        .export-link:hover {
+            background: #28a745;
+            color: white;
+            text-decoration: none;
+        }
+        
+        .import-btn {
+            background: #28a745;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 600;
+            transition: background 0.2s;
+            gap: 6px;
+            min-height: 38px;
+        }
+        
+        .import-btn:hover {
+            background: #218838;
+        }
+        
+        .import-status {
+            margin-top: 15px;
+            font-size: 14px;
+            text-align: center;
+        }
+        
+        .drop-zone {
+            border: 2px dashed var(--border-color);
+            border-radius: 8px;
+            padding: 40px 20px;
+            text-align: center;
+            background: var(--bg-primary);
+            transition: all 0.3s ease;
+            cursor: pointer;
+            margin: 20px 0;
+        }
+        
+        .drop-zone:hover {
+            border-color: #28a745;
+            background: var(--bg-hover);
+        }
+        
+        .drop-zone.drag-over {
+            border-color: #28a745;
+            background: var(--bg-hover);
+            border-style: solid;
+        }
+        
+        .drop-zone input[type="file"] {
+            display: none;
+        }
+        
+        .drop-zone-text {
+            color: var(--text-primary);
+            font-size: 16px;
+            margin-bottom: 8px;
+        }
+        
+        .drop-zone-hint {
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+        
+        .file-selected {
+            color: #28a745;
+            font-weight: 600;
+            margin-top: 10px;
         }
         
         /* Toast notification */
@@ -446,6 +550,64 @@ HTML_TEMPLATE = """
         
         function closeNotesModal() {
             document.getElementById('notesModal').style.display = 'none';
+        }
+        
+        // Import dialog functions
+        function openImportModal() {
+            document.getElementById('importModal').style.display = 'block';
+            document.getElementById('importStatus').innerHTML = '';
+            document.getElementById('fileSelected').style.display = 'none';
+            setupDropZone();
+        }
+        
+        function closeImportModal() {
+            document.getElementById('importModal').style.display = 'none';
+            document.getElementById('importFile').value = '';
+            document.getElementById('importStatus').innerHTML = '';
+            document.getElementById('fileSelected').style.display = 'none';
+        }
+        
+        function setupDropZone() {
+            const dropZone = document.getElementById('dropZone');
+            
+            dropZone.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                dropZone.classList.add('drag-over');
+            });
+            
+            dropZone.addEventListener('dragleave', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                dropZone.classList.remove('drag-over');
+            });
+            
+            dropZone.addEventListener('drop', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                dropZone.classList.remove('drag-over');
+                
+                const files = e.dataTransfer.files;
+                if (files.length > 0) {
+                    const file = files[0];
+                    if (file.name.endsWith('.zip')) {
+                        document.getElementById('importFile').files = files;
+                        handleFileSelect({ target: { files: files } });
+                    } else {
+                        document.getElementById('importStatus').innerHTML = '<span style="color: #dc3545;">Please drop a .zip file</span>';
+                    }
+                }
+            });
+        }
+        
+        function handleFileSelect(event) {
+            const file = event.target.files[0];
+            const fileSelectedDiv = document.getElementById('fileSelected');
+            if (file) {
+                fileSelectedDiv.textContent = '✓ Selected: ' + file.name;
+                fileSelectedDiv.style.display = 'block';
+                document.getElementById('importStatus').innerHTML = '';
+            }
         }
         
         // Combine dialog functions
@@ -753,6 +915,67 @@ HTML_TEMPLATE = """
                 });
             }
         }
+        
+        function exportArchive(dirname) {
+            // Create download link
+            window.location.href = '/export/' + dirname;
+        }
+        
+        function importArchive(overwrite = false) {
+            const fileInput = document.getElementById('importFile');
+            const statusDiv = document.getElementById('importStatus');
+            
+            if (!fileInput.files || fileInput.files.length === 0) {
+                statusDiv.innerHTML = '<span style="color: #dc3545;">Please select a file</span>';
+                return;
+            }
+            
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+            formData.append('overwrite', overwrite.toString());
+            
+            statusDiv.innerHTML = '<span style="color: #007bff;">Importing and validating...</span>';
+            
+            fetch('/import', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => {
+                if (response.status === 409) {
+                    // Conflict - duplicate exists
+                    return response.json().then(data => {
+                        if (confirm(`Archive "${data.archive_name}" already exists.\\n\\nDo you want to overwrite it? This cannot be undone.`)) {
+                            // Retry with overwrite flag
+                            importArchive(true);
+                        } else {
+                            statusDiv.innerHTML = '<span style="color: #666;">Import cancelled</span>';
+                        }
+                        return null; // Don't continue to .then
+                    });
+                }
+                return response.json();
+            })
+            .then(data => {
+                if (!data) return; // Cancelled or handled above
+                
+                if (data.success) {
+                    statusDiv.innerHTML = '<span style="color: #28a745;">✓ ' + data.message + '</span>';
+                    setTimeout(() => {
+                        closeImportModal();
+                        window.location.reload();
+                    }, 1500);
+                } else {
+                    let errorMsg = data.error;
+                    if (data.details) {
+                        errorMsg += '<br>' + data.details.join('<br>');
+                    }
+                    statusDiv.innerHTML = '<span style="color: #dc3545;">✗ ' + errorMsg + '</span>';
+                }
+            })
+            .catch(error => {
+                statusDiv.innerHTML = '<span style="color: #dc3545;">✗ Import failed: ' + error + '</span>';
+            });
+        }
     </script>
 </head>
 <body>
@@ -767,6 +990,28 @@ HTML_TEMPLATE = """
             <div class="modal-footer">
                 <button class="btn btn-secondary" onclick="closeNotesModal()">Cancel</button>
                 <button class="btn btn-primary" onclick="saveNotes()">Save</button>
+            </div>
+        </div>
+    </div>
+    
+    <div id="importModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Import Simulation</h2>
+                <button class="close-btn" onclick="closeImportModal()">&times;</button>
+            </div>
+            <div style="padding: 20px;">
+                <p style="color: var(--text-secondary); margin-bottom: 15px;">Import a previously exported simulation archive (.zip)</p>
+                <div class="drop-zone" id="dropZone" onclick="document.getElementById('importFile').click()">
+                    <input type="file" id="importFile" accept=".zip" onchange="handleFileSelect(event)">
+                    <div class="drop-zone-text">📦 Drop file here or click to browse</div>
+                    <div class="drop-zone-hint">Accepts .zip files only</div>
+                    <div id="fileSelected" class="file-selected" style="display: none;"></div>
+                </div>
+                <div style="text-align: center;">
+                    <button onclick="importArchive()" class="btn btn-primary">Import & Validate</button>
+                </div>
+                <div id="importStatus" class="import-status"></div>
             </div>
         </div>
     </div>
@@ -836,15 +1081,15 @@ HTML_TEMPLATE = """
     <h1>
         <span>📊 Simulation Browser</span>
         <div class="header-controls">
-            <button class="refresh-btn" onclick="openCombineModal()">Combine</button>
-            <button class="refresh-btn" onclick="window.location.reload()">Refresh</button>
-            <button id="themeToggle" class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">🌙</button>
+            <button class="import-btn" onclick="openImportModal()" title="Import a previously exported simulation archive">Import</button>
+            <button class="combine-btn" onclick="openCombineModal()" title="Combine reversible and irreversible simulations into one archive">Combine</button>
+            <button class="refresh-btn" onclick="window.location.reload()" title="Refresh the page to see latest simulations">🔄</button>
+            <button id="themeToggle" class="theme-toggle" onclick="toggleTheme()" title="Switch between dark and light themes">🌙</button>
         </div>
     </h1>
     
     {% if archives %}
-    <div class="archive-list">
-        {% for archive in archives %}
+    <div class="archive-list">\n        {% for archive in archives %}
         <div class="archive-item">
             <div class="timestamp">{{ archive.display_time }}</div>
             <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px;">
@@ -922,15 +1167,17 @@ HTML_TEMPLATE = """
                 </script>
                 {% endif %}
                 <div style="margin-top: 12px;">
-                    <a href="/plot/{{ archive.dirname }}" class="edit-link" onclick="addThemeToUrl(event, this)">Plot data</a>
+                    <a href="/plot/{{ archive.dirname }}" class="edit-link" onclick="addThemeToUrl(event, this)" title="View interactive plots and analysis">Plot data</a>
                     <span style="color: #ccc; margin: 0 8px;">|</span>
-                    <a href="/view/{{ archive.dirname }}" class="edit-link">View files</a>
+                    <a href="/view/{{ archive.dirname }}" class="edit-link" title="Browse all files in this archive">View files</a>
                     {% if not archive.notes %}
                     <span style="color: #ccc; margin: 0 8px;">|</span>
-                    <a href="#" class="edit-link" data-dirname="{{ archive.dirname }}" data-notes="" onclick="openNotesModalFromLink(this); return false;">Add notes</a>
+                    <a href="#" class="edit-link" data-dirname="{{ archive.dirname }}" data-notes="" onclick="openNotesModalFromLink(this); return false;" title="Add notes about this simulation">Add notes</a>
                     {% endif %}
                     <span style="color: #ccc; margin: 0 8px;">|</span>
-                    <a href="#" class="delete-link" onclick="deleteArchive('{{ archive.dirname }}'); return false;">Delete</a>
+                    <a href="#" class="export-link" onclick="exportArchive('{{ archive.dirname }}'); return false;" title="Export this simulation as a validated zip file">Export</a>
+                    <span style="color: #ccc; margin: 0 8px;">|</span>
+                    <a href="#" class="delete-link" onclick="deleteArchive('{{ archive.dirname }}'); return false;" title="Permanently delete this archive">Delete</a>
                 </div>
             </div>
         </div>
@@ -1455,6 +1702,181 @@ def view_files(dirname):
     
     return render_template_string(FILE_LIST_TEMPLATE, dirname=dirname, files=files)
 
+@app.route('/export/<dirname>')
+def export_archive(dirname):
+    """Export an archive as a validated zip file."""
+    from flask import send_file
+    import json
+    
+    if dirname == 'current':
+        return "Cannot export current run", 400
+    
+    archive_path = ARCHIVE_DIR / dirname
+    if not archive_path.exists():
+        return "Archive not found", 404
+    
+    # Create a temporary zip file
+    with tempfile.NamedTemporaryFile(mode='w+b', suffix='.zip', delete=False) as tmp_zip:
+        zip_path = Path(tmp_zip.name)
+    
+    try:
+        # Create manifest with file hashes for validation
+        manifest = {
+            'export_version': '1.0',
+            'archive_name': dirname,
+            'export_date': datetime.now().isoformat(),
+            'files': {}
+        }
+        
+        # Create zip and calculate hashes
+        with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+            for file_path in archive_path.rglob('*'):
+                if file_path.is_file():
+                    rel_path = file_path.relative_to(archive_path)
+                    
+                    # Calculate SHA256 hash of file
+                    sha256_hash = hashlib.sha256()
+                    with open(file_path, 'rb') as f:
+                        for chunk in iter(lambda: f.read(4096), b''):
+                            sha256_hash.update(chunk)
+                    
+                    # Store file and hash in manifest
+                    manifest['files'][str(rel_path)] = {
+                        'sha256': sha256_hash.hexdigest(),
+                        'size': file_path.stat().st_size
+                    }
+                    
+                    # Add file to zip
+                    zipf.write(file_path, arcname=str(rel_path))
+            
+            # Add manifest to zip
+            manifest_json = json.dumps(manifest, indent=2)
+            zipf.writestr('MANIFEST.json', manifest_json)
+            
+            # Add manifest hash as signature
+            manifest_hash = hashlib.sha256(manifest_json.encode()).hexdigest()
+            zipf.writestr('SIGNATURE', manifest_hash)
+        
+        # Send the zip file
+        return send_file(
+            zip_path,
+            as_attachment=True,
+            download_name=f'{dirname}_export.zip',
+            mimetype='application/zip'
+        )
+    except Exception as e:
+        if zip_path.exists():
+            zip_path.unlink()
+        return f"Error creating export: {str(e)}", 500
+
+@app.route('/import', methods=['POST'])
+def import_archive():
+    """Import and validate a simulation archive from zip file."""
+    import json
+    
+    if 'file' not in request.files:
+        return jsonify({'success': False, 'error': 'No file provided'}), 400
+    
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({'success': False, 'error': 'No file selected'}), 400
+    
+    if not file.filename.endswith('.zip'):
+        return jsonify({'success': False, 'error': 'File must be a .zip'}), 400
+    
+    # Save uploaded file temporarily
+    with tempfile.NamedTemporaryFile(mode='w+b', suffix='.zip', delete=False) as tmp_file:
+        file.save(tmp_file.name)
+        zip_path = Path(tmp_file.name)
+    
+    try:
+        # Verify it's a valid zip
+        if not zipfile.is_zipfile(zip_path):
+            return jsonify({'success': False, 'error': 'Invalid zip file'}), 400
+        
+        with zipfile.ZipFile(zip_path, 'r') as zipf:
+            # Check for required files
+            zip_contents = zipf.namelist()
+            if 'MANIFEST.json' not in zip_contents or 'SIGNATURE' not in zip_contents:
+                return jsonify({'success': False, 'error': 'Missing validation files'}), 400
+            
+            # Read and verify manifest signature
+            manifest_json = zipf.read('MANIFEST.json').decode('utf-8')
+            manifest = json.loads(manifest_json)
+            
+            expected_signature = zipf.read('SIGNATURE').decode('utf-8').strip()
+            actual_signature = hashlib.sha256(manifest_json.encode()).hexdigest()
+            
+            if expected_signature != actual_signature:
+                return jsonify({'success': False, 'error': 'Manifest signature verification failed'}), 400
+            
+            # Verify all files match their hashes
+            validation_errors = []
+            for file_name, file_info in manifest['files'].items():
+                if file_name not in zip_contents:
+                    validation_errors.append(f"Missing file: {file_name}")
+                    continue
+                
+                # Calculate hash of file in zip
+                file_data = zipf.read(file_name)
+                actual_hash = hashlib.sha256(file_data).hexdigest()
+                
+                if actual_hash != file_info['sha256']:
+                    validation_errors.append(f"Hash mismatch: {file_name}")
+                
+                if len(file_data) != file_info['size']:
+                    validation_errors.append(f"Size mismatch: {file_name}")
+            
+            if validation_errors:
+                return jsonify({
+                    'success': False,
+                    'error': 'File validation failed',
+                    'details': validation_errors
+                }), 400
+            
+            # Determine archive name (use original or generate new if conflict)
+            archive_name = manifest.get('archive_name', 'imported_' + datetime.now().strftime('%Y%m%d_%H%M%S'))
+            target_path = ARCHIVE_DIR / archive_name
+            
+            # Check for duplicate - if exists, return conflict status
+            overwrite = request.form.get('overwrite', 'false') == 'true'
+            
+            if target_path.exists() and not overwrite:
+                return jsonify({
+                    'success': False,
+                    'conflict': True,
+                    'archive_name': archive_name,
+                    'message': f'Archive "{archive_name}" already exists.'
+                }), 409  # 409 Conflict
+            
+            # If overwriting, delete existing
+            if target_path.exists() and overwrite:
+                shutil.rmtree(target_path)
+            
+            # Extract files (excluding MANIFEST.json and SIGNATURE)
+            target_path.mkdir(parents=True, exist_ok=True)
+            for file_name in manifest['files'].keys():
+                file_data = zipf.read(file_name)
+                file_path = target_path / file_name
+                file_path.parent.mkdir(parents=True, exist_ok=True)
+                with open(file_path, 'wb') as f:
+                    f.write(file_data)
+            
+            return jsonify({
+                'success': True,
+                'archive_name': archive_name,
+                'message': f'Successfully imported as {archive_name}'
+            })
+    
+    except json.JSONDecodeError:
+        return jsonify({'success': False, 'error': 'Invalid manifest format'}), 400
+    except Exception as e:
+        return jsonify({'success': False, 'error': f'Import failed: {str(e)}'}), 500
+    finally:
+        # Clean up temp file
+        if zip_path.exists():
+            zip_path.unlink()
+
 @app.route('/plot/<dirname>')
 def plot_data(dirname):
     """Generate plots for a simulation run."""
@@ -1760,17 +2182,39 @@ def plot_data(dirname):
                     }}
                     .back-link a {{ color: #007bff; text-decoration: none; font-size: 16px; }}
                     .back-link a:hover {{ text-decoration: underline; }}
+                    .refresh-btn {{
+                        background: var(--bg-secondary);
+                        color: var(--text-primary);
+                        border: 1px solid var(--border-color);
+                        padding: 8px;
+                        border-radius: 4px;
+                        cursor: pointer;
+                        font-size: 18px;
+                        transition: all 0.3s ease;
+                        display: flex;
+                        align-items: center;
+                        height: 38px;
+                    }}
+                    .refresh-btn:hover {{
+                        opacity: 0.8;
+                        transform: scale(1.05);
+                    }}
                     .theme-toggle {{
                         background: var(--bg-secondary);
                         color: var(--text-primary);
                         border: 1px solid var(--border-color);
-                        padding: 6px 10px;
+                        padding: 8px;
                         border-radius: 4px;
                         cursor: pointer;
-                        font-size: 16px;
+                        font-size: 18px;
+                        transition: all 0.3s ease;
+                        display: flex;
+                        align-items: center;
+                        height: 38px;
                     }}
                     .theme-toggle:hover {{
                         opacity: 0.8;
+                        transform: scale(1.05);
                     }}
                 </style>
                 <script>
@@ -1913,7 +2357,10 @@ def plot_data(dirname):
             <body>
                 <div class="back-link">
                     <a href="/">← Back to browser</a>
-                    <button id="themeToggle" class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">🌙</button>
+                    <div style="display: flex; gap: 8px;">
+                        <button class="refresh-btn" onclick="location.reload()" title="Refresh the page to see latest data">🔄</button>
+                        <button id="themeToggle" class="theme-toggle" onclick="toggleTheme()" title="Switch between dark and light themes">🌙</button>
+                    </div>
                 </div>
                 <h1>Simulation Plots - {title}</h1>
                 {params_html}
