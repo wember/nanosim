@@ -1,10 +1,9 @@
 #!/usr/bin/env venv/bin/python
 """Simple web interface to browse current and archived simulation runs."""
 
-from flask import Flask, render_template_string, send_file
+from flask import Flask, render_template_string
 from pathlib import Path
 from datetime import datetime
-import json
 
 app = Flask(__name__)
 
@@ -118,10 +117,10 @@ HTML_TEMPLATE = """
             margin-right: 8px;
         }
         .status-completed { background: #28a745; color: white; }
+        .status-running { background: #ff9800; color: white; }
         .status-interrupted { background: #ffc107; color: black; }
         .status-error { background: #dc3545; color: white; }
         .status-unknown { background: #e2e3e5; color: #383d41; }
-        .status-current { background: #cfe2ff; color: #084298; }
         .combined-chip {
             display: inline-block;
             padding: 4px 12px;
@@ -852,7 +851,7 @@ HTML_TEMPLATE = """
                 {% if archive.is_combined %}
                 <span class="combined-chip">COMBINED</span>
                 {% elif archive.params %}
-                <span class="dynamics-chip {{ 'irreversible' if archive.params.flag == '1' else 'reversible' }}">{{ 'IRREVERSIBLE' if archive.params.flag == '1' else 'REVERSIBLE' }}</span>
+                <span class="dynamics-chip {{ 'irreversible' if archive.params.flag == 'i' else 'reversible' }}">{{ 'IRREVERSIBLE' if archive.params.flag == 'i' else 'REVERSIBLE' }}</span>
                 {% endif %}
                 <span class="status status-{{ archive.status_class }}">{{ archive.status }}</span>
             </div>
@@ -1114,7 +1113,7 @@ def parse_start_file(archive_path):
     with open(start_file) as f:
         for line in f:
             if 'Parameters:' in line:
-                # Parse: n=10, sweeps=100, flag=0, radius=11, runs=5
+                # Parse: n=10, sweeps=100, flag=c, radius=11, runs=5
                 param_str = line.split('Parameters:')[1].strip()
                 for param in param_str.split(','):
                     key, value = param.strip().split('=')
@@ -1207,7 +1206,14 @@ def index():
                 status = status_info.get('Status', 'UNKNOWN')
                 progress = status_info.get('Completed', None)
             else:
-                status = 'UNKNOWN'
+                # If no status file, check if simulation has started but not completed
+                start_file = find_status_file(archive_dir, 'sim_started.txt')
+                completion_file = find_status_file(archive_dir, 'sim_completed.txt')
+                
+                if start_file and not completion_file:
+                    status = 'RUNNING'
+                else:
+                    status = 'UNKNOWN'
                 progress = None
             
             # Map status to CSS class
@@ -1295,10 +1301,10 @@ def index():
             }
             
             # Check if rev or irr based on flag parameter
-            flag = params.get('flag', '0')
-            if flag == '0':
+            flag = params.get('flag', 'r')
+            if flag == 'r':
                 rev_archives.append(archive_info)
-            elif flag == '1':
+            elif flag == 'i':
                 irr_archives.append(archive_info)
     
     return render_template_string(HTML_TEMPLATE, archives=archives, rev_archives=rev_archives, irr_archives=irr_archives)
@@ -1546,12 +1552,35 @@ def plot_data(dirname):
             # Check if this is a combined archive
             is_combined = (data_path / 'rev').exists() and (data_path / 'irr').exists()
             
+            # Get status information
+            status_info = parse_status_file(data_path)
+            if status_info:
+                status = status_info.get('Status', 'UNKNOWN')
+            else:
+                # If no status file, check if simulation has started but not completed
+                start_file = find_status_file(data_path, 'sim_started.txt')
+                completion_file = find_status_file(data_path, 'sim_completed.txt')
+                
+                if start_file and not completion_file:
+                    status = 'RUNNING'
+                else:
+                    status = 'UNKNOWN'
+            
             # Get parameters for this run
             params_html = ""
             if is_combined:
-                # Get parameters from both rev and irr subdirectories
+                # Try to get parameters from subdirectories first (for manually combined archives)
+                # If not found, get from root (for archives created with flag=c)
                 rev_params = parse_start_file(data_path / 'rev')
                 irr_params = parse_start_file(data_path / 'irr')
+                
+                # If subdirectories don't have params, use root params
+                if not rev_params or not irr_params:
+                    root_params = parse_start_file(data_path)
+                    if not rev_params:
+                        rev_params = root_params
+                    if not irr_params:
+                        irr_params = root_params
                 
                 # Check if parameters match
                 params_mismatch = False
@@ -1565,6 +1594,16 @@ def plot_data(dirname):
                 
                 if params_mismatch:
                     params_html += '<div style="display: inline-block; padding: 4px 12px; border-radius: 12px; font-size: 0.85em; font-weight: bold; margin-bottom: 12px; background: linear-gradient(90deg, #ab63fa 0%, #00b8d4 100%); color: white;">COMBINED</div>'
+                    # Add status chip
+                    status_colors = {
+                        'COMPLETED': 'background: #28a745; color: white;',
+                        'RUNNING': 'background: #ff9800; color: white;',
+                        'INTERRUPTED': 'background: #ffc107; color: black;',
+                        'ERROR': 'background: #dc3545; color: white;',
+                        'UNKNOWN': 'background: #e2e3e5; color: #383d41;'
+                    }
+                    status_style = status_colors.get(status, 'background: #6c757d; color: white;')
+                    params_html += f'<div style="display: inline-block; padding: 4px 12px; border-radius: 12px; font-size: 0.85em; font-weight: bold; margin-bottom: 12px; margin-left: 8px; {status_style}">{status}</div>'
                     params_html += '<div style="background: #ff9800; color: white; padding: 8px 12px; border-radius: 4px; margin-top: 8px; font-size: 0.9em;">⚠️ Warning: Reversible and irreversible parameters don\'t match</div>'
                     
                     # Show separate parameters when they don't match
@@ -1592,9 +1631,21 @@ def plot_data(dirname):
                 else:
                     # Parameters match - show chip and params on same row
                     if rev_params:
+                        # Build status chip HTML
+                        status_colors = {
+                            'COMPLETED': 'background: #28a745; color: white;',
+                            'RUNNING': 'background: #ff9800; color: white;',
+                            'INTERRUPTED': 'background: #ffc107; color: black;',
+                            'ERROR': 'background: #dc3545; color: white;',
+                            'UNKNOWN': 'background: #e2e3e5; color: #383d41;'
+                        }
+                        status_style = status_colors.get(status, 'background: #6c757d; color: white;')
+                        status_chip_html = f'<div style="padding: 4px 12px; border-radius: 12px; font-size: 0.85em; font-weight: bold; {status_style}">{status}</div>'
+                        
                         params_html += f"""
                         <div style="display: flex; align-items: center; justify-content: center; gap: 15px; flex-wrap: wrap;">
                             <div style="padding: 4px 12px; border-radius: 12px; font-size: 0.85em; font-weight: bold; background: linear-gradient(90deg, #ab63fa 0%, #00b8d4 100%); color: white;">COMBINED</div>
+                            {status_chip_html}
                             <div style="padding: 10px; background: var(--param-bg); border-radius: 4px;">
                                 <strong>Lattice:</strong> n={rev_params.get('n', 'N/A')} | 
                                 <strong>Sweeps:</strong> s={rev_params.get('sweeps', 'N/A')} | 
@@ -1609,14 +1660,27 @@ def plot_data(dirname):
                 # Single archive - show parameters normally
                 params = parse_start_file(data_path)
                 if params:
-                    is_irreversible = params.get('flag') == '1'
+                    is_irreversible = params.get('flag') == 'i'
                     dynamics_label = "IRREVERSIBLE" if is_irreversible else "REVERSIBLE"
                     chip_color = "#00b8d4" if is_irreversible else "#ab63fa"
                     text_color = "#000000" if is_irreversible else "#ffffff"
+                    
+                    # Build status chip HTML
+                    status_colors = {
+                        'COMPLETED': 'background: #28a745; color: white;',
+                        'RUNNING': 'background: #ff9800; color: white;',
+                        'INTERRUPTED': 'background: #ffc107; color: black;',
+                        'ERROR': 'background: #dc3545; color: white;',
+                        'UNKNOWN': 'background: #e2e3e5; color: #383d41;'
+                    }
+                    status_style = status_colors.get(status, 'background: #6c757d; color: white;')
+                    status_chip_html = f'<div style="padding: 4px 12px; border-radius: 12px; font-size: 0.85em; font-weight: bold; {status_style}">{status}</div>'
+                    
                     params_html = f"""
                     <div style="text-align: center; margin: 20px 0; padding: 15px; background: var(--bg-secondary); color: var(--text-primary); border-radius: 5px;">
                         <div style="display: flex; align-items: center; justify-content: center; gap: 15px; flex-wrap: wrap;">
                             <div style="background: {chip_color}; color: {text_color}; padding: 4px 12px; border-radius: 12px; font-size: 0.85em; font-weight: bold;">{dynamics_label}</div>
+                            {status_chip_html}
                             <div style="padding: 10px; background: var(--param-bg); border-radius: 4px;">
                                 <strong>Lattice:</strong> n={params.get('n', 'N/A')} | 
                                 <strong>Sweeps:</strong> s={params.get('sweeps', 'N/A')} | 
@@ -1642,7 +1706,7 @@ def plot_data(dirname):
                         <button id="saveNotesBtn" onclick="saveNotes()" style="padding: 6px 12px; background: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; display: none; margin-left: 8px;">Save</button>
                     </div>
                 </div>
-                <div id="notesDisplay" onclick="if(!isEditMode) toggleEditMode()" style="white-space: pre-wrap; min-height: 50px; padding: 10px; background: var(--bg-primary); color: var(--text-primary); border-radius: 4px; font-size: 11pt; cursor: pointer;">{notes_escaped if notes else '<span style="color: var(--text-secondary);">No notes yet. Click Edit to add notes.</span>'}</div>
+                <div id="notesDisplay" onclick="if(!isEditMode) toggleEditMode()" style="white-space: pre-wrap; min-height: 50px; padding: 10px; background: var(--bg-primary); color: var(--text-primary); border-radius: 4px; font-size: 11pt; cursor: pointer;">{notes_escaped if notes else '<span style="color: var(--text-secondary);">No notes yet. Click to add notes.</span>'}</div>
                 <textarea id="notesTextarea" data-dirname="{dirname}" placeholder="Add notes about this simulation run..." rows="10" style="display: none; width: 100%; padding: 10px; border: 1px solid var(--border-color); border-radius: 4px; font-family: inherit; font-size: 14px; resize: vertical; box-sizing: border-box; background: var(--bg-primary); color: var(--text-primary);">{notes_escaped}</textarea>
             </div>
             """
@@ -1797,25 +1861,6 @@ def plot_data(dirname):
                         document.getElementById('notesTextarea').style.display = 'block';
                         document.getElementById('editNotesBtn').style.display = 'none';
                         document.getElementById('notesTextarea').focus();
-                    }}
-                    
-                    function exitEditMode() {{
-                        isEditMode = false;
-                        const textarea = document.getElementById('notesTextarea');
-                        const notesDisplay = document.getElementById('notesDisplay');
-                        
-                        // Update display with current content
-                        const notes = textarea.value;
-                        if (notes.trim()) {{
-                            notesDisplay.innerHTML = notes.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\\n/g, '<br>');
-                        }} else {{
-                            notesDisplay.innerHTML = '<span style=\"color: #999;\">No notes yet. Click Edit to add notes.</span>';
-                        }}
-                        
-                        document.getElementById('notesDisplay').style.display = 'block';
-                        document.getElementById('notesTextarea').style.display = 'none';
-                        document.getElementById('editNotesBtn').style.display = 'inline-block';
-                        document.getElementById('saveNotesBtn').style.display = 'none';
                     }}
                     
                     function saveNotes() {{
