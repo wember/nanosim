@@ -39,10 +39,10 @@ def get_params():
     
     # Default values
     defaults = {
-        'n': 10,
-        's': 100,
-        'flag': 0,
-        'r': 10,
+        'n': 10,        # lattice size
+        's': 100,       # sweeps
+        'flag': [0,1],      # 0=reversible, 1=irreversible
+        'r': 10,        # max radius, inclusive
         'm': 5
     }
     
@@ -90,7 +90,6 @@ def get_params():
 
 
 n, s, flag, r, m, data_dir = get_params()
-k = 100  # number of sweeps before switching dynamics
 
 # Calculate total iterations for progress tracking
 total_sims = r * m
@@ -201,121 +200,122 @@ for M in range(m):
     for R in range(r+1):
         x = Inferno(n, R)
 
-        filename = file_names[R].parent / f"{file_names[R].name}_{M}.csv"
-        irr_filename = irr_files[R].parent / f"{irr_files[R].name}_{M}.csv"
-        init_filename = init_files[R].parent / f"{init_files[R].name}_{M}.csv"
-        filenames = [filename, irr_filename, init_filename]
+        for flag in [0, 1]:
+            filename = file_names[R].parent / f"{file_names[R].name}_{M}.csv"
+            irr_filename = irr_files[R].parent / f"{irr_files[R].name}_{M}.csv"
+            init_filename = init_files[R].parent / f"{init_files[R].name}_{M}.csv"
+            filenames = [filename, irr_filename, init_filename]
 
-        data_types = ['t', 'K', 'U', 'N0', 'Nx', 'S/nk', 'n'] # step counter, lattice energy, demon energy, total energy, broken bonds, anti-aligned spins, lattice size
+            data_types = ['t', 'K', 'U', 'N0', 'Nx', 'S/nk', 'n'] # step counter, lattice energy, demon energy, total energy, broken bonds, anti-aligned spins, lattice size
 
-        if flag == 0:  # rev only
-            filenames = [filename]
-        elif flag:  # irr only
-            filenames = [irr_filename]
-        
-        # Create directories if they don't exist
-        for fname in filenames:
-            fname.parent.mkdir(parents=True, exist_ok=True)
-        
-        for fname in filenames:
-            with open(fname, 'w+', newline='') as file:
-                writer = csv.writer(file)
-                writer.writerow(data_types)
-
-        # Separate counters for each file type
-        t_counter = 0
-        t_irr_counter = 0
-
-        ### Forward simulation
-        for i in range(s//2):
-            # Update progress description periodically
-            if i % max(1, (s//2)//10) == 0:  # Update ~10 times during phase
-                pbar.set_description(f"R={R}/{r-1}, M={M}/{m-1} [fwd {i}/{s//2}]")
-            # flag = (i // (n//k)) % 2    # if 0, perform reversible dynamics
-            data = np.zeros(5)
-            # Attempt to flip each spin in lattice
-            for j in range(n):
-                x.demon_move(flag, i*n + j)
-                # Calculate total entropy
-                N0e = int(x.bond_count[1])
-                if N0e == 0:
-                    N0e = 1
-                total_entropy = (Sk(n, sum(x.E_demon)) + Su(n, x.bond_count[1], x.bond_count[2], N0e))/n
-                # Add results to totals
-                data += [sum(x.E_demon), x.E_lattice, x.bond_count[1]/n, x.bond_count[2]/n, total_entropy]
-
-            # Increment appropriate counter
-            if flag == 0:
-                t_counter += 1
-                t_value = t_counter
-            else:
-                t_irr_counter += 1
-                t_value = t_irr_counter
-
-            # write avg sweep results to csv
-            new_row = np.array([t_value, data[0]/n, data[1]/n, data[2]/n, data[3]/n, data[4]/n, n])
-
-            # Save initial and final states to init_filename, all states to appropriate file
-            # if (i == 0):
-            #     add_row(init_filename, new_row)
-
-            if (flag == 0):
-                add_row(filename, new_row)
-            else:
-                add_row(irr_filename, new_row)
+            if flag == 0:  # rev only
+                filenames = [filename]
+            elif flag:  # irr only
+                filenames = [irr_filename]
             
-            # Update sweep progress
-            completed_sweeps += 1
-            pbar.update(1)
-            update_progress_time()
-
-        ### Reverse simulation
-        for i in range(s//2):
-            # Update progress description periodically
-            if i % max(1, (s//2)//10) == 0:  # Update ~10 times during phase
-                pbar.set_description(f"R={R}/{r-1}, M={M}/{m-1} [rev {i}/{s//2}]")
-            # flag = (i // (n//k)) % 2    # if 0, perform reversible dynamics
-            data = np.zeros(5)
-            # Attempt to flip each spin in lattice (full sweep)
-            for j in range(n):
-                total_forward_iterations = (s//2) * n
-                reverse_iteration = total_forward_iterations - 1 - (i*n + j)
-                x.demon_reverse(flag, reverse_iteration)
-                # Calculate total entropy
-                N0_exp = int(x.bond_count[1])
-                if N0_exp == 0:
-                    N0_exp = 1
-                total_entropy = (Sk(n, sum(x.E_demon)) + Su(n, x.bond_count[1], x.bond_count[2], N0_exp))/n
-                # Add results to totals
-                data += [sum(x.E_demon), x.E_lattice, x.bond_count[1]/n, x.bond_count[2]/n, total_entropy]
-
-            # Increment appropriate counter
-            if flag == 0:
-                t_counter += 1
-                t_value = t_counter
-            else:
-                t_irr_counter += 1
-                t_value = t_irr_counter
-
-            # write avg sweep results to csv
-            new_row = np.array([t_value, data[0]/n, data[1]/n, data[2]/n, data[3]/n, data[4]/n, n])
-
-            # Save initial and final states to init_filename, all states to appropriate file
-            # if (i == (s//2-1)):
-            #     add_row(init_filename, new_row)
-
-            if (flag == 0):
-                add_row(filename, new_row)
-            else:
-                add_row(irr_filename, new_row)
+            # Create directories if they don't exist
+            for fname in filenames:
+                fname.parent.mkdir(parents=True, exist_ok=True)
             
-            # Update sweep progress
-            completed_sweeps += 1
-            pbar.update(1)
-            update_progress_time()
-        
-        # Update simulation counter
-        sim_counter += 1
+            for fname in filenames:
+                with open(fname, 'w+', newline='') as file:
+                    writer = csv.writer(file)
+                    writer.writerow(data_types)
+
+            # Separate counters for each file type
+            t_counter = 0
+            t_irr_counter = 0
+
+            ### Forward simulation
+            for i in range(s//2):
+                # Update progress description periodically
+                if i % max(1, (s//2)//10) == 0:  # Update ~10 times during phase
+                    pbar.set_description(f"R={R}/{r-1}, M={M}/{m-1} [fwd {i}/{s//2}]")
+                # flag = (i // (n//k)) % 2    # if 0, perform reversible dynamics
+                data = np.zeros(5)
+                # Attempt to flip each spin in lattice
+                for j in range(n):
+                    x.demon_move(flag, i*n + j)
+                    # Calculate total entropy
+                    N0e = int(x.bond_count[1])
+                    if N0e == 0:
+                        N0e = 1
+                    total_entropy = (Sk(n, sum(x.E_demon)) + Su(n, x.bond_count[1], x.bond_count[2], N0e))/n
+                    # Add results to totals
+                    data += [sum(x.E_demon), x.E_lattice, x.bond_count[1]/n, x.bond_count[2]/n, total_entropy]
+
+                # Increment appropriate counter
+                if flag == 0:
+                    t_counter += 1
+                    t_value = t_counter
+                else:
+                    t_irr_counter += 1
+                    t_value = t_irr_counter
+
+                # write avg sweep results to csv
+                new_row = np.array([t_value, data[0]/n, data[1]/n, data[2]/n, data[3]/n, data[4]/n, n])
+
+                # Save initial and final states to init_filename, all states to appropriate file
+                # if (i == 0):
+                #     add_row(init_filename, new_row)
+
+                if (flag == 0):
+                    add_row(filename, new_row)
+                else:
+                    add_row(irr_filename, new_row)
+                
+                # Update sweep progress
+                completed_sweeps += 1
+                pbar.update(1)
+                update_progress_time()
+
+            ### Reverse simulation
+            for i in range(s//2):
+                # Update progress description periodically
+                if i % max(1, (s//2)//10) == 0:  # Update ~10 times during phase
+                    pbar.set_description(f"R={R}/{r-1}, M={M}/{m-1} [rev {i}/{s//2}]")
+                # flag = (i // (n//k)) % 2    # if 0, perform reversible dynamics
+                data = np.zeros(5)
+                # Attempt to flip each spin in lattice (full sweep)
+                for j in range(n):
+                    total_forward_iterations = (s//2) * n
+                    reverse_iteration = total_forward_iterations - 1 - (i*n + j)
+                    x.demon_reverse(flag, reverse_iteration)
+                    # Calculate total entropy
+                    N0_exp = int(x.bond_count[1])
+                    if N0_exp == 0:
+                        N0_exp = 1
+                    total_entropy = (Sk(n, sum(x.E_demon)) + Su(n, x.bond_count[1], x.bond_count[2], N0_exp))/n
+                    # Add results to totals
+                    data += [sum(x.E_demon), x.E_lattice, x.bond_count[1]/n, x.bond_count[2]/n, total_entropy]
+
+                # Increment appropriate counter
+                if flag == 0:
+                    t_counter += 1
+                    t_value = t_counter
+                else:
+                    t_irr_counter += 1
+                    t_value = t_irr_counter
+
+                # write avg sweep results to csv
+                new_row = np.array([t_value, data[0]/n, data[1]/n, data[2]/n, data[3]/n, data[4]/n, n])
+
+                # Save initial and final states to init_filename, all states to appropriate file
+                # if (i == (s//2-1)):
+                #     add_row(init_filename, new_row)
+
+                if (flag == 0):
+                    add_row(filename, new_row)
+                else:
+                    add_row(irr_filename, new_row)
+                
+                # Update sweep progress
+                completed_sweeps += 1
+                pbar.update(1)
+                update_progress_time()
+            
+            # Update simulation counter
+            sim_counter += 1
 
 # Close progress bar
 pbar.close()
