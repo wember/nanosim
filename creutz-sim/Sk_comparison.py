@@ -7,7 +7,18 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import plotly.io as pio
 from pathlib import Path
+import argparse
+
+# Parse command line arguments
+parser = argparse.ArgumentParser(description='Generate simulation comparison plots')
+parser.add_argument('--data-dir', type=str, default='data',
+                    help='Directory containing simulation data (default: data)')
+args = parser.parse_args()
+
 pio.templates.default = "plotly_white"
+
+# Detect theme from template
+is_dark_mode = pio.templates.default == "plotly_dark"
 
 # Max radius
 r = 11
@@ -17,7 +28,7 @@ bin_size = 10
 fig = make_subplots(rows=2, cols=2, horizontal_spacing=0.2, vertical_spacing=0.02, row_heights=[0.8, 0.2])
 fig2 = make_subplots(rows=1, cols=2, horizontal_spacing=0.2)
 
-colors = ['#301934',
+colors = ['#5A3A5E',
           '#702963',
           '#800020',
           '#AA336A',
@@ -43,7 +54,7 @@ irr_colors = ['#005A5E',
 
 # Use relative path from repo root
 repo_root = Path(__file__).parent.parent
-filepath = repo_root / 'data'
+filepath = repo_root / args.data_dir
 
 # Check if data directory exists
 if not filepath.exists():
@@ -56,8 +67,18 @@ irr_avg_Sk = np.array([])
 SEM = np.array([])
 irr_SEM = np.array([])
 
+# Detect if this is a combined run (has both rev and irr data)
+is_combined = (filepath / 'irr').exists() and (filepath / 'rev').exists()
+
 # Track which radii already have legend entries
-legend_shown = set()
+rev_legend_shown = set()
+irr_legend_shown = set()
+
+# Track if we have any data to plot
+average_df = None
+start_index = 0
+end_index = 0
+n = 0
 
 ######### Plot irreversible data (if available)
 for R in range(r):
@@ -83,13 +104,23 @@ for R in range(r):
     average_df = combined_df.groupby(combined_df.index).mean()
 
     n = int(average_df['n'][0])
-    show_legend = R not in legend_shown
+    show_legend = R not in irr_legend_shown
     if show_legend:
-        legend_shown.add(R)
-    fig.add_trace(go.Scatter(x=average_df['t'], y=average_df['S/nk'], name=f"radius {R}", 
-                             line=dict(color=irr_colors[R]), legendgroup=f"r{R}", showlegend=show_legend),row=1, col=1)
-    fig.add_trace(go.Scatter(x=average_df['t'].rolling(window=bin_size).mean(), y=average_df['S/nk'].rolling(window=bin_size).mean(), 
-                             name=f"radius{R}", line=dict(color=irr_colors[R]), legendgroup=f"r{R}", showlegend=False),row=1, col=2)
+        irr_legend_shown.add(R)
+    
+    # For single runs, just show "Radius X"; for combined runs, show "Irr" with group title
+    if is_combined:
+        fig.add_trace(go.Scatter(x=average_df['t'], y=average_df['S/nk'], name="Irr", 
+                                 line=dict(color=irr_colors[R]), legendgroup=f"r{R}", legendgrouptitle_text=f"Radius {R}", showlegend=show_legend),row=1, col=1)
+    else:
+        fig.add_trace(go.Scatter(x=average_df['t'], y=average_df['S/nk'], name=f"Radius {R}", 
+                                 line=dict(color=irr_colors[R]), showlegend=show_legend),row=1, col=1)
+    if is_combined:
+        fig.add_trace(go.Scatter(x=average_df['t'].rolling(window=bin_size).mean(), y=average_df['S/nk'].rolling(window=bin_size).mean(), 
+                                 name="Irr", line=dict(color=irr_colors[R]), legendgroup=f"r{R}", showlegend=False),row=1, col=2)
+    else:
+        fig.add_trace(go.Scatter(x=average_df['t'].rolling(window=bin_size).mean(), y=average_df['S/nk'].rolling(window=bin_size).mean(), 
+                                 name=f"Radius {R}", line=dict(color=irr_colors[R]), showlegend=False),row=1, col=2)
 
     # Zoomed in portion about center of dataframe
     num_elements = len(average_df['t']) // 4
@@ -103,16 +134,22 @@ for R in range(r):
 
     # Extract the middle elements
     zoom = average_df.iloc[start_index:end_index]
-    fig.add_trace(go.Scatter(x=zoom['t'], y=zoom['S/nk'], name=f"radius {R}", 
-                             line=dict(color=irr_colors[R]), legendgroup=f"r{R}", showlegend=False),row=2, col=1)
-    fig.add_trace(go.Scatter(x=zoom['t'].rolling(window=bin_size).mean(), y=zoom['S/nk'].rolling(window=bin_size).mean(), 
-                             name=f"radius {R}", line=dict(color=irr_colors[R]), legendgroup=f"r{R}", showlegend=False),row=2, col=2)
+    if is_combined:
+        fig.add_trace(go.Scatter(x=zoom['t'], y=zoom['S/nk'], name="Irr", 
+                                 line=dict(color=irr_colors[R]), legendgroup=f"r{R}", showlegend=False),row=2, col=1)
+        fig.add_trace(go.Scatter(x=zoom['t'].rolling(window=bin_size).mean(), y=zoom['S/nk'].rolling(window=bin_size).mean(), 
+                                 name="Irr", line=dict(color=irr_colors[R]), legendgroup=f"r{R}", showlegend=False),row=2, col=2)
+    else:
+        fig.add_trace(go.Scatter(x=zoom['t'], y=zoom['S/nk'], name=f"Radius {R}", 
+                                 line=dict(color=irr_colors[R]), showlegend=False),row=2, col=1)
+        fig.add_trace(go.Scatter(x=zoom['t'].rolling(window=bin_size).mean(), y=zoom['S/nk'].rolling(window=bin_size).mean(), 
+                                 name=f"Radius {R}", line=dict(color=irr_colors[R]), showlegend=False),row=2, col=2)
     irr_avg_Sk = np.append(irr_avg_Sk, np.mean(zoom['S/nk']))
     irr_SEM = np.append(irr_SEM, np.std(zoom['S/nk']/math.sqrt(len(zoom['S/nk']))))
 
 ######### Plot reversible data
-# Check if data is in irr subdirectory (when run with -f 1)
-rev_filepath = filepath / 'irr' if (filepath / 'irr').exists() and any((filepath / 'irr').iterdir()) else filepath
+# Check if data is in rev subdirectory (when run with -f 0)
+rev_filepath = filepath / 'rev' if (filepath / 'rev').exists() and any((filepath / 'rev').iterdir()) else filepath
 
 for R in range(r):
     folder_path = rev_filepath / f'r{R}'
@@ -135,13 +172,23 @@ for R in range(r):
     average_df = combined_df.groupby(combined_df.index).mean()
 
     n = int(average_df['n'][0])
-    show_legend = R not in legend_shown
+    show_legend = R not in rev_legend_shown
     if show_legend:
-        legend_shown.add(R)
-    fig.add_trace(go.Scatter(x=average_df['t'], y=average_df['S/nk'], name=f"radius {R}", 
-                             line=dict(color=colors[R]), legendgroup=f"r{R}", showlegend=show_legend),row=1, col=1)
-    fig.add_trace(go.Scatter(x=average_df['t'].rolling(window=bin_size).mean(), y=average_df['S/nk'].rolling(window=bin_size).mean(), 
-                             name=f"radius{R}", line=dict(color=colors[R]), legendgroup=f"r{R}", showlegend=False),row=1, col=2)
+        rev_legend_shown.add(R)
+    
+    # For single runs, just show "Radius X"; for combined runs, show "Rev" with group title
+    if is_combined:
+        fig.add_trace(go.Scatter(x=average_df['t'], y=average_df['S/nk'], name="Rev", 
+                                 line=dict(color=colors[R]), legendgroup=f"r{R}", legendgrouptitle_text=f"Radius {R}", showlegend=show_legend),row=1, col=1)
+    else:
+        fig.add_trace(go.Scatter(x=average_df['t'], y=average_df['S/nk'], name=f"Radius {R}", 
+                                 line=dict(color=colors[R]), showlegend=show_legend),row=1, col=1)
+    if is_combined:
+        fig.add_trace(go.Scatter(x=average_df['t'].rolling(window=bin_size).mean(), y=average_df['S/nk'].rolling(window=bin_size).mean(), 
+                                 name="Rev", line=dict(color=colors[R]), legendgroup=f"r{R}", showlegend=False),row=1, col=2)
+    else:
+        fig.add_trace(go.Scatter(x=average_df['t'].rolling(window=bin_size).mean(), y=average_df['S/nk'].rolling(window=bin_size).mean(), 
+                                 name=f"Radius {R}", line=dict(color=colors[R]), showlegend=False),row=1, col=2)
 
     # Zoomed in portion about center of dataframe
     num_elements = len(average_df['t']) // 4
@@ -155,10 +202,16 @@ for R in range(r):
 
     # Extract the middle elements
     zoom = average_df.iloc[start_index:end_index]
-    fig.add_trace(go.Scatter(x=zoom['t'], y=zoom['S/nk'], name=f"radius {R}", 
-                             line=dict(color=colors[R]), legendgroup=f"r{R}", showlegend=False),row=2, col=1)
-    fig.add_trace(go.Scatter(x=zoom['t'].rolling(window=bin_size).mean(), y=zoom['S/nk'].rolling(window=bin_size).mean(), 
-                             name=f"radius {R}", line=dict(color=colors[R]), legendgroup=f"r{R}", showlegend=False),row=2, col=2)
+    if is_combined:
+        fig.add_trace(go.Scatter(x=zoom['t'], y=zoom['S/nk'], name="Rev", 
+                                 line=dict(color=colors[R]), legendgroup=f"r{R}", showlegend=False),row=2, col=1)
+        fig.add_trace(go.Scatter(x=zoom['t'].rolling(window=bin_size).mean(), y=zoom['S/nk'].rolling(window=bin_size).mean(), 
+                                 name="Rev", line=dict(color=colors[R]), legendgroup=f"r{R}", showlegend=False),row=2, col=2)
+    else:
+        fig.add_trace(go.Scatter(x=zoom['t'], y=zoom['S/nk'], name=f"Radius {R}", 
+                                 line=dict(color=colors[R]), showlegend=False),row=2, col=1)
+        fig.add_trace(go.Scatter(x=zoom['t'].rolling(window=bin_size).mean(), y=zoom['S/nk'].rolling(window=bin_size).mean(), 
+                                 name=f"Radius {R}", line=dict(color=colors[R]), showlegend=False),row=2, col=2)
     avg_Sk = np.append(avg_Sk, np.mean(zoom['S/nk']))
     SEM = np.append(SEM, np.std(zoom['S/nk']/math.sqrt(len(zoom['S/nk']))))
     # fig.add_trace(go.Histogram(x=average_df['S/nk'], nbinsx=1),row=1, col=2)
@@ -166,16 +219,50 @@ for R in range(r):
 fig.update_xaxes(title_text="Sweeps", row=1, col=1)
 fig.update_yaxes(title_text="S/Nk", row=1, col=1)
 fig.update_yaxes(title_text="S/Nk", row=1, col=2)
-fig.add_vline(x=len(average_df['t'])//2, line_width=1, line_dash="dash", line_color="Red", row=1, col=1)
-fig.add_vline(x=len(average_df['t'])//2, line_width=1, line_dash="dash", line_color="Red", row=1, col=2)
-fig.add_vrect(x0=start_index, x1=end_index, line_width=0, fillcolor="blue", opacity=0.1, row=1, col=1)
-fig.add_vrect(x0=start_index, x1=end_index, line_width=0, fillcolor="blue", opacity=0.1, row=1, col=2)
 
-# Add toggle button to show/hide all traces
+# Only add vlines and vrects if we have data
+if average_df is not None:
+    fig.add_vline(x=len(average_df['t'])//2, line_width=1, line_dash="dash", line_color="Red", row=1, col=1)
+    fig.add_vline(x=len(average_df['t'])//2, line_width=1, line_dash="dash", line_color="Red", row=1, col=2)
+    fig.add_vrect(x0=start_index, x1=end_index, line_width=0, fillcolor="blue", opacity=0.1, row=1, col=1)
+    fig.add_vrect(x0=start_index, x1=end_index, line_width=0, fillcolor="blue", opacity=0.1, row=1, col=2)
+
+# Add toggle buttons to show/hide reversible and irreversible traces
 num_traces = len(fig.data)
+
+# Determine which traces are rev vs irr based on name
+rev_visibility = []
+irr_visibility = []
+for trace in fig.data:
+    if trace.name == 'Rev':
+        rev_visibility.append(True)
+        irr_visibility.append('legendonly')
+    elif trace.name == 'Irr':
+        rev_visibility.append('legendonly')
+        irr_visibility.append(True)
+    else:
+        rev_visibility.append(True)
+        irr_visibility.append(True)
+
 fig.update_layout(
     title_text=f"Lattice Size: {n}",
     height=500,
+    legend=dict(
+        orientation="v",
+        yanchor="top",
+        y=1.0,
+        xanchor="left",
+        x=1.01,
+        bgcolor="rgba(30,30,30,0.9)" if is_dark_mode else "rgba(255,255,255,0.9)",
+        bordercolor="rgba(100,100,100,0.5)" if is_dark_mode else "rgba(0,0,0,0.3)",
+        borderwidth=1,
+        font=dict(size=9, color="rgba(255,255,255,0.9)" if is_dark_mode else "rgba(0,0,0,0.9)"),
+        grouptitlefont=dict(size=10, family="Arial Black", color="rgba(255,255,255,1)" if is_dark_mode else "rgba(0,0,0,1)"),
+        itemsizing='constant',
+        itemwidth=30,
+        tracegroupgap=2,
+        groupclick="toggleitem"
+    ),
     updatemenus=[
         dict(
             type="buttons",
@@ -191,17 +278,27 @@ fig.update_layout(
                     label="Hide All",
                     method="restyle"
                 )
-            ],
+            ] + ([
+                dict(
+                    args=[{"visible": rev_visibility}],
+                    label="Show Rev",
+                    method="restyle"
+                ),
+                dict(
+                    args=[{"visible": irr_visibility}],
+                    label="Show Irr",
+                    method="restyle"
+                )
+            ] if is_combined else []),
             pad={"r": 0, "t": 0, "b": 0, "l": 0},
-            showactive=True,
-            x=0.98,
-            xanchor="left",
+            showactive=False,
+            x=1.07,
+            xanchor="right",
             y=1.12,
             yanchor="top",
             bgcolor="rgba(255,255,255,0)",
             borderwidth=0,
-            font=dict(size=11, color="#1f77b4"),
-            active=0
+            font=dict(size=11, color="#1f77b4")
         ),
     ]
 )

@@ -52,7 +52,7 @@ setup-clean:
 # Simulation
 # ============================================================================
 
-sim: sim-archive
+sim:
 	@echo "Running simulation..."
 	@$(VENV_PYTHON) creutz-sim/sim.py $(ARGS)
 
@@ -60,33 +60,17 @@ sim-i: sim-archive
 	@echo "Running simulation in interactive mode..."
 	@$(VENV_PYTHON) creutz-sim/sim.py -i $(ARGS)
 
-sim-archive:
-	@if [ -d data ]; then \
-		has_data=false; \
-		for item in data/*; do \
-			if [ -e "$$item" ] && [ "$$(basename $$item)" != "archive" ]; then \
-				has_data=true; \
-				break; \
-			fi; \
-		done; \
-		if [ "$$has_data" = true ]; then \
-			timestamp=$$(date +%Y%m%d_%H%M%S); \
-			archive_dir="data/archive/$$timestamp"; \
-			echo "Archiving existing data to $$archive_dir..."; \
-			mkdir -p "$$archive_dir"; \
-			for item in data/*; do \
-				[ "$$(basename $$item)" != "archive" ] && cp -r "$$item" "$$archive_dir/" 2>/dev/null || true; \
-			done; \
-			for item in data/*; do \
-				[ "$$(basename $$item)" != "archive" ] && rm -rf "$$item" 2>/dev/null || true; \
-			done; \
-			echo "Archive complete."; \
-		fi; \
-	fi
-
 sim-test: sim-test-clean
 	@echo "Running test simulation..."
-	@$(VENV_PYTHON) creutz-sim/sim.py --interactive --data-dir test_data
+	@$(VENV_PYTHON) creutz-sim/sim.py -i --data-dir test_data
+	@echo "Flattening test data structure..."
+	@if [ -d test_data ]; then \
+		TIMESTAMP_DIR=$$(ls -d test_data/*/ 2>/dev/null | head -1); \
+		if [ -n "$$TIMESTAMP_DIR" ]; then \
+			mv "$$TIMESTAMP_DIR"/* test_data/ 2>/dev/null || true; \
+			rm -rf "$$TIMESTAMP_DIR"; \
+		fi; \
+	fi
 
 plot:
 	@echo "Generating plots..."
