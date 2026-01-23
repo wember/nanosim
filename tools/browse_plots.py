@@ -347,6 +347,8 @@ HTML_TEMPLATE = """
             border-radius: 8px;
             width: 80%;
             max-width: 600px;
+            max-height: 80vh;
+            overflow-y: auto;
         }
         .modal-header {
             display: flex;
@@ -594,17 +596,29 @@ HTML_TEMPLATE = """
                         document.getElementById('importFile').files = files;
                         handleFileSelect({ target: { files: files } });
                     } else {
-                        document.getElementById('importStatus').innerHTML = '<span style="color: #dc3545;">Please drop a .zip file</span>';
+                        document.getElementById('importStatus').innerHTML = '<span style="color: #dc3545;">Please drop a .zip file or use the browse button to select a directory</span>';
                     }
                 }
             });
         }
         
         function handleFileSelect(event) {
-            const file = event.target.files[0];
+            const files = event.target.files;
             const fileSelectedDiv = document.getElementById('fileSelected');
-            if (file) {
-                fileSelectedDiv.textContent = '✓ Selected: ' + file.name;
+            
+            if (files.length === 0) {
+                return;
+            }
+            
+            // Check if it's a directory (multiple files)
+            if (files.length > 1) {
+                // Directory selected
+                fileSelectedDiv.textContent = '✓ Selected directory: ' + files[0].webkitRelativePath.split('/')[0];
+                fileSelectedDiv.style.display = 'block';
+                document.getElementById('importStatus').innerHTML = '';
+            } else {
+                // Single file selected
+                fileSelectedDiv.textContent = '✓ Selected: ' + files[0].name;
                 fileSelectedDiv.style.display = 'block';
                 document.getElementById('importStatus').innerHTML = '';
             }
@@ -926,12 +940,30 @@ HTML_TEMPLATE = """
             const statusDiv = document.getElementById('importStatus');
             
             if (!fileInput.files || fileInput.files.length === 0) {
-                statusDiv.innerHTML = '<span style="color: #dc3545;">Please select a file</span>';
+                statusDiv.innerHTML = '<span style="color: #dc3545;">Please select a file or directory</span>';
                 return;
             }
             
             const formData = new FormData();
-            formData.append('file', fileInput.files[0]);
+            
+            // Check if it's a directory (multiple files) or single zip file
+            if (fileInput.files.length > 1) {
+                // Directory selected - send all files with their paths
+                for (let i = 0; i < fileInput.files.length; i++) {
+                    const file = fileInput.files[i];
+                    // Use webkitRelativePath to preserve directory structure
+                    const relativePath = file.webkitRelativePath || file.name;
+                    // Create a new file with the relative path as the name
+                    const blob = new Blob([file], { type: file.type });
+                    formData.append('files', blob, relativePath);
+                }
+                formData.append('is_directory', 'true');
+            } else {
+                // Single zip file
+                formData.append('file', fileInput.files[0]);
+                formData.append('is_directory', 'false');
+            }
+            
             formData.append('overwrite', overwrite.toString());
             
             statusDiv.innerHTML = '<span style="color: #007bff;">Importing and validating...</span>';
@@ -1001,11 +1033,11 @@ HTML_TEMPLATE = """
                 <button class="close-btn" onclick="closeImportModal()">&times;</button>
             </div>
             <div style="padding: 20px;">
-                <p style="color: var(--text-secondary); margin-bottom: 15px;">Import a previously exported simulation archive (.zip)</p>
+                <p style="color: var(--text-secondary); margin-bottom: 15px;">Import a previously exported simulation archive (.zip or directory)</p>
                 <div class="drop-zone" id="dropZone" onclick="document.getElementById('importFile').click()">
-                    <input type="file" id="importFile" accept=".zip" onchange="handleFileSelect(event)">
-                    <div class="drop-zone-text">📦 Drop file here or click to browse</div>
-                    <div class="drop-zone-hint">Accepts .zip files only</div>
+                    <input type="file" id="importFile" accept=".zip" onchange="handleFileSelect(event)" webkitdirectory directory multiple>
+                    <div class="drop-zone-text">📦 Drop .zip here or click to browse</div>
+                    <div class="drop-zone-hint">Drop: .zip files only • Browse: .zip or directory</div>
                     <div id="fileSelected" class="file-selected" style="display: none;"></div>
                 </div>
                 <div style="text-align: center;">
@@ -1819,111 +1851,268 @@ def export_archive(dirname):
 
 @app.route('/import', methods=['POST'])
 def import_archive():
-    """Import and validate a simulation archive from zip file."""
+    """Import and validate a simulation archive from zip file or directory."""
     import json
     
-    if 'file' not in request.files:
-        return jsonify({'success': False, 'error': 'No file provided'}), 400
+    is_directory = request.form.get('is_directory', 'false') == 'true'
     
-    file = request.files['file']
-    if file.filename == '':
-        return jsonify({'success': False, 'error': 'No file selected'}), 400
-    
-    if not file.filename.endswith('.zip'):
-        return jsonify({'success': False, 'error': 'File must be a .zip'}), 400
-    
-    # Save uploaded file temporarily
-    with tempfile.NamedTemporaryFile(mode='w+b', suffix='.zip', delete=False) as tmp_file:
-        file.save(tmp_file.name)
-        zip_path = Path(tmp_file.name)
-    
-    try:
-        # Verify it's a valid zip
-        if not zipfile.is_zipfile(zip_path):
-            return jsonify({'success': False, 'error': 'Invalid zip file'}), 400
+    if is_directory:
+        # Handle directory upload
+        if 'files' not in request.files:
+            return jsonify({'success': False, 'error': 'No files provided'}), 400
         
-        with zipfile.ZipFile(zip_path, 'r') as zipf:
-            # Check for required files
-            zip_contents = zipf.namelist()
-            if 'MANIFEST.json' not in zip_contents or 'SIGNATURE' not in zip_contents:
-                return jsonify({'success': False, 'error': 'Missing validation files'}), 400
+        files = request.files.getlist('files')
+        if not files:
+            return jsonify({'success': False, 'error': 'No files in directory'}), 400
+        
+        # Create temporary directory to store files
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
             
-            # Read and verify manifest signature
-            manifest_json = zipf.read('MANIFEST.json').decode('utf-8')
-            manifest = json.loads(manifest_json)
-            
-            expected_signature = zipf.read('SIGNATURE').decode('utf-8').strip()
-            actual_signature = hashlib.sha256(manifest_json.encode()).hexdigest()
-            
-            if expected_signature != actual_signature:
-                return jsonify({'success': False, 'error': 'Manifest signature verification failed'}), 400
-            
-            # Verify all files match their hashes
-            validation_errors = []
-            for file_name, file_info in manifest['files'].items():
-                if file_name not in zip_contents:
-                    validation_errors.append(f"Missing file: {file_name}")
-                    continue
-                
-                # Calculate hash of file in zip
-                file_data = zipf.read(file_name)
-                actual_hash = hashlib.sha256(file_data).hexdigest()
-                
-                if actual_hash != file_info['sha256']:
-                    validation_errors.append(f"Hash mismatch: {file_name}")
-                
-                if len(file_data) != file_info['size']:
-                    validation_errors.append(f"Size mismatch: {file_name}")
-            
-            if validation_errors:
-                return jsonify({
-                    'success': False,
-                    'error': 'File validation failed',
-                    'details': validation_errors
-                }), 400
-            
-            # Determine archive name (use original or generate new if conflict)
-            archive_name = manifest.get('archive_name', 'imported_' + datetime.now().strftime('%Y%m%d_%H%M%S'))
-            target_path = ARCHIVE_DIR / archive_name
-            
-            # Check for duplicate - if exists, return conflict status
-            overwrite = request.form.get('overwrite', 'false') == 'true'
-            
-            if target_path.exists() and not overwrite:
-                return jsonify({
-                    'success': False,
-                    'conflict': True,
-                    'archive_name': archive_name,
-                    'message': f'Archive "{archive_name}" already exists.'
-                }), 409  # 409 Conflict
-            
-            # If overwriting, delete existing
-            if target_path.exists() and overwrite:
-                shutil.rmtree(target_path)
-            
-            # Extract files (excluding MANIFEST.json and SIGNATURE)
-            target_path.mkdir(parents=True, exist_ok=True)
-            for file_name in manifest['files'].keys():
-                file_data = zipf.read(file_name)
-                file_path = target_path / file_name
+            # Reconstruct directory structure
+            for file in files:
+                # Get relative path from webkitRelativePath
+                relative_path = file.filename
+                print(f"DEBUG: Uploading file with filename: {relative_path}")
+                file_path = temp_path / relative_path
                 file_path.parent.mkdir(parents=True, exist_ok=True)
-                with open(file_path, 'wb') as f:
-                    f.write(file_data)
+                file.save(str(file_path))
             
-            return jsonify({
-                'success': True,
-                'archive_name': archive_name,
-                'message': f'Successfully imported as {archive_name}'
-            })
+            # Find the archive directory
+            # When a directory is selected, files come with paths like "dirname/file.txt"
+            # So we need to find the common root directory
+            all_items = list(temp_path.iterdir())
+            
+            # If there's exactly one directory, that's our archive
+            if len(all_items) == 1 and all_items[0].is_dir():
+                archive_dir = all_items[0]
+            # If there are multiple files/dirs at root level, use temp_path itself
+            elif len(all_items) > 0:
+                archive_dir = temp_path
+            else:
+                return jsonify({'success': False, 'error': 'No files found in upload'}), 400
+            
+            # Debug: Check what's actually in archive_dir
+            print(f"DEBUG: archive_dir = {archive_dir}")
+            print(f"DEBUG: archive_dir contents = {list(archive_dir.iterdir())[:10]}")  # First 10 items
+            
+            # Check for required validation files
+            manifest_file = archive_dir / 'MANIFEST.json'
+            signature_file = archive_dir / 'SIGNATURE'
+            
+            print(f"DEBUG: manifest exists = {manifest_file.exists()}, signature exists = {signature_file.exists()}")
+            
+            if not manifest_file.exists() or not signature_file.exists():
+                return jsonify({'success': False, 'error': 'Missing validation files (MANIFEST.json or SIGNATURE)'}), 400
+            
+            try:
+                # Read and verify manifest
+                with open(manifest_file, 'r') as f:
+                    manifest_json = f.read()
+                    manifest = json.loads(manifest_json)
+                
+                with open(signature_file, 'r') as f:
+                    expected_signature = f.read().strip()
+                
+                actual_signature = hashlib.sha256(manifest_json.encode()).hexdigest()
+                
+                if expected_signature != actual_signature:
+                    return jsonify({'success': False, 'error': 'Manifest signature verification failed'}), 400
+                
+                # Verify all files match their hashes
+                validation_errors = []
+                for file_name, file_info in manifest['files'].items():
+                    file_path = archive_dir / file_name
+                    if not file_path.exists():
+                        validation_errors.append(f"Missing file: {file_name}")
+                        continue
+                    
+                    with open(file_path, 'rb') as f:
+                        file_data = f.read()
+                    
+                    actual_hash = hashlib.sha256(file_data).hexdigest()
+                    
+                    if actual_hash != file_info['sha256']:
+                        validation_errors.append(f"Hash mismatch: {file_name}")
+                    
+                    if len(file_data) != file_info['size']:
+                        validation_errors.append(f"Size mismatch: {file_name}")
+                
+                if validation_errors:
+                    return jsonify({
+                        'success': False,
+                        'error': 'File validation failed',
+                        'details': validation_errors
+                    }), 400
+                
+                # Determine archive name
+                archive_name = manifest.get('archive_name', 'imported_' + datetime.now().strftime('%Y%m%d_%H%M%S'))
+                target_path = ARCHIVE_DIR / archive_name
+                
+                # Check for duplicate
+                overwrite = request.form.get('overwrite', 'false') == 'true'
+                
+                if target_path.exists() and not overwrite:
+                    return jsonify({
+                        'success': False,
+                        'conflict': True,
+                        'archive_name': archive_name,
+                        'message': f'Archive "{archive_name}" already exists.'
+                    }), 409
+                
+                # If overwriting, delete existing
+                if target_path.exists() and overwrite:
+                    shutil.rmtree(target_path)
+                
+                # Copy files (excluding MANIFEST.json and SIGNATURE)
+                target_path.mkdir(parents=True, exist_ok=True)
+                for file_name in manifest['files'].keys():
+                    src = archive_dir / file_name
+                    dst = target_path / file_name
+                    dst.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(src, dst)
+                
+                return jsonify({
+                    'success': True,
+                    'archive_name': archive_name,
+                    'message': f'Successfully imported as {archive_name}'
+                })
+            
+            except json.JSONDecodeError:
+                return jsonify({'success': False, 'error': 'Invalid manifest format'}), 400
+            except Exception as e:
+                return jsonify({'success': False, 'error': f'Import failed: {str(e)}'}), 500
     
-    except json.JSONDecodeError:
-        return jsonify({'success': False, 'error': 'Invalid manifest format'}), 400
-    except Exception as e:
-        return jsonify({'success': False, 'error': f'Import failed: {str(e)}'}), 500
-    finally:
-        # Clean up temp file
-        if zip_path.exists():
-            zip_path.unlink()
+    else:
+        # Handle zip file upload (original logic)
+        if 'file' not in request.files:
+            return jsonify({'success': False, 'error': 'No file provided'}), 400
+        
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({'success': False, 'error': 'No file selected'}), 400
+        
+        if not file.filename.endswith('.zip'):
+            return jsonify({'success': False, 'error': 'File must be a .zip'}), 400
+        
+        # Save uploaded file temporarily
+        with tempfile.NamedTemporaryFile(mode='w+b', suffix='.zip', delete=False) as tmp_file:
+            file.save(tmp_file.name)
+            zip_path = Path(tmp_file.name)
+        
+        try:
+            # Verify it's a valid zip
+            if not zipfile.is_zipfile(zip_path):
+                return jsonify({'success': False, 'error': 'Invalid zip file'}), 400
+            
+            with zipfile.ZipFile(zip_path, 'r') as zipf:
+                # Check for required files - handle both root level and subdirectory
+                zip_contents = zipf.namelist()
+                
+                # Find all MANIFEST.json files
+                manifest_files = [f for f in zip_contents if f.endswith('MANIFEST.json') and not f.startswith('__MACOSX')]
+                
+                if len(manifest_files) == 0:
+                    return jsonify({'success': False, 'error': 'Missing MANIFEST.json file'}), 400
+                elif len(manifest_files) > 1:
+                    return jsonify({'success': False, 'error': 'Multiple MANIFEST.json files found. Please ensure zip contains only one archive.'}), 400
+                
+                manifest_path = manifest_files[0]
+                
+                # Determine if files are in a subdirectory
+                if '/' in manifest_path:
+                    # Files are in subdirectory - get the prefix
+                    subdir_prefix = manifest_path.rsplit('/', 1)[0] + '/'
+                    signature_path = subdir_prefix + 'SIGNATURE'
+                else:
+                    # Files are at root level
+                    subdir_prefix = ''
+                    signature_path = 'SIGNATURE'
+                
+                # Check for SIGNATURE file
+                if signature_path not in zip_contents:
+                    return jsonify({'success': False, 'error': 'Missing SIGNATURE file'}), 400
+                
+                # Read and verify manifest signature
+                manifest_json = zipf.read(manifest_path).decode('utf-8')
+                manifest = json.loads(manifest_json)
+                
+                expected_signature = zipf.read(signature_path).decode('utf-8').strip()
+                actual_signature = hashlib.sha256(manifest_json.encode()).hexdigest()
+                
+                if expected_signature != actual_signature:
+                    return jsonify({'success': False, 'error': 'Manifest signature verification failed'}), 400
+                
+                # Verify all files match their hashes
+                validation_errors = []
+                for file_name, file_info in manifest['files'].items():
+                    # Construct full path in zip (with subdirectory prefix if present)
+                    zip_file_path = subdir_prefix + file_name
+                    
+                    if zip_file_path not in zip_contents:
+                        validation_errors.append(f"Missing file: {file_name}")
+                        continue
+                    
+                    # Calculate hash of file in zip
+                    file_data = zipf.read(zip_file_path)
+                    actual_hash = hashlib.sha256(file_data).hexdigest()
+                    
+                    if actual_hash != file_info['sha256']:
+                        validation_errors.append(f"Hash mismatch: {file_name}")
+                    
+                    if len(file_data) != file_info['size']:
+                        validation_errors.append(f"Size mismatch: {file_name}")
+                
+                if validation_errors:
+                    return jsonify({
+                        'success': False,
+                        'error': 'File validation failed',
+                        'details': validation_errors
+                    }), 400
+                
+                # Determine archive name (use original or generate new if conflict)
+                archive_name = manifest.get('archive_name', 'imported_' + datetime.now().strftime('%Y%m%d_%H%M%S'))
+                target_path = ARCHIVE_DIR / archive_name
+                
+                # Check for duplicate - if exists, return conflict status
+                overwrite = request.form.get('overwrite', 'false') == 'true'
+                
+                if target_path.exists() and not overwrite:
+                    return jsonify({
+                        'success': False,
+                        'conflict': True,
+                        'archive_name': archive_name,
+                        'message': f'Archive "{archive_name}" already exists.'
+                    }), 409  # 409 Conflict
+                
+                # If overwriting, delete existing
+                if target_path.exists() and overwrite:
+                    shutil.rmtree(target_path)
+                
+                # Extract files (excluding MANIFEST.json and SIGNATURE)
+                target_path.mkdir(parents=True, exist_ok=True)
+                for file_name in manifest['files'].keys():
+                    zip_file_path = subdir_prefix + file_name
+                    file_data = zipf.read(zip_file_path)
+                    file_path = target_path / file_name
+                    file_path.parent.mkdir(parents=True, exist_ok=True)
+                    with open(file_path, 'wb') as f:
+                        f.write(file_data)
+                
+                return jsonify({
+                    'success': True,
+                    'archive_name': archive_name,
+                    'message': f'Successfully imported as {archive_name}'
+                })
+        
+        except json.JSONDecodeError:
+            return jsonify({'success': False, 'error': 'Invalid manifest format'}), 400
+        except Exception as e:
+            return jsonify({'success': False, 'error': f'Import failed: {str(e)}'}), 500
+        finally:
+            # Clean up temp file
+            if zip_path.exists():
+                zip_path.unlink()
 
 @app.route('/plot/<dirname>')
 def plot_data(dirname):
