@@ -2457,6 +2457,24 @@ def plot_data(dirname):
                         opacity: 0.8;
                         transform: scale(1.05);
                     }}
+                    .export-btn {{
+                        background: #28a745;
+                        color: white;
+                        border: none;
+                        padding: 8px 16px;
+                        border-radius: 4px;
+                        cursor: pointer;
+                        font-size: 14px;
+                        font-weight: 500;
+                        transition: all 0.3s ease;
+                        display: flex;
+                        align-items: center;
+                        height: 38px;
+                    }}
+                    .export-btn:hover {{
+                        background: #218838;
+                        transform: scale(1.05);
+                    }}
                 </style>
                 <script>
                     // Theme management
@@ -2599,6 +2617,7 @@ def plot_data(dirname):
                 <div class="back-link">
                     <a href="/">← Back to browser</a>
                     <div style="display: flex; gap: 8px;">
+                        <button class="export-btn" onclick="window.location.href='/export/{dirname}'" title="Export this simulation archive">Export</button>
                         <button class="refresh-btn" onclick="location.reload()" title="Refresh the page to see latest data">🔄</button>
                         <button id="themeToggle" class="theme-toggle" onclick="toggleTheme()" title="Switch between dark and light themes">🌙</button>
                     </div>
