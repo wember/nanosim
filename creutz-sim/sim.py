@@ -251,7 +251,7 @@ for M in range(m):
                 data = np.zeros(5)
                 # Attempt to flip each spin in lattice
                 for j in range(n):
-                    x.demon_move(dynamics_flag, i*n + j)
+                    x.demon_move(dynamics_flag, i)
                     # Calculate total entropy
                     N0e = int(x.bond_count[1])
                     if N0e == 0:
@@ -298,8 +298,8 @@ for M in range(m):
                 # Attempt to flip each spin in lattice (full sweep)
                 for j in range(n):
                     total_forward_iterations = (s//2) * n
-                    reverse_iteration = total_forward_iterations - 1 - (i*n + j)
-                    x.demon_reverse(dynamics_flag, reverse_iteration)
+                    reverse_iteration = total_forward_iterations - 1 - (i)
+                    x.demon_reverse(dynamics_flag, (s//2) - 1 - i)
                     # Calculate total entropy
                     N0_exp = int(x.bond_count[1])
                     if N0_exp == 0:
