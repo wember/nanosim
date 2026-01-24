@@ -112,16 +112,20 @@ HTML_TEMPLATE = """
         .combine-btn:hover {
             background: linear-gradient(90deg, #9b4fe8 0%, #0099b8 100%);
         }
-        .archive-list { 
-            background: var(--bg-secondary);
-            border-radius: 8px;
-            box-shadow: 0 2px 4px var(--shadow);
+        .archive-list {
+            background: transparent;
+            box-shadow: none;
         }
         .archive-item { 
-            padding: 20px;
+            padding: 15px;
+            margin-bottom: 12px;
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+            box-shadow: 0 2px 4px var(--shadow);
+        }
+        .archive-item:last-child {
             border-bottom: 1px solid var(--border-color);
         }
-        .archive-item:last-child { border-bottom: none; }
         .archive-item:hover { background: var(--bg-hover); }
         .timestamp { 
             font-size: 1.2em; 
@@ -198,11 +202,29 @@ HTML_TEMPLATE = """
             padding: 2px 8px;
             border: 2px solid #007bff;
             border-radius: 3px;
-            font-size: 0.85em;
+            font-size: 1em;
             transition: all 0.2s;
+            min-width: 80px;
+            text-align: center;
         }
         .edit-link:hover {
             background: #007bff;
+            color: white;
+            text-decoration: none;
+        }
+        .plot-link {
+            display: inline-block;
+            padding: 2px 8px;
+            border: 2px solid #ab63fa;
+            border-radius: 3px;
+            font-size: 1em;
+            color: #ab63fa;
+            transition: all 0.2s;
+            min-width: 80px;
+            text-align: center;
+        }
+        .plot-link:hover {
+            background: #ab63fa;
             color: white;
             text-decoration: none;
         }
@@ -211,9 +233,11 @@ HTML_TEMPLATE = """
             padding: 2px 8px;
             border: 2px solid #dc3545;
             border-radius: 3px;
-            font-size: 0.85em;
+            font-size: 1em;
             color: #dc3545;
             transition: all 0.2s;
+            min-width: 80px;
+            text-align: center;
         }
         .delete-link:hover {
             background: #dc3545;
@@ -226,9 +250,11 @@ HTML_TEMPLATE = """
             padding: 2px 8px;
             border: 2px solid #28a745;
             border-radius: 3px;
-            font-size: 0.85em;
+            font-size: 1em;
             color: #28a745;
             transition: all 0.2s;
+            min-width: 80px;
+            text-align: center;
         }
         .export-link:hover {
             background: #28a745;
@@ -519,9 +545,20 @@ HTML_TEMPLATE = """
             .header-controls {
                 width: 100%;
                 justify-content: space-between;
+                flex-wrap: wrap;
             }
-            .archive-item {
-                padding: 15px;
+            .import-btn {
+                order: 1;
+            }
+            .combine-btn {
+                order: 2;
+            }
+            .refresh-btn {
+                order: 3;
+                margin-left: auto;
+            }
+            #themeToggle {
+                order: 4;
             }
             .timestamp {
                 font-size: 1em;
@@ -551,11 +588,7 @@ HTML_TEMPLATE = """
             }
             .edit-link,
             .delete-link,
-            .export-link {
-                min-width: 70px;
-                text-align: center;
-                box-sizing: border-box;
-            }
+            .export-link,
         }
         
         @media (max-width: 480px) {
@@ -565,12 +598,14 @@ HTML_TEMPLATE = """
             h1 {
                 font-size: 1.3em;
             }
+            .header-controls {
+                gap: 8px;
+            }
             .header-controls button,
             .header-controls .combine-btn,
             .header-controls .import-btn {
-                font-size: 14px;
                 padding: 6px 12px;
-                min-height: 34px;
+                font-size: 14px;
             }
             .status, .combined-chip, .dynamics-chip {
                 font-size: 0.75em;
@@ -1272,17 +1307,13 @@ HTML_TEMPLATE = """
                     })();
                 </script>
                 {% endif %}
-                <div class="action-buttons" style="margin-top: 12px; display: flex; flex-wrap: wrap; align-items: center;">
-                    <a href="/plot/{{ archive.dirname }}" class="edit-link" onclick="addThemeToUrl(event, this)" title="View interactive plots and analysis">Plot data</a>
-                    <span style="color: #ccc; margin: 0 8px;">|</span>
+                <div class="action-buttons" style="margin-top: 12px; display: flex; flex-wrap: wrap; align-items: center; gap: 10px;">
+                    <a href="/plot/{{ archive.dirname }}" class="plot-link" onclick="addThemeToUrl(event, this)" title="View interactive plots and analysis">Plot data</a>
                     <a href="/view/{{ archive.dirname }}" class="edit-link" title="Browse all files in this archive">View files</a>
                     {% if not archive.notes %}
-                    <span style="color: #ccc; margin: 0 8px;">|</span>
                     <a href="#" class="edit-link" data-dirname="{{ archive.dirname }}" data-notes="" onclick="openNotesModalFromLink(this); return false;" title="Add notes about this simulation">Add notes</a>
                     {% endif %}
-                    <span style="color: #ccc; margin: 0 8px;">|</span>
                     <a href="#" class="export-link" onclick="exportArchive('{{ archive.dirname }}'); return false;" title="Export this simulation as a validated zip file">Export</a>
-                    <span style="color: #ccc; margin: 0 8px;">|</span>
                     <a href="#" class="delete-link" onclick="deleteArchive('{{ archive.dirname }}'); return false;" title="Permanently delete this archive">Delete</a>
                 </div>
             </div>
@@ -1401,6 +1432,25 @@ FILE_LIST_TEMPLATE = """
             margin-bottom: 20px; 
         }
         
+        .back-link a {
+            color: #007bff;
+            font-size: 34px;
+            font-weight: 800;
+            line-height: 1;
+            text-decoration: none;
+            padding: 0px 14px 4px 14px;
+            border-radius: 4px;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+        }
+        
+        .back-link a:hover {
+            background: #007bff;
+            color: white;
+            text-decoration: none;
+        }
+        
         /* Responsive styles for mobile */
         @media (max-width: 768px) {
             body {
@@ -1450,7 +1500,7 @@ FILE_LIST_TEMPLATE = """
 </head>
 <body>
     <div class="header">
-        <div class="back-link"><a href="/">← Back to browser</a></div>
+        <div class="back-link"><a href="/" title="Back to simulation browser">‹</a></div>
         <button id="themeToggle" class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">🌙</button>
     </div>
     <h1>📂 Archive: {{ dirname }}</h1>
@@ -2484,7 +2534,7 @@ def plot_data(dirname):
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
                     <strong>Notes:</strong>
                     <div>
-                        <button id="editNotesBtn" onclick="toggleEditMode()" style="padding: 4px 10px; background: transparent; color: #007bff; border: 1px solid #007bff; border-radius: 3px; cursor: pointer; font-size: 0.85em; transition: all 0.2s;">Edit</button>
+                        <button id="editNotesBtn" onclick="toggleEditMode()" style="padding: 4px 10px; background: transparent; color: #007bff; border: 2px solid #007bff; border-radius: 3px; cursor: pointer; font-size: 0.85em; font-weight: bold; transition: all 0.2s;">Edit</button>
                         <span id="saveStatus" style="display: none; margin-left: 8px; font-size: 14px;"></span>
                         <button id="saveNotesBtn" onclick="saveNotes()" style="padding: 6px 12px; background: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; display: none; margin-left: 8px;">Save</button>
                     </div>
@@ -2541,8 +2591,23 @@ def plot_data(dirname):
                         justify-content: space-between;
                         align-items: center;
                     }}
-                    .back-link a {{ color: #007bff; text-decoration: none; font-size: 16px; }}
-                    .back-link a:hover {{ text-decoration: underline; }}
+                    .back-link a {{ 
+                        color: #007bff;
+                        font-size: 34px;
+                        font-weight: 800;
+                        line-height: 1;
+                        text-decoration: none;
+                        padding: 0px 14px 4px 14px;
+                        border-radius: 4px;
+                        align-items: center;
+                        justify-content: center;
+                        transition: all 0.2s;
+                    }}
+                    .back-link a:hover {{ 
+                        background: #007bff;
+                        color: white;
+                        text-decoration: none;
+                    }}
                     .refresh-btn {{
                         background: var(--bg-secondary);
                         color: var(--text-primary);
@@ -2594,56 +2659,6 @@ def plot_data(dirname):
                     .export-btn:hover {{
                         background: #218838;
                         transform: scale(1.05);
-                    }}
-                    
-                    /* Responsive styles for mobile */
-                    @media (max-width: 768px) {{
-                        body {{
-                            padding: 10px;
-                        }}
-                        h1 {{
-                            font-size: 1.5em;
-                            flex-direction: column;
-                            gap: 10px;
-                        }}
-                        .back-link {{
-                            flex-direction: column;
-                            align-items: flex-start;
-                            gap: 10px;
-                        }}
-                        .plot-container {{
-                            margin: 15px 0;
-                        }}
-                        #notes-section {{
-                            margin-top: 20px;
-                        }}
-                        .export-btn {{
-                            font-size: 12px;
-                            padding: 6px 12px;
-                        }}
-                    }}
-                    
-                    @media (max-width: 480px) {{
-                        body {{
-                            padding: 5px;
-                        }}
-                        h1 {{
-                            font-size: 1.3em;
-                        }}
-                        .back-link a {{
-                            font-size: 14px;
-                        }}
-                        .plot-container {{
-                            margin: 10px 0;
-                        }}
-                        #notesDisplay, #notesTextarea {{
-                            font-size: 10pt;
-                        }}
-                        .export-btn {{
-                            font-size: 11px;
-                            padding: 5px 10px;
-                            height: 32px;
-                        }}
                     }}
                 </style>
                 <script>
@@ -2785,7 +2800,7 @@ def plot_data(dirname):
             </head>
             <body>
                 <div class="back-link">
-                    <a href="/">← Back to browser</a>
+                    <a href="/" title="Back to simulation browser">‹</a>
                     <div style="display: flex; gap: 8px;">
                         <button class="export-btn" onclick="window.location.href='/export/{dirname}'" title="Export this simulation archive">Export</button>
                         <button class="refresh-btn" onclick="location.reload()" title="Refresh the page to see latest data">🔄</button>
