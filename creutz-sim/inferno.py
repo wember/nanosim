@@ -60,6 +60,7 @@ class Inferno:
 ################################################################################
                 ###            TEST SETUP           ###
 ################################################################################
+        # N=2
         # a = np.arange(N)
         # total_energy = N # total energy of the system
         # self.N = N
@@ -247,11 +248,10 @@ class Inferno:
         a = self.order[0]
         radius_cycle = 2 * self.radius + 1
         R = (sweep_count % radius_cycle) - self.radius
-        #print (R)
         # If irr flag is on, generate a random number instead
         if (flag != 0):
             a = np.random.randint(0, self.N)
-            R = 0
+            R = np.random.randint(0, self.N)
 
         # Attempt to flip spin
         self.spin_flip(a, (a + R)%self.N)
@@ -273,11 +273,10 @@ class Inferno:
         a = self.rev_order[0]
         radius_cycle = 2 * self.radius + 1 
         R = (sweep_count % radius_cycle) - self.radius
-        #print (R)
         # If irr flag is on, generate a random number instead
         if (flag != 0):
             a = np.random.randint(0, self.N)
-            R = 0
+            R = np.random.randint(0, self.N)
         # Attempt to change bond
         self.bond_change(a, (a + R)%self.N)
 
