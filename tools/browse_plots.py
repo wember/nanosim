@@ -196,7 +196,7 @@ HTML_TEMPLATE = """
         .edit-link {
             display: inline-block;
             padding: 2px 8px;
-            border: 1px solid #007bff;
+            border: 2px solid #007bff;
             border-radius: 3px;
             font-size: 0.85em;
             transition: all 0.2s;
@@ -209,7 +209,7 @@ HTML_TEMPLATE = """
         .delete-link {
             display: inline-block;
             padding: 2px 8px;
-            border: 1px solid #dc3545;
+            border: 2px solid #dc3545;
             border-radius: 3px;
             font-size: 0.85em;
             color: #dc3545;
@@ -224,7 +224,7 @@ HTML_TEMPLATE = """
         .export-link {
             display: inline-block;
             padding: 2px 8px;
-            border: 1px solid #28a745;
+            border: 2px solid #28a745;
             border-radius: 3px;
             font-size: 0.85em;
             color: #28a745;
@@ -502,6 +502,80 @@ HTML_TEMPLATE = """
         }
         .sim-option.selected .sim-option-details {
             opacity: 0.9;
+        }
+        
+        /* Responsive styles for mobile */
+        @media (max-width: 768px) {
+            body {
+                margin: 20px auto;
+                padding: 0 15px;
+            }
+            h1 {
+                font-size: 1.5em;
+                flex-direction: column;
+                gap: 15px;
+                align-items: flex-start;
+            }
+            .header-controls {
+                width: 100%;
+                justify-content: space-between;
+            }
+            .archive-item {
+                padding: 15px;
+            }
+            .timestamp {
+                font-size: 1em;
+            }
+            .details-grid {
+                grid-template-columns: 1fr;
+            }
+            .modal-content {
+                width: 95%;
+                margin: 5% auto;
+                padding: 15px;
+            }
+            .combine-grid {
+                grid-template-columns: 1fr;
+            }
+            .sim-list {
+                max-height: 250px;
+            }
+            .action-buttons {
+                flex-wrap: wrap;
+                row-gap: 8px;
+            }
+            .action-buttons a,
+            .action-buttons button {
+                font-size: 0.8em;
+                padding: 4px 10px;
+            }
+            .edit-link,
+            .delete-link,
+            .export-link {
+                min-width: 70px;
+                text-align: center;
+                box-sizing: border-box;
+            }
+        }
+        
+        @media (max-width: 480px) {
+            body {
+                padding: 0 10px;
+            }
+            h1 {
+                font-size: 1.3em;
+            }
+            .header-controls button,
+            .header-controls .combine-btn,
+            .header-controls .import-btn {
+                font-size: 14px;
+                padding: 6px 12px;
+                min-height: 34px;
+            }
+            .status, .combined-chip, .dynamics-chip {
+                font-size: 0.75em;
+                padding: 3px 8px;
+            }
         }
     </style>
     <script>
@@ -1198,7 +1272,7 @@ HTML_TEMPLATE = """
                     })();
                 </script>
                 {% endif %}
-                <div style="margin-top: 12px;">
+                <div class="action-buttons" style="margin-top: 12px; display: flex; flex-wrap: wrap; align-items: center;">
                     <a href="/plot/{{ archive.dirname }}" class="edit-link" onclick="addThemeToUrl(event, this)" title="View interactive plots and analysis">Plot data</a>
                     <span style="color: #ccc; margin: 0 8px;">|</span>
                     <a href="/view/{{ archive.dirname }}" class="edit-link" title="Browse all files in this archive">View files</a>
@@ -1325,6 +1399,52 @@ FILE_LIST_TEMPLATE = """
         
         .back-link { 
             margin-bottom: 20px; 
+        }
+        
+        /* Responsive styles for mobile */
+        @media (max-width: 768px) {
+            body {
+                padding: 0 15px;
+                margin: 20px auto;
+            }
+            h1 {
+                font-size: 1.5em;
+            }
+            .file-item {
+                border: 1px solid var(--border-color);
+                border-radius: 8px;
+                margin-bottom: 12px;
+                padding: 15px;
+                background: var(--bg-secondary);
+                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 8px;
+            }
+            .file-item:hover {
+                box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+            }
+            .file-name {
+                word-break: break-all;
+            }
+            .file-size {
+                font-size: 0.85em;
+            }
+        }
+        
+        @media (max-width: 480px) {
+            body {
+                padding: 0 10px;
+                margin: 15px auto;
+            }
+            h1 {
+                font-size: 1.3em;
+            }
+            .file-item {
+                padding: 12px;
+                margin-bottom: 10px;
+            }
+        }
         }
     </style>
 </head>
@@ -2474,6 +2594,56 @@ def plot_data(dirname):
                     .export-btn:hover {{
                         background: #218838;
                         transform: scale(1.05);
+                    }}
+                    
+                    /* Responsive styles for mobile */
+                    @media (max-width: 768px) {{
+                        body {{
+                            padding: 10px;
+                        }}
+                        h1 {{
+                            font-size: 1.5em;
+                            flex-direction: column;
+                            gap: 10px;
+                        }}
+                        .back-link {{
+                            flex-direction: column;
+                            align-items: flex-start;
+                            gap: 10px;
+                        }}
+                        .plot-container {{
+                            margin: 15px 0;
+                        }}
+                        #notes-section {{
+                            margin-top: 20px;
+                        }}
+                        .export-btn {{
+                            font-size: 12px;
+                            padding: 6px 12px;
+                        }}
+                    }}
+                    
+                    @media (max-width: 480px) {{
+                        body {{
+                            padding: 5px;
+                        }}
+                        h1 {{
+                            font-size: 1.3em;
+                        }}
+                        .back-link a {{
+                            font-size: 14px;
+                        }}
+                        .plot-container {{
+                            margin: 10px 0;
+                        }}
+                        #notesDisplay, #notesTextarea {{
+                            font-size: 10pt;
+                        }}
+                        .export-btn {{
+                            font-size: 11px;
+                            padding: 5px 10px;
+                            height: 32px;
+                        }}
                     }}
                 </style>
                 <script>
