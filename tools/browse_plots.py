@@ -1,10 +1,13 @@
 #!/usr/bin/env venv/bin/python
 """Simple web interface to browse current and archived simulation runs."""
 
-from flask import Flask, render_template_string, send_file
+from flask import Flask, render_template_string, send_file, request, jsonify
 from pathlib import Path
 from datetime import datetime
-import json
+import hashlib
+import zipfile
+import tempfile
+import shutil
 
 app = Flask(__name__)
 
@@ -64,7 +67,7 @@ HTML_TEMPLATE = """
             background: var(--bg-secondary);
             color: var(--text-primary);
             border: 1px solid var(--border-color);
-            padding: 8px 16px;
+            padding: 8px;
             border-radius: 4px;
             cursor: pointer;
             font-size: 18px;
@@ -77,19 +80,37 @@ HTML_TEMPLATE = """
             background: var(--bg-hover);
         }
         .refresh-btn {
-            background: #007bff;
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
+            padding: 8px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 18px;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            height: 38px;
+        }
+        .refresh-btn:hover {
+            background: var(--bg-hover);
+        }
+        .combine-btn {
+            background: linear-gradient(90deg, #ab63fa 0%, #00b8d4 100%);
             color: white;
             border: none;
             padding: 8px 16px;
             border-radius: 4px;
             cursor: pointer;
-            font-size: 14px;
+            font-size: 16px;
+            font-weight: 600;
             display: flex;
             align-items: center;
             gap: 6px;
+            min-height: 38px;
         }
-        .refresh-btn:hover {
-            background: #0056b3;
+        .combine-btn:hover {
+            background: linear-gradient(90deg, #9b4fe8 0%, #0099b8 100%);
         }
         .archive-list { 
             background: var(--bg-secondary);
@@ -118,10 +139,10 @@ HTML_TEMPLATE = """
             margin-right: 8px;
         }
         .status-completed { background: #28a745; color: white; }
+        .status-running { background: #ff9800; color: white; }
         .status-interrupted { background: #ffc107; color: black; }
         .status-error { background: #dc3545; color: white; }
         .status-unknown { background: #e2e3e5; color: #383d41; }
-        .status-current { background: #cfe2ff; color: #084298; }
         .combined-chip {
             display: inline-block;
             padding: 4px 12px;
@@ -175,7 +196,7 @@ HTML_TEMPLATE = """
         .edit-link {
             display: inline-block;
             padding: 2px 8px;
-            border: 1px solid #007bff;
+            border: 2px solid #007bff;
             border-radius: 3px;
             font-size: 0.85em;
             transition: all 0.2s;
@@ -188,7 +209,7 @@ HTML_TEMPLATE = """
         .delete-link {
             display: inline-block;
             padding: 2px 8px;
-            border: 1px solid #dc3545;
+            border: 2px solid #dc3545;
             border-radius: 3px;
             font-size: 0.85em;
             color: #dc3545;
@@ -198,6 +219,88 @@ HTML_TEMPLATE = """
             background: #dc3545;
             color: white;
             text-decoration: none;
+        }
+        
+        .export-link {
+            display: inline-block;
+            padding: 2px 8px;
+            border: 2px solid #28a745;
+            border-radius: 3px;
+            font-size: 0.85em;
+            color: #28a745;
+            transition: all 0.2s;
+        }
+        .export-link:hover {
+            background: #28a745;
+            color: white;
+            text-decoration: none;
+        }
+        
+        .import-btn {
+            background: #28a745;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 600;
+            transition: background 0.2s;
+            gap: 6px;
+            min-height: 38px;
+        }
+        
+        .import-btn:hover {
+            background: #218838;
+        }
+        
+        .import-status {
+            margin-top: 15px;
+            font-size: 14px;
+            text-align: center;
+        }
+        
+        .drop-zone {
+            border: 2px dashed var(--border-color);
+            border-radius: 8px;
+            padding: 40px 20px;
+            text-align: center;
+            background: var(--bg-primary);
+            transition: all 0.3s ease;
+            cursor: pointer;
+            margin: 20px 0;
+        }
+        
+        .drop-zone:hover {
+            border-color: #28a745;
+            background: var(--bg-hover);
+        }
+        
+        .drop-zone.drag-over {
+            border-color: #28a745;
+            background: var(--bg-hover);
+            border-style: solid;
+        }
+        
+        .drop-zone input[type="file"] {
+            display: none;
+        }
+        
+        .drop-zone-text {
+            color: var(--text-primary);
+            font-size: 16px;
+            margin-bottom: 8px;
+        }
+        
+        .drop-zone-hint {
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+        
+        .file-selected {
+            color: #28a745;
+            font-weight: 600;
+            margin-top: 10px;
         }
         
         /* Toast notification */
@@ -244,6 +347,8 @@ HTML_TEMPLATE = """
             border-radius: 8px;
             width: 80%;
             max-width: 600px;
+            max-height: 80vh;
+            overflow-y: auto;
         }
         .modal-header {
             display: flex;
@@ -398,6 +503,80 @@ HTML_TEMPLATE = """
         .sim-option.selected .sim-option-details {
             opacity: 0.9;
         }
+        
+        /* Responsive styles for mobile */
+        @media (max-width: 768px) {
+            body {
+                margin: 20px auto;
+                padding: 0 15px;
+            }
+            h1 {
+                font-size: 1.5em;
+                flex-direction: column;
+                gap: 15px;
+                align-items: flex-start;
+            }
+            .header-controls {
+                width: 100%;
+                justify-content: space-between;
+            }
+            .archive-item {
+                padding: 15px;
+            }
+            .timestamp {
+                font-size: 1em;
+            }
+            .details-grid {
+                grid-template-columns: 1fr;
+            }
+            .modal-content {
+                width: 95%;
+                margin: 5% auto;
+                padding: 15px;
+            }
+            .combine-grid {
+                grid-template-columns: 1fr;
+            }
+            .sim-list {
+                max-height: 250px;
+            }
+            .action-buttons {
+                flex-wrap: wrap;
+                row-gap: 8px;
+            }
+            .action-buttons a,
+            .action-buttons button {
+                font-size: 0.8em;
+                padding: 4px 10px;
+            }
+            .edit-link,
+            .delete-link,
+            .export-link {
+                min-width: 70px;
+                text-align: center;
+                box-sizing: border-box;
+            }
+        }
+        
+        @media (max-width: 480px) {
+            body {
+                padding: 0 10px;
+            }
+            h1 {
+                font-size: 1.3em;
+            }
+            .header-controls button,
+            .header-controls .combine-btn,
+            .header-controls .import-btn {
+                font-size: 14px;
+                padding: 6px 12px;
+                min-height: 34px;
+            }
+            .status, .combined-chip, .dynamics-chip {
+                font-size: 0.75em;
+                padding: 3px 8px;
+            }
+        }
     </style>
     <script>
         let currentDirname = null;
@@ -447,6 +626,76 @@ HTML_TEMPLATE = """
         
         function closeNotesModal() {
             document.getElementById('notesModal').style.display = 'none';
+        }
+        
+        // Import dialog functions
+        function openImportModal() {
+            document.getElementById('importModal').style.display = 'block';
+            document.getElementById('importStatus').innerHTML = '';
+            document.getElementById('fileSelected').style.display = 'none';
+            setupDropZone();
+        }
+        
+        function closeImportModal() {
+            document.getElementById('importModal').style.display = 'none';
+            document.getElementById('importFile').value = '';
+            document.getElementById('importStatus').innerHTML = '';
+            document.getElementById('fileSelected').style.display = 'none';
+        }
+        
+        function setupDropZone() {
+            const dropZone = document.getElementById('dropZone');
+            
+            dropZone.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                dropZone.classList.add('drag-over');
+            });
+            
+            dropZone.addEventListener('dragleave', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                dropZone.classList.remove('drag-over');
+            });
+            
+            dropZone.addEventListener('drop', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                dropZone.classList.remove('drag-over');
+                
+                const files = e.dataTransfer.files;
+                if (files.length > 0) {
+                    const file = files[0];
+                    if (file.name.endsWith('.zip')) {
+                        document.getElementById('importFile').files = files;
+                        handleFileSelect({ target: { files: files } });
+                    } else {
+                        document.getElementById('importStatus').innerHTML = '<span style="color: #dc3545;">Please drop a .zip file or use the browse button to select a directory</span>';
+                    }
+                }
+            });
+        }
+        
+        function handleFileSelect(event) {
+            const files = event.target.files;
+            const fileSelectedDiv = document.getElementById('fileSelected');
+            
+            if (files.length === 0) {
+                return;
+            }
+            
+            // Check if it's a directory (multiple files)
+            if (files.length > 1) {
+                // Directory selected
+                fileSelectedDiv.textContent = '✓ Selected directory: ' + files[0].webkitRelativePath.split('/')[0];
+                fileSelectedDiv.style.display = 'block';
+                document.getElementById('importStatus').innerHTML = '';
+            } else {
+                // Single file selected
+                fileSelectedDiv.textContent = '✓ Selected: ' + files[0].name;
+                fileSelectedDiv.style.display = 'block';
+                document.getElementById('importStatus').innerHTML = '';
+            }
         }
         
         // Combine dialog functions
@@ -754,6 +1003,85 @@ HTML_TEMPLATE = """
                 });
             }
         }
+        
+        function exportArchive(dirname) {
+            // Create download link
+            window.location.href = '/export/' + dirname;
+        }
+        
+        function importArchive(overwrite = false) {
+            const fileInput = document.getElementById('importFile');
+            const statusDiv = document.getElementById('importStatus');
+            
+            if (!fileInput.files || fileInput.files.length === 0) {
+                statusDiv.innerHTML = '<span style="color: #dc3545;">Please select a file or directory</span>';
+                return;
+            }
+            
+            const formData = new FormData();
+            
+            // Check if it's a directory (multiple files) or single zip file
+            if (fileInput.files.length > 1) {
+                // Directory selected - send all files with their paths
+                for (let i = 0; i < fileInput.files.length; i++) {
+                    const file = fileInput.files[i];
+                    // Use webkitRelativePath to preserve directory structure
+                    const relativePath = file.webkitRelativePath || file.name;
+                    // Create a new file with the relative path as the name
+                    const blob = new Blob([file], { type: file.type });
+                    formData.append('files', blob, relativePath);
+                }
+                formData.append('is_directory', 'true');
+            } else {
+                // Single zip file
+                formData.append('file', fileInput.files[0]);
+                formData.append('is_directory', 'false');
+            }
+            
+            formData.append('overwrite', overwrite.toString());
+            
+            statusDiv.innerHTML = '<span style="color: #007bff;">Importing and validating...</span>';
+            
+            fetch('/import', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => {
+                if (response.status === 409) {
+                    // Conflict - duplicate exists
+                    return response.json().then(data => {
+                        if (confirm(`Archive "${data.archive_name}" already exists.\\n\\nDo you want to overwrite it? This cannot be undone.`)) {
+                            // Retry with overwrite flag
+                            importArchive(true);
+                        } else {
+                            statusDiv.innerHTML = '<span style="color: #666;">Import cancelled</span>';
+                        }
+                        return null; // Don't continue to .then
+                    });
+                }
+                return response.json();
+            })
+            .then(data => {
+                if (!data) return; // Cancelled or handled above
+                
+                if (data.success) {
+                    statusDiv.innerHTML = '<span style="color: #28a745;">✓ ' + data.message + '</span>';
+                    setTimeout(() => {
+                        closeImportModal();
+                        window.location.reload();
+                    }, 1500);
+                } else {
+                    let errorMsg = data.error;
+                    if (data.details) {
+                        errorMsg += '<br>' + data.details.join('<br>');
+                    }
+                    statusDiv.innerHTML = '<span style="color: #dc3545;">✗ ' + errorMsg + '</span>';
+                }
+            })
+            .catch(error => {
+                statusDiv.innerHTML = '<span style="color: #dc3545;">✗ Import failed: ' + error + '</span>';
+            });
+        }
     </script>
 </head>
 <body>
@@ -768,6 +1096,28 @@ HTML_TEMPLATE = """
             <div class="modal-footer">
                 <button class="btn btn-secondary" onclick="closeNotesModal()">Cancel</button>
                 <button class="btn btn-primary" onclick="saveNotes()">Save</button>
+            </div>
+        </div>
+    </div>
+    
+    <div id="importModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Import Simulation</h2>
+                <button class="close-btn" onclick="closeImportModal()">&times;</button>
+            </div>
+            <div style="padding: 20px;">
+                <p style="color: var(--text-secondary); margin-bottom: 15px;">Import a previously exported simulation archive (.zip or directory)</p>
+                <div class="drop-zone" id="dropZone" onclick="document.getElementById('importFile').click()">
+                    <input type="file" id="importFile" accept=".zip" onchange="handleFileSelect(event)" webkitdirectory directory multiple>
+                    <div class="drop-zone-text">📦 Drop .zip here or click to browse</div>
+                    <div class="drop-zone-hint">Drop: .zip files only • Browse: .zip or directory</div>
+                    <div id="fileSelected" class="file-selected" style="display: none;"></div>
+                </div>
+                <div style="text-align: center;">
+                    <button onclick="importArchive()" class="btn btn-primary">Import & Validate</button>
+                </div>
+                <div id="importStatus" class="import-status"></div>
             </div>
         </div>
     </div>
@@ -837,22 +1187,22 @@ HTML_TEMPLATE = """
     <h1>
         <span>📊 Simulation Browser</span>
         <div class="header-controls">
-            <button class="refresh-btn" onclick="openCombineModal()">Combine</button>
-            <button class="refresh-btn" onclick="window.location.reload()">Refresh</button>
-            <button id="themeToggle" class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">🌙</button>
+            <button class="import-btn" onclick="openImportModal()" title="Import a previously exported simulation archive">Import</button>
+            <button class="combine-btn" onclick="openCombineModal()" title="Combine reversible and irreversible simulations into one archive">Combine</button>
+            <button class="refresh-btn" onclick="window.location.reload()" title="Refresh the page to see latest simulations">🔄</button>
+            <button id="themeToggle" class="theme-toggle" onclick="toggleTheme()" title="Switch between dark and light themes">🌙</button>
         </div>
     </h1>
     
     {% if archives %}
-    <div class="archive-list">
-        {% for archive in archives %}
+    <div class="archive-list">\n        {% for archive in archives %}
         <div class="archive-item">
             <div class="timestamp">{{ archive.display_time }}</div>
             <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px;">
                 {% if archive.is_combined %}
                 <span class="combined-chip">COMBINED</span>
                 {% elif archive.params %}
-                <span class="dynamics-chip {{ 'irreversible' if archive.params.flag == '1' else 'reversible' }}">{{ 'IRREVERSIBLE' if archive.params.flag == '1' else 'REVERSIBLE' }}</span>
+                <span class="dynamics-chip {{ 'irreversible' if archive.params.flag == 'i' else 'reversible' }}">{{ 'IRREVERSIBLE' if archive.params.flag == 'i' else 'REVERSIBLE' }}</span>
                 {% endif %}
                 <span class="status status-{{ archive.status_class }}">{{ archive.status }}</span>
             </div>
@@ -922,16 +1272,18 @@ HTML_TEMPLATE = """
                     })();
                 </script>
                 {% endif %}
-                <div style="margin-top: 12px;">
-                    <a href="/plot/{{ archive.dirname }}" class="edit-link" onclick="addThemeToUrl(event, this)">Plot data</a>
+                <div class="action-buttons" style="margin-top: 12px; display: flex; flex-wrap: wrap; align-items: center;">
+                    <a href="/plot/{{ archive.dirname }}" class="edit-link" onclick="addThemeToUrl(event, this)" title="View interactive plots and analysis">Plot data</a>
                     <span style="color: #ccc; margin: 0 8px;">|</span>
-                    <a href="/view/{{ archive.dirname }}" class="edit-link">View files</a>
+                    <a href="/view/{{ archive.dirname }}" class="edit-link" title="Browse all files in this archive">View files</a>
                     {% if not archive.notes %}
                     <span style="color: #ccc; margin: 0 8px;">|</span>
-                    <a href="#" class="edit-link" data-dirname="{{ archive.dirname }}" data-notes="" onclick="openNotesModalFromLink(this); return false;">Add notes</a>
+                    <a href="#" class="edit-link" data-dirname="{{ archive.dirname }}" data-notes="" onclick="openNotesModalFromLink(this); return false;" title="Add notes about this simulation">Add notes</a>
                     {% endif %}
                     <span style="color: #ccc; margin: 0 8px;">|</span>
-                    <a href="#" class="delete-link" onclick="deleteArchive('{{ archive.dirname }}'); return false;">Delete</a>
+                    <a href="#" class="export-link" onclick="exportArchive('{{ archive.dirname }}'); return false;" title="Export this simulation as a validated zip file">Export</a>
+                    <span style="color: #ccc; margin: 0 8px;">|</span>
+                    <a href="#" class="delete-link" onclick="deleteArchive('{{ archive.dirname }}'); return false;" title="Permanently delete this archive">Delete</a>
                 </div>
             </div>
         </div>
@@ -1048,6 +1400,52 @@ FILE_LIST_TEMPLATE = """
         .back-link { 
             margin-bottom: 20px; 
         }
+        
+        /* Responsive styles for mobile */
+        @media (max-width: 768px) {
+            body {
+                padding: 0 15px;
+                margin: 20px auto;
+            }
+            h1 {
+                font-size: 1.5em;
+            }
+            .file-item {
+                border: 1px solid var(--border-color);
+                border-radius: 8px;
+                margin-bottom: 12px;
+                padding: 15px;
+                background: var(--bg-secondary);
+                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 8px;
+            }
+            .file-item:hover {
+                box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+            }
+            .file-name {
+                word-break: break-all;
+            }
+            .file-size {
+                font-size: 0.85em;
+            }
+        }
+        
+        @media (max-width: 480px) {
+            body {
+                padding: 0 10px;
+                margin: 15px auto;
+            }
+            h1 {
+                font-size: 1.3em;
+            }
+            .file-item {
+                padding: 12px;
+                margin-bottom: 10px;
+            }
+        }
+        }
     </style>
 </head>
 <body>
@@ -1114,7 +1512,26 @@ def parse_start_file(archive_path):
     with open(start_file) as f:
         for line in f:
             if 'Parameters:' in line:
-                # Parse: n=10, sweeps=100, flag=0, radius=11, runs=5
+                # Parse: n=10, sweeps=100, flag=c, radius=11, runs=5
+                param_str = line.split('Parameters:')[1].strip()
+                for param in param_str.split(','):
+                    key, value = param.strip().split('=')
+                    params[key] = value
+            elif 'Total simulations:' in line:
+                params['total'] = line.split(':')[1].strip()
+    return params
+
+def parse_start_file_root_first(archive_path):
+    """Parse sim_started.txt checking root first, then subdirectories."""
+    start_file = find_status_file_root_first(archive_path, 'sim_started.txt')
+    if not start_file:
+        return None
+    
+    params = {}
+    with open(start_file) as f:
+        for line in f:
+            if 'Parameters:' in line:
+                # Parse: n=10, sweeps=100, flag=c, radius=11, runs=5
                 param_str = line.split('Parameters:')[1].strip()
                 for param in param_str.split(','):
                     key, value = param.strip().split('=')
@@ -1145,6 +1562,21 @@ def find_status_file(archive_path, filename):
         check_path = archive_path / subdir / filename if subdir else archive_path / filename
         if check_path.exists():
             return check_path
+    return None
+
+def find_status_file_root_first(archive_path, filename):
+    """Find a status file checking root first, then subdirectories."""
+    # Check root first
+    root_path = archive_path / filename
+    if root_path.exists():
+        return root_path
+    
+    # Then check subdirectories
+    for subdir in ['rev', 'irr']:
+        check_path = archive_path / subdir / filename
+        if check_path.exists():
+            return check_path
+    
     return None
 
 def read_notes(archive_path):
@@ -1207,7 +1639,14 @@ def index():
                 status = status_info.get('Status', 'UNKNOWN')
                 progress = status_info.get('Completed', None)
             else:
-                status = 'UNKNOWN'
+                # If no status file, check if simulation has started but not completed
+                start_file = find_status_file(archive_dir, 'sim_started.txt')
+                completion_file = find_status_file(archive_dir, 'sim_completed.txt')
+                
+                if start_file and not completion_file:
+                    status = 'RUNNING'
+                else:
+                    status = 'UNKNOWN'
                 progress = None
             
             # Map status to CSS class
@@ -1222,9 +1661,17 @@ def index():
             irr_params = None
             
             if is_combined:
-                # Get parameters from both rev and irr subdirectories
-                rev_params = parse_start_file(archive_dir / 'rev')
-                irr_params = parse_start_file(archive_dir / 'irr')
+                # Check root first for combined archives
+                root_params = parse_start_file_root_first(archive_dir)
+                
+                if root_params:
+                    # Root has params - use them for both rev and irr
+                    rev_params = root_params
+                    irr_params = root_params
+                else:
+                    # Root doesn't have params - check subdirectories
+                    rev_params = parse_start_file(archive_dir / 'rev')
+                    irr_params = parse_start_file(archive_dir / 'irr')
                 
                 # Check if parameters match
                 params_mismatch = False
@@ -1270,6 +1717,11 @@ def index():
             if archive_dir.name == 'init_fin':
                 continue
             
+            # Skip already combined archives (those with both rev/ and irr/ subdirectories)
+            is_combined = (archive_dir / 'rev').exists() and (archive_dir / 'irr').exists()
+            if is_combined:
+                continue
+            
             # Get status - only include completed
             status_info = parse_status_file(archive_dir)
             if not status_info or status_info.get('Status') != 'COMPLETED':
@@ -1294,11 +1746,12 @@ def index():
                 'params': params
             }
             
-            # Check if rev or irr based on flag parameter
-            flag = params.get('flag', '0')
-            if flag == '0':
+            # Determine if rev or irr - check flag parameter (supports both old 0/1 and new r/i values)
+            flag = params.get('flag', 'r')
+            # Map old numeric flags: 0 = reversible, 1 = irreversible
+            if flag in ['r', 'rev', '0', 0]:
                 rev_archives.append(archive_info)
-            elif flag == '1':
+            elif flag in ['i', 'irr', '1', 1]:
                 irr_archives.append(archive_info)
     
     return render_template_string(HTML_TEMPLATE, archives=archives, rev_archives=rev_archives, irr_archives=irr_archives)
@@ -1449,6 +1902,338 @@ def view_files(dirname):
     
     return render_template_string(FILE_LIST_TEMPLATE, dirname=dirname, files=files)
 
+@app.route('/export/<dirname>')
+def export_archive(dirname):
+    """Export an archive as a validated zip file."""
+    from flask import send_file
+    import json
+    
+    if dirname == 'current':
+        return "Cannot export current run", 400
+    
+    archive_path = ARCHIVE_DIR / dirname
+    if not archive_path.exists():
+        return "Archive not found", 404
+    
+    # Create a temporary zip file
+    with tempfile.NamedTemporaryFile(mode='w+b', suffix='.zip', delete=False) as tmp_zip:
+        zip_path = Path(tmp_zip.name)
+    
+    try:
+        # Create manifest with file hashes for validation
+        manifest = {
+            'export_version': '1.0',
+            'archive_name': dirname,
+            'export_date': datetime.now().isoformat(),
+            'files': {}
+        }
+        
+        # Create zip and calculate hashes
+        with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+            for file_path in archive_path.rglob('*'):
+                if file_path.is_file():
+                    rel_path = file_path.relative_to(archive_path)
+                    
+                    # Calculate SHA256 hash of file
+                    sha256_hash = hashlib.sha256()
+                    with open(file_path, 'rb') as f:
+                        for chunk in iter(lambda: f.read(4096), b''):
+                            sha256_hash.update(chunk)
+                    
+                    # Store file and hash in manifest
+                    manifest['files'][str(rel_path)] = {
+                        'sha256': sha256_hash.hexdigest(),
+                        'size': file_path.stat().st_size
+                    }
+                    
+                    # Add file to zip
+                    zipf.write(file_path, arcname=str(rel_path))
+            
+            # Add manifest to zip
+            manifest_json = json.dumps(manifest, indent=2)
+            zipf.writestr('MANIFEST.json', manifest_json)
+            
+            # Add manifest hash as signature
+            manifest_hash = hashlib.sha256(manifest_json.encode()).hexdigest()
+            zipf.writestr('SIGNATURE', manifest_hash)
+        
+        # Send the zip file
+        return send_file(
+            zip_path,
+            as_attachment=True,
+            download_name=f'ember_nanosim_{dirname}.zip',
+            mimetype='application/zip'
+        )
+    except Exception as e:
+        if zip_path.exists():
+            zip_path.unlink()
+        return f"Error creating export: {str(e)}", 500
+
+@app.route('/import', methods=['POST'])
+def import_archive():
+    """Import and validate a simulation archive from zip file or directory."""
+    import json
+    
+    is_directory = request.form.get('is_directory', 'false') == 'true'
+    
+    if is_directory:
+        # Handle directory upload
+        if 'files' not in request.files:
+            return jsonify({'success': False, 'error': 'No files provided'}), 400
+        
+        files = request.files.getlist('files')
+        if not files:
+            return jsonify({'success': False, 'error': 'No files in directory'}), 400
+        
+        # Create temporary directory to store files
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            
+            # Reconstruct directory structure
+            for file in files:
+                # Get relative path from webkitRelativePath
+                relative_path = file.filename
+                print(f"DEBUG: Uploading file with filename: {relative_path}")
+                file_path = temp_path / relative_path
+                file_path.parent.mkdir(parents=True, exist_ok=True)
+                file.save(str(file_path))
+            
+            # Find the archive directory
+            # When a directory is selected, files come with paths like "dirname/file.txt"
+            # So we need to find the common root directory
+            all_items = list(temp_path.iterdir())
+            
+            # If there's exactly one directory, that's our archive
+            if len(all_items) == 1 and all_items[0].is_dir():
+                archive_dir = all_items[0]
+            # If there are multiple files/dirs at root level, use temp_path itself
+            elif len(all_items) > 0:
+                archive_dir = temp_path
+            else:
+                return jsonify({'success': False, 'error': 'No files found in upload'}), 400
+            
+            # Debug: Check what's actually in archive_dir
+            print(f"DEBUG: archive_dir = {archive_dir}")
+            print(f"DEBUG: archive_dir contents = {list(archive_dir.iterdir())[:10]}")  # First 10 items
+            
+            # Check for required validation files
+            manifest_file = archive_dir / 'MANIFEST.json'
+            signature_file = archive_dir / 'SIGNATURE'
+            
+            print(f"DEBUG: manifest exists = {manifest_file.exists()}, signature exists = {signature_file.exists()}")
+            
+            if not manifest_file.exists() or not signature_file.exists():
+                return jsonify({'success': False, 'error': 'Missing validation files (MANIFEST.json or SIGNATURE)'}), 400
+            
+            try:
+                # Read and verify manifest
+                with open(manifest_file, 'r') as f:
+                    manifest_json = f.read()
+                    manifest = json.loads(manifest_json)
+                
+                with open(signature_file, 'r') as f:
+                    expected_signature = f.read().strip()
+                
+                actual_signature = hashlib.sha256(manifest_json.encode()).hexdigest()
+                
+                if expected_signature != actual_signature:
+                    return jsonify({'success': False, 'error': 'Manifest signature verification failed'}), 400
+                
+                # Verify all files match their hashes
+                validation_errors = []
+                for file_name, file_info in manifest['files'].items():
+                    file_path = archive_dir / file_name
+                    if not file_path.exists():
+                        validation_errors.append(f"Missing file: {file_name}")
+                        continue
+                    
+                    with open(file_path, 'rb') as f:
+                        file_data = f.read()
+                    
+                    actual_hash = hashlib.sha256(file_data).hexdigest()
+                    
+                    if actual_hash != file_info['sha256']:
+                        validation_errors.append(f"Hash mismatch: {file_name}")
+                    
+                    if len(file_data) != file_info['size']:
+                        validation_errors.append(f"Size mismatch: {file_name}")
+                
+                if validation_errors:
+                    return jsonify({
+                        'success': False,
+                        'error': 'File validation failed',
+                        'details': validation_errors
+                    }), 400
+                
+                # Determine archive name
+                archive_name = manifest.get('archive_name', 'imported_' + datetime.now().strftime('%Y%m%d_%H%M%S'))
+                target_path = ARCHIVE_DIR / archive_name
+                
+                # Check for duplicate
+                overwrite = request.form.get('overwrite', 'false') == 'true'
+                
+                if target_path.exists() and not overwrite:
+                    return jsonify({
+                        'success': False,
+                        'conflict': True,
+                        'archive_name': archive_name,
+                        'message': f'Archive "{archive_name}" already exists.'
+                    }), 409
+                
+                # If overwriting, delete existing
+                if target_path.exists() and overwrite:
+                    shutil.rmtree(target_path)
+                
+                # Copy files (excluding MANIFEST.json and SIGNATURE)
+                target_path.mkdir(parents=True, exist_ok=True)
+                for file_name in manifest['files'].keys():
+                    src = archive_dir / file_name
+                    dst = target_path / file_name
+                    dst.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(src, dst)
+                
+                return jsonify({
+                    'success': True,
+                    'archive_name': archive_name,
+                    'message': f'Successfully imported as {archive_name}'
+                })
+            
+            except json.JSONDecodeError:
+                return jsonify({'success': False, 'error': 'Invalid manifest format'}), 400
+            except Exception as e:
+                return jsonify({'success': False, 'error': f'Import failed: {str(e)}'}), 500
+    
+    else:
+        # Handle zip file upload (original logic)
+        if 'file' not in request.files:
+            return jsonify({'success': False, 'error': 'No file provided'}), 400
+        
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({'success': False, 'error': 'No file selected'}), 400
+        
+        if not file.filename.endswith('.zip'):
+            return jsonify({'success': False, 'error': 'File must be a .zip'}), 400
+        
+        # Save uploaded file temporarily
+        with tempfile.NamedTemporaryFile(mode='w+b', suffix='.zip', delete=False) as tmp_file:
+            file.save(tmp_file.name)
+            zip_path = Path(tmp_file.name)
+        
+        try:
+            # Verify it's a valid zip
+            if not zipfile.is_zipfile(zip_path):
+                return jsonify({'success': False, 'error': 'Invalid zip file'}), 400
+            
+            with zipfile.ZipFile(zip_path, 'r') as zipf:
+                # Check for required files - handle both root level and subdirectory
+                zip_contents = zipf.namelist()
+                
+                # Find all MANIFEST.json files
+                manifest_files = [f for f in zip_contents if f.endswith('MANIFEST.json') and not f.startswith('__MACOSX')]
+                
+                if len(manifest_files) == 0:
+                    return jsonify({'success': False, 'error': 'Missing MANIFEST.json file'}), 400
+                elif len(manifest_files) > 1:
+                    return jsonify({'success': False, 'error': 'Multiple MANIFEST.json files found. Please ensure zip contains only one archive.'}), 400
+                
+                manifest_path = manifest_files[0]
+                
+                # Determine if files are in a subdirectory
+                if '/' in manifest_path:
+                    # Files are in subdirectory - get the prefix
+                    subdir_prefix = manifest_path.rsplit('/', 1)[0] + '/'
+                    signature_path = subdir_prefix + 'SIGNATURE'
+                else:
+                    # Files are at root level
+                    subdir_prefix = ''
+                    signature_path = 'SIGNATURE'
+                
+                # Check for SIGNATURE file
+                if signature_path not in zip_contents:
+                    return jsonify({'success': False, 'error': 'Missing SIGNATURE file'}), 400
+                
+                # Read and verify manifest signature
+                manifest_json = zipf.read(manifest_path).decode('utf-8')
+                manifest = json.loads(manifest_json)
+                
+                expected_signature = zipf.read(signature_path).decode('utf-8').strip()
+                actual_signature = hashlib.sha256(manifest_json.encode()).hexdigest()
+                
+                if expected_signature != actual_signature:
+                    return jsonify({'success': False, 'error': 'Manifest signature verification failed'}), 400
+                
+                # Verify all files match their hashes
+                validation_errors = []
+                for file_name, file_info in manifest['files'].items():
+                    # Construct full path in zip (with subdirectory prefix if present)
+                    zip_file_path = subdir_prefix + file_name
+                    
+                    if zip_file_path not in zip_contents:
+                        validation_errors.append(f"Missing file: {file_name}")
+                        continue
+                    
+                    # Calculate hash of file in zip
+                    file_data = zipf.read(zip_file_path)
+                    actual_hash = hashlib.sha256(file_data).hexdigest()
+                    
+                    if actual_hash != file_info['sha256']:
+                        validation_errors.append(f"Hash mismatch: {file_name}")
+                    
+                    if len(file_data) != file_info['size']:
+                        validation_errors.append(f"Size mismatch: {file_name}")
+                
+                if validation_errors:
+                    return jsonify({
+                        'success': False,
+                        'error': 'File validation failed',
+                        'details': validation_errors
+                    }), 400
+                
+                # Determine archive name (use original or generate new if conflict)
+                archive_name = manifest.get('archive_name', 'imported_' + datetime.now().strftime('%Y%m%d_%H%M%S'))
+                target_path = ARCHIVE_DIR / archive_name
+                
+                # Check for duplicate - if exists, return conflict status
+                overwrite = request.form.get('overwrite', 'false') == 'true'
+                
+                if target_path.exists() and not overwrite:
+                    return jsonify({
+                        'success': False,
+                        'conflict': True,
+                        'archive_name': archive_name,
+                        'message': f'Archive "{archive_name}" already exists.'
+                    }), 409  # 409 Conflict
+                
+                # If overwriting, delete existing
+                if target_path.exists() and overwrite:
+                    shutil.rmtree(target_path)
+                
+                # Extract files (excluding MANIFEST.json and SIGNATURE)
+                target_path.mkdir(parents=True, exist_ok=True)
+                for file_name in manifest['files'].keys():
+                    zip_file_path = subdir_prefix + file_name
+                    file_data = zipf.read(zip_file_path)
+                    file_path = target_path / file_name
+                    file_path.parent.mkdir(parents=True, exist_ok=True)
+                    with open(file_path, 'wb') as f:
+                        f.write(file_data)
+                
+                return jsonify({
+                    'success': True,
+                    'archive_name': archive_name,
+                    'message': f'Successfully imported as {archive_name}'
+                })
+        
+        except json.JSONDecodeError:
+            return jsonify({'success': False, 'error': 'Invalid manifest format'}), 400
+        except Exception as e:
+            return jsonify({'success': False, 'error': f'Import failed: {str(e)}'}), 500
+        finally:
+            # Clean up temp file
+            if zip_path.exists():
+                zip_path.unlink()
+
 @app.route('/plot/<dirname>')
 def plot_data(dirname):
     """Generate plots for a simulation run."""
@@ -1546,12 +2331,34 @@ def plot_data(dirname):
             # Check if this is a combined archive
             is_combined = (data_path / 'rev').exists() and (data_path / 'irr').exists()
             
+            # Get status information
+            status_info = parse_status_file(data_path)
+            if status_info:
+                status = status_info.get('Status', 'UNKNOWN')
+            else:
+                # If no status file, check if simulation has started but not completed
+                start_file = find_status_file(data_path, 'sim_started.txt')
+                completion_file = find_status_file(data_path, 'sim_completed.txt')
+                
+                if start_file and not completion_file:
+                    status = 'RUNNING'
+                else:
+                    status = 'UNKNOWN'
+            
             # Get parameters for this run
             params_html = ""
             if is_combined:
-                # Get parameters from both rev and irr subdirectories
-                rev_params = parse_start_file(data_path / 'rev')
-                irr_params = parse_start_file(data_path / 'irr')
+                # Check root first for combined archives
+                root_params = parse_start_file_root_first(data_path)
+                
+                if root_params:
+                    # Root has params - use them for both rev and irr
+                    rev_params = root_params
+                    irr_params = root_params
+                else:
+                    # Root doesn't have params - check subdirectories
+                    rev_params = parse_start_file(data_path / 'rev')
+                    irr_params = parse_start_file(data_path / 'irr')
                 
                 # Check if parameters match
                 params_mismatch = False
@@ -1561,62 +2368,102 @@ def plot_data(dirname):
                             params_mismatch = True
                             break
                 
-                params_html = '<div style="text-align: center; margin: 20px 0; padding: 15px; background: var(--bg-secondary); color: var(--text-primary); border-radius: 5px;">'
-                
-                if params_mismatch:
-                    params_html += '<div style="display: inline-block; padding: 4px 12px; border-radius: 12px; font-size: 0.85em; font-weight: bold; margin-bottom: 12px; background: linear-gradient(90deg, #ab63fa 0%, #00b8d4 100%); color: white;">COMBINED</div>'
-                    params_html += '<div style="background: #ff9800; color: white; padding: 8px 12px; border-radius: 4px; margin-top: 8px; font-size: 0.9em;">⚠️ Warning: Reversible and irreversible parameters don\'t match</div>'
+                # Only show params section if we actually have parameters
+                if rev_params or irr_params:
+                    params_html = '<div style="text-align: center; margin: 20px 0; padding: 15px; background: var(--bg-secondary); color: var(--text-primary); border-radius: 5px;">'
                     
-                    # Show separate parameters when they don't match
-                    if rev_params:
-                        params_html += f"""
-                        <div style="margin-top: 10px; padding: 10px; background: var(--param-bg); border-radius: 4px;">
-                            <strong>Reversible:</strong>
-                            <strong>Lattice:</strong> n={rev_params.get('n', 'N/A')} | 
-                            <strong>Sweeps:</strong> s={rev_params.get('sweeps', 'N/A')} | 
-                            <strong>Radius:</strong> r={rev_params.get('radius', 'N/A')} | 
-                            <strong>Runs:</strong> m={rev_params.get('runs', 'N/A')}
-                        </div>
-                        """
-                    
-                    if irr_params:
-                        params_html += f"""
-                        <div style="margin-top: 10px; padding: 10px; background: var(--param-bg); border-radius: 4px;">
-                            <strong>Irreversible:</strong>
-                            <strong>Lattice:</strong> n={irr_params.get('n', 'N/A')} | 
-                            <strong>Sweeps:</strong> s={irr_params.get('sweeps', 'N/A')} | 
-                            <strong>Radius:</strong> r={irr_params.get('radius', 'N/A')} | 
-                            <strong>Runs:</strong> m={irr_params.get('runs', 'N/A')}
-                        </div>
-                        """
-                else:
-                    # Parameters match - show chip and params on same row
-                    if rev_params:
-                        params_html += f"""
-                        <div style="display: flex; align-items: center; justify-content: center; gap: 15px; flex-wrap: wrap;">
-                            <div style="padding: 4px 12px; border-radius: 12px; font-size: 0.85em; font-weight: bold; background: linear-gradient(90deg, #ab63fa 0%, #00b8d4 100%); color: white;">COMBINED</div>
-                            <div style="padding: 10px; background: var(--param-bg); border-radius: 4px;">
+                    if params_mismatch:
+                        params_html += '<div style="display: inline-block; padding: 4px 12px; border-radius: 12px; font-size: 0.85em; font-weight: bold; margin-bottom: 12px; background: linear-gradient(90deg, #ab63fa 0%, #00b8d4 100%); color: white;">COMBINED</div>'
+                        # Add status chip
+                        status_colors = {
+                            'COMPLETED': 'background: #28a745; color: white;',
+                            'RUNNING': 'background: #ff9800; color: white;',
+                            'INTERRUPTED': 'background: #ffc107; color: black;',
+                            'ERROR': 'background: #dc3545; color: white;',
+                            'UNKNOWN': 'background: #e2e3e5; color: #383d41;'
+                        }
+                        status_style = status_colors.get(status, 'background: #6c757d; color: white;')
+                        params_html += f'<div style="display: inline-block; padding: 4px 12px; border-radius: 12px; font-size: 0.85em; font-weight: bold; margin-bottom: 12px; margin-left: 8px; {status_style}">{status}</div>'
+                        params_html += '<div style="background: #ff9800; color: white; padding: 8px 12px; border-radius: 4px; margin-top: 8px; font-size: 0.9em;">⚠️ Warning: Reversible and irreversible parameters don\'t match</div>'
+                        
+                        # Show separate parameters when they don't match
+                        if rev_params:
+                            params_html += f"""
+                            <div style="margin-top: 10px; padding: 10px; background: var(--param-bg); border-radius: 4px;">
+                                <strong>Reversible:</strong>
                                 <strong>Lattice:</strong> n={rev_params.get('n', 'N/A')} | 
                                 <strong>Sweeps:</strong> s={rev_params.get('sweeps', 'N/A')} | 
                                 <strong>Radius:</strong> r={rev_params.get('radius', 'N/A')} | 
                                 <strong>Runs:</strong> m={rev_params.get('runs', 'N/A')}
                             </div>
-                        </div>
-                        """
-                
-                params_html += '</div>'
+                            """
+                        
+                        if irr_params:
+                            params_html += f"""
+                            <div style="margin-top: 10px; padding: 10px; background: var(--param-bg); border-radius: 4px;">
+                                <strong>Irreversible:</strong>
+                                <strong>Lattice:</strong> n={irr_params.get('n', 'N/A')} | 
+                                <strong>Sweeps:</strong> s={irr_params.get('sweeps', 'N/A')} | 
+                                <strong>Radius:</strong> r={irr_params.get('radius', 'N/A')} | 
+                                <strong>Runs:</strong> m={irr_params.get('runs', 'N/A')}
+                            </div>
+                            """
+                    else:
+                        # Parameters match - show chip and params on same row
+                        if rev_params:
+                            # Build status chip HTML
+                            status_colors = {
+                                'COMPLETED': 'background: #28a745; color: white;',
+                                'RUNNING': 'background: #ff9800; color: white;',
+                                'INTERRUPTED': 'background: #ffc107; color: black;',
+                                'ERROR': 'background: #dc3545; color: white;',
+                                'UNKNOWN': 'background: #e2e3e5; color: #383d41;'
+                            }
+                            status_style = status_colors.get(status, 'background: #6c757d; color: white;')
+                            status_chip_html = f'<div style="padding: 4px 12px; border-radius: 12px; font-size: 0.85em; font-weight: bold; {status_style}">{status}</div>'
+                            
+                            params_html += f"""
+                            <div style="display: flex; align-items: center; justify-content: center; gap: 15px; flex-wrap: wrap;">
+                                <div style="padding: 4px 12px; border-radius: 12px; font-size: 0.85em; font-weight: bold; background: linear-gradient(90deg, #ab63fa 0%, #00b8d4 100%); color: white;">COMBINED</div>
+                                {status_chip_html}
+                                <div style="padding: 10px; background: var(--param-bg); border-radius: 4px;">
+                                    <strong>Lattice:</strong> n={rev_params.get('n', 'N/A')} | 
+                                    <strong>Sweeps:</strong> s={rev_params.get('sweeps', 'N/A')} | 
+                                    <strong>Radius:</strong> r={rev_params.get('radius', 'N/A')} | 
+                                    <strong>Runs:</strong> m={rev_params.get('runs', 'N/A')}
+                                </div>
+                            </div>
+                            """
+                        else:
+                            # No parameters available
+                            params_html += '<div style="color: var(--text-secondary);">Parameters not available</div>'
+                    
+                    params_html += '</div>'
             else:
                 # Single archive - show parameters normally
                 params = parse_start_file(data_path)
                 if params:
-                    is_irreversible = params.get('flag') == '1'
+                    is_irreversible = params.get('flag') == 'i'
                     dynamics_label = "IRREVERSIBLE" if is_irreversible else "REVERSIBLE"
                     chip_color = "#00b8d4" if is_irreversible else "#ab63fa"
                     text_color = "#000000" if is_irreversible else "#ffffff"
+                    
+                    # Build status chip HTML
+                    status_colors = {
+                        'COMPLETED': 'background: #28a745; color: white;',
+                        'RUNNING': 'background: #ff9800; color: white;',
+                        'INTERRUPTED': 'background: #ffc107; color: black;',
+                        'ERROR': 'background: #dc3545; color: white;',
+                        'UNKNOWN': 'background: #e2e3e5; color: #383d41;'
+                    }
+                    status_style = status_colors.get(status, 'background: #6c757d; color: white;')
+                    status_chip_html = f'<div style="padding: 4px 12px; border-radius: 12px; font-size: 0.85em; font-weight: bold; {status_style}">{status}</div>'
+                    
                     params_html = f"""
                     <div style="text-align: center; margin: 20px 0; padding: 15px; background: var(--bg-secondary); color: var(--text-primary); border-radius: 5px;">
                         <div style="display: flex; align-items: center; justify-content: center; gap: 15px; flex-wrap: wrap;">
                             <div style="background: {chip_color}; color: {text_color}; padding: 4px 12px; border-radius: 12px; font-size: 0.85em; font-weight: bold;">{dynamics_label}</div>
+                            {status_chip_html}
                             <div style="padding: 10px; background: var(--param-bg); border-radius: 4px;">
                                 <strong>Lattice:</strong> n={params.get('n', 'N/A')} | 
                                 <strong>Sweeps:</strong> s={params.get('sweeps', 'N/A')} | 
@@ -1642,7 +2489,7 @@ def plot_data(dirname):
                         <button id="saveNotesBtn" onclick="saveNotes()" style="padding: 6px 12px; background: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; display: none; margin-left: 8px;">Save</button>
                     </div>
                 </div>
-                <div id="notesDisplay" onclick="if(!isEditMode) toggleEditMode()" style="white-space: pre-wrap; min-height: 50px; padding: 10px; background: var(--bg-primary); color: var(--text-primary); border-radius: 4px; font-size: 11pt; cursor: pointer;">{notes_escaped if notes else '<span style="color: var(--text-secondary);">No notes yet. Click Edit to add notes.</span>'}</div>
+                <div id="notesDisplay" onclick="if(!isEditMode) toggleEditMode()" style="white-space: pre-wrap; min-height: 50px; padding: 10px; background: var(--bg-primary); color: var(--text-primary); border-radius: 4px; font-size: 11pt; cursor: pointer;">{notes_escaped if notes else '<span style="color: var(--text-secondary);">No notes yet. Click to add notes.</span>'}</div>
                 <textarea id="notesTextarea" data-dirname="{dirname}" placeholder="Add notes about this simulation run..." rows="10" style="display: none; width: 100%; padding: 10px; border: 1px solid var(--border-color); border-radius: 4px; font-family: inherit; font-size: 14px; resize: vertical; box-sizing: border-box; background: var(--bg-primary); color: var(--text-primary);">{notes_escaped}</textarea>
             </div>
             """
@@ -1696,17 +2543,107 @@ def plot_data(dirname):
                     }}
                     .back-link a {{ color: #007bff; text-decoration: none; font-size: 16px; }}
                     .back-link a:hover {{ text-decoration: underline; }}
+                    .refresh-btn {{
+                        background: var(--bg-secondary);
+                        color: var(--text-primary);
+                        border: 1px solid var(--border-color);
+                        padding: 8px;
+                        border-radius: 4px;
+                        cursor: pointer;
+                        font-size: 18px;
+                        transition: all 0.3s ease;
+                        display: flex;
+                        align-items: center;
+                        height: 38px;
+                    }}
+                    .refresh-btn:hover {{
+                        opacity: 0.8;
+                        transform: scale(1.05);
+                    }}
                     .theme-toggle {{
                         background: var(--bg-secondary);
                         color: var(--text-primary);
                         border: 1px solid var(--border-color);
-                        padding: 6px 10px;
+                        padding: 8px;
                         border-radius: 4px;
                         cursor: pointer;
-                        font-size: 16px;
+                        font-size: 18px;
+                        transition: all 0.3s ease;
+                        display: flex;
+                        align-items: center;
+                        height: 38px;
                     }}
                     .theme-toggle:hover {{
                         opacity: 0.8;
+                        transform: scale(1.05);
+                    }}
+                    .export-btn {{
+                        background: #28a745;
+                        color: white;
+                        border: none;
+                        padding: 8px 16px;
+                        border-radius: 4px;
+                        cursor: pointer;
+                        font-size: 14px;
+                        font-weight: 500;
+                        transition: all 0.3s ease;
+                        display: flex;
+                        align-items: center;
+                        height: 38px;
+                    }}
+                    .export-btn:hover {{
+                        background: #218838;
+                        transform: scale(1.05);
+                    }}
+                    
+                    /* Responsive styles for mobile */
+                    @media (max-width: 768px) {{
+                        body {{
+                            padding: 10px;
+                        }}
+                        h1 {{
+                            font-size: 1.5em;
+                            flex-direction: column;
+                            gap: 10px;
+                        }}
+                        .back-link {{
+                            flex-direction: column;
+                            align-items: flex-start;
+                            gap: 10px;
+                        }}
+                        .plot-container {{
+                            margin: 15px 0;
+                        }}
+                        #notes-section {{
+                            margin-top: 20px;
+                        }}
+                        .export-btn {{
+                            font-size: 12px;
+                            padding: 6px 12px;
+                        }}
+                    }}
+                    
+                    @media (max-width: 480px) {{
+                        body {{
+                            padding: 5px;
+                        }}
+                        h1 {{
+                            font-size: 1.3em;
+                        }}
+                        .back-link a {{
+                            font-size: 14px;
+                        }}
+                        .plot-container {{
+                            margin: 10px 0;
+                        }}
+                        #notesDisplay, #notesTextarea {{
+                            font-size: 10pt;
+                        }}
+                        .export-btn {{
+                            font-size: 11px;
+                            padding: 5px 10px;
+                            height: 32px;
+                        }}
                     }}
                 </style>
                 <script>
@@ -1799,25 +2736,6 @@ def plot_data(dirname):
                         document.getElementById('notesTextarea').focus();
                     }}
                     
-                    function exitEditMode() {{
-                        isEditMode = false;
-                        const textarea = document.getElementById('notesTextarea');
-                        const notesDisplay = document.getElementById('notesDisplay');
-                        
-                        // Update display with current content
-                        const notes = textarea.value;
-                        if (notes.trim()) {{
-                            notesDisplay.innerHTML = notes.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\\n/g, '<br>');
-                        }} else {{
-                            notesDisplay.innerHTML = '<span style=\"color: #999;\">No notes yet. Click Edit to add notes.</span>';
-                        }}
-                        
-                        document.getElementById('notesDisplay').style.display = 'block';
-                        document.getElementById('notesTextarea').style.display = 'none';
-                        document.getElementById('editNotesBtn').style.display = 'inline-block';
-                        document.getElementById('saveNotesBtn').style.display = 'none';
-                    }}
-                    
                     function saveNotes() {{
                         const textarea = document.getElementById('notesTextarea');
                         const saveBtn = document.getElementById('saveNotesBtn');
@@ -1868,7 +2786,11 @@ def plot_data(dirname):
             <body>
                 <div class="back-link">
                     <a href="/">← Back to browser</a>
-                    <button id="themeToggle" class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">🌙</button>
+                    <div style="display: flex; gap: 8px;">
+                        <button class="export-btn" onclick="window.location.href='/export/{dirname}'" title="Export this simulation archive">Export</button>
+                        <button class="refresh-btn" onclick="location.reload()" title="Refresh the page to see latest data">🔄</button>
+                        <button id="themeToggle" class="theme-toggle" onclick="toggleTheme()" title="Switch between dark and light themes">🌙</button>
+                    </div>
                 </div>
                 <h1>Simulation Plots - {title}</h1>
                 {params_html}
