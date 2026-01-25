@@ -108,9 +108,9 @@ for R in range(r):
     if show_legend:
         irr_legend_shown.add(R)
     
-    # For single runs, just show "Radius X"; for combined runs, show "Irr" in legend with radius in hover
+    # For single runs, show "Radius X"; for combined runs, show empty string (group title shows radius)
     if is_combined:
-        trace_name = f"Radius {R}"
+        trace_name = ""
         fig.add_trace(go.Scatter(x=average_df['t'], y=average_df['S/nk'], name=trace_name, 
                                  line=dict(color=irr_colors[R]), legendgroup=f"r{R}", legendgrouptitle_text=f"Radius {R}", 
                                  legendrank=R*2+1, showlegend=show_legend),row=1, col=1)
@@ -138,11 +138,11 @@ for R in range(r):
     # Extract the middle elements
     zoom = average_df.iloc[start_index:end_index]
     if is_combined:
-        fig.add_trace(go.Scatter(x=zoom['t'], y=zoom['S/nk'], name=trace_name, 
+        fig.add_trace(go.Scatter(x=zoom['t'], y=zoom['S/nk'], name="", 
                                  line=dict(color=irr_colors[R]), legendgroup=f"r{R}", 
                                  legendrank=R*2+1, showlegend=False),row=2, col=1)
         fig.add_trace(go.Scatter(x=zoom['t'].rolling(window=bin_size).mean(), y=zoom['S/nk'].rolling(window=bin_size).mean(), 
-                                 name=trace_name, line=dict(color=irr_colors[R]), legendgroup=f"r{R}", 
+                                 name="", line=dict(color=irr_colors[R]), legendgroup=f"r{R}", 
                                  legendrank=R*2+1, showlegend=False),row=2, col=2)
     else:
         fig.add_trace(go.Scatter(x=zoom['t'], y=zoom['S/nk'], name=f"Radius {R}", 
@@ -181,9 +181,9 @@ for R in range(r):
     if show_legend:
         rev_legend_shown.add(R)
     
-    # For single runs, just show "Radius X"; for combined runs, show "Rev" in legend with radius in hover
+    # For single runs, show "Radius X"; for combined runs, show empty string (group title shows radius)
     if is_combined:
-        trace_name = f"Radius {R}"
+        trace_name = ""
         fig.add_trace(go.Scatter(x=average_df['t'], y=average_df['S/nk'], name=trace_name, 
                                  line=dict(color=colors[R]), legendgroup=f"r{R}", legendgrouptitle_text=f"Radius {R}", 
                                  legendrank=R*2, showlegend=show_legend),row=1, col=1)
@@ -211,11 +211,11 @@ for R in range(r):
     # Extract the middle elements
     zoom = average_df.iloc[start_index:end_index]
     if is_combined:
-        fig.add_trace(go.Scatter(x=zoom['t'], y=zoom['S/nk'], name=trace_name, 
+        fig.add_trace(go.Scatter(x=zoom['t'], y=zoom['S/nk'], name="", 
                                  line=dict(color=colors[R]), legendgroup=f"r{R}", 
                                  legendrank=R*2, showlegend=False),row=2, col=1)
         fig.add_trace(go.Scatter(x=zoom['t'].rolling(window=bin_size).mean(), y=zoom['S/nk'].rolling(window=bin_size).mean(), 
-                                 name=trace_name, line=dict(color=colors[R]), legendgroup=f"r{R}", 
+                                 name="", line=dict(color=colors[R]), legendgroup=f"r{R}", 
                                  legendrank=R*2, showlegend=False),row=2, col=2)
     else:
         fig.add_trace(go.Scatter(x=zoom['t'], y=zoom['S/nk'], name=f"Radius {R}", 
@@ -281,7 +281,7 @@ fig.update_layout(
         grouptitlefont=dict(size=10, family="Arial Black", color="rgba(255,255,255,1)" if is_dark_mode else "rgba(0,0,0,1)"),
         itemsizing='constant',
         itemwidth=30,
-        tracegroupgap=2,
+        tracegroupgap=0,
         groupclick="togglegroup"
     ),
     updatemenus=[
@@ -305,23 +305,7 @@ fig.update_layout(
                     label="Show Irr",
                     method="restyle"
                 )
-            ] if is_combined else []),
-            pad={"r": 0, "t": 0, "b": 0, "l": 0},
-            showactive=is_combined,
-            active=0 if is_combined else -1,
-            x=1.01,
-            xanchor="right",
-            y=1.12,
-            yanchor="top",
-            bgcolor="rgba(255,255,255,0.1)" if is_dark_mode else "rgba(0,0,0,0.05)",
-            bordercolor="rgba(100,100,100,0.3)" if is_dark_mode else "rgba(0,0,0,0.2)",
-            borderwidth=1,
-            font=dict(size=11, color="#1f77b4")
-        ),
-        dict(
-            type="buttons",
-            direction="right",
-            buttons=[
+            ] if is_combined else []) + [
                 dict(
                     args=[{"visible": "legendonly"}],
                     label="Hide All",
@@ -330,7 +314,7 @@ fig.update_layout(
             ],
             pad={"r": 0, "t": 0, "b": 0, "l": 0},
             showactive=False,
-            x=1.08,
+            x=1,
             xanchor="right",
             y=1.12,
             yanchor="top",
@@ -338,7 +322,22 @@ fig.update_layout(
             bordercolor="rgba(100,100,100,0.3)" if is_dark_mode else "rgba(0,0,0,0.2)",
             borderwidth=1,
             font=dict(size=11, color="#1f77b4")
-        ),
+        )
+    ],
+    annotations=[
+        dict(
+            text="💡 Double-click legend items to isolate traces",
+            xref="paper",
+            yref="paper",
+            x=1,
+            y=-0.05,
+            xanchor="right",
+            yanchor="top",
+            showarrow=False,
+            font=dict(size=10, color="rgba(100,100,100,0.7)" if is_dark_mode else "rgba(150,150,150,0.8)"),
+            bgcolor="rgba(255,255,255,0.05)" if is_dark_mode else "rgba(255,255,255,0.7)",
+            borderpad=4
+        )
     ]
 )
 fig.show()
