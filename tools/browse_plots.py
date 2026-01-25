@@ -206,10 +206,41 @@ HTML_TEMPLATE = """
             border-radius: 3px;
             font-size: 1em;
             transition: all 0.2s;
-            min-width: 80px;
             text-align: center;
         }
         .edit-link:hover {
+            background: #007bff;
+            color: white;
+            text-decoration: none;
+        }
+        .view-link {
+            display: inline-block;
+            padding: 2px 8px;
+            border: 2px solid #17a2b8;
+            border-radius: 3px;
+            font-size: 1em;
+            color: #17a2b8;
+            transition: all 0.2s;
+            min-width: 80px;
+            text-align: center;
+        }
+        .view-link:hover {
+            background: #17a2b8;
+            color: white;
+            text-decoration: none;
+        }
+        .notes-link {
+            display: inline-block;
+            padding: 2px 8px;
+            border: 2px solid #007bff;
+            border-radius: 3px;
+            font-size: 1em;
+            color: #007bff;
+            transition: all 0.2s;
+            min-width: 80px;
+            text-align: center;
+        }
+        .notes-link:hover {
             background: #007bff;
             color: white;
             text-decoration: none;
@@ -589,8 +620,14 @@ HTML_TEMPLATE = """
                 padding: 4px 10px;
             }
             .edit-link,
+            .view-link,
+            .notes-link,
+            .plot-link,
             .delete-link,
-            .export-link,
+            .export-link {
+                font-size: 0.8em;
+                padding: 4px 10px;
+            }
         }
         
         @media (max-width: 480px) {
@@ -612,6 +649,15 @@ HTML_TEMPLATE = """
             .status, .combined-chip, .dynamics-chip {
                 font-size: 0.75em;
                 padding: 3px 8px;
+            }
+            .edit-link,
+            .view-link,
+            .notes-link,
+            .plot-link,
+            .delete-link,
+            .export-link {
+                font-size: 0.8em;
+                padding: 4px 10px;
             }
         }
     </style>
@@ -1311,9 +1357,9 @@ HTML_TEMPLATE = """
                 {% endif %}
                 <div class="action-buttons" style="margin-top: 12px; display: flex; flex-wrap: wrap; align-items: center; gap: 10px;">
                     <a href="/plot/{{ archive.dirname }}" class="plot-link" onclick="addThemeToUrl(event, this)" title="View interactive plots and analysis">Plot data</a>
-                    <a href="/view/{{ archive.dirname }}" class="edit-link" title="Browse all files in this archive">View files</a>
+                    <a href="/view/{{ archive.dirname }}" class="view-link" title="Browse all files in this archive">View files</a>
                     {% if not archive.notes %}
-                    <a href="#" class="edit-link" data-dirname="{{ archive.dirname }}" data-notes="" onclick="openNotesModalFromLink(this); return false;" title="Add notes about this simulation">Add notes</a>
+                    <a href="#" class="notes-link" data-dirname="{{ archive.dirname }}" data-notes="" onclick="openNotesModalFromLink(this); return false;" title="Add notes about this simulation">Add notes</a>
                     {% endif %}
                     <a href="#" class="export-link" onclick="exportArchive('{{ archive.dirname }}'); return false;" title="Export this simulation as a validated zip file">Export</a>
                     <a href="#" class="delete-link" onclick="deleteArchive('{{ archive.dirname }}'); return false;" title="Permanently delete this archive">Delete</a>
