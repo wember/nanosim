@@ -1,4 +1,4 @@
-.PHONY: setup activate setup-clean sim sim-i sim-repeat sim-archive sim-test sim-test-clean plot plot-test browse help
+.PHONY: setup activate setup-clean sim sim-i sim-repeat sim-archive sim-test sim-test-clean plot plot-test browse status remote-status restart remote-restart help
 
 # Variables
 VENV_NAME = venv
@@ -25,6 +25,12 @@ help:
 	@echo "  make browse    - Open web browser to view all runs in data/"
 	@echo "  make plot      - Generate plots from last simulation in data/"
 	@echo "  make plot-test - Generate plots from test simulation in test_data/"
+	@echo ""
+	@echo "Remote (Lightsail):"
+	@echo "  make status         - Check status of nanosim service when run locally"
+	@echo "  make remote-status  - Check status of nanosim service on Lightsail"
+	@echo "  make restart        - Restart nanosim service when run locally"
+	@echo "  make remote-restart - Restart nanosim service on Lightsail"
 
 # ============================================================================
 # Environment
@@ -106,3 +112,29 @@ browse:
 	@echo "Starting archive browser at http://127.0.0.1:5001"
 	@(sleep 1.5 && open http://127.0.0.1:5001 2>/dev/null || xdg-open http://127.0.0.1:5001 2>/dev/null) &
 	@$(VENV_PYTHON) tools/browse_plots.py
+
+# ============================================================================
+# Remote (Lightsail)
+# ============================================================================
+
+status:
+	@echo "Checking nanosim service status..."
+	@sudo supervisorctl status nanosim
+
+remote-status:
+	@echo "Checking nanosim service status on Lightsail..."
+	@ssh plots.myember.org "sudo supervisorctl status nanosim"
+
+restart:
+	@echo "Restarting nanosim service..."
+	@sudo supervisorctl restart nanosim
+	@echo "Waiting for service to start..."
+	@sleep 2
+	@sudo supervisorctl status nanosim
+
+remote-restart:
+	@echo "Restarting nanosim service on Lightsail..."
+	@ssh plots.myember.org "sudo supervisorctl restart nanosim"
+	@echo "Waiting for service to start..."
+	@sleep 2
+	@ssh plots.myember.org "sudo supervisorctl status nanosim"
