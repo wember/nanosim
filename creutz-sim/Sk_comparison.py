@@ -108,19 +108,26 @@ for R in range(r):
     if show_legend:
         irr_legend_shown.add(R)
     
-    # For single runs, just show "Radius X"; for combined runs, show "Irr" with group title
+    # For single runs, show "Radius X"; for combined runs, show empty string (group title shows radius)
     if is_combined:
-        fig.add_trace(go.Scatter(x=average_df['t'], y=average_df['S/nk'], name="Irr", 
-                                 line=dict(color=irr_colors[R]), legendgroup=f"r{R}", legendgrouptitle_text=f"Radius {R}", showlegend=show_legend),row=1, col=1)
+        trace_name = ""
+        fig.add_trace(go.Scatter(x=average_df['t'], y=average_df['S/nk'], name=trace_name, 
+                                 line=dict(color=irr_colors[R]), legendgroup=f"r{R}", legendgrouptitle_text=f"Radius {R}", 
+                                 legendrank=R*2+1, showlegend=show_legend,
+                                 hovertemplate=f'<b>Radius {R} (Irreversible)</b><br>Sweep: %{{x}}<br>S/Nk: %{{y:.4f}}<extra></extra>'),row=1, col=1)
     else:
         fig.add_trace(go.Scatter(x=average_df['t'], y=average_df['S/nk'], name=f"Radius {R}", 
-                                 line=dict(color=irr_colors[R]), showlegend=show_legend),row=1, col=1)
+                                 line=dict(color=irr_colors[R]), legendgroup=f"r{R}", showlegend=show_legend,
+                                 hovertemplate=f'<b>Radius {R} (Irreversible)</b><br>Sweep: %{{x}}<br>S/Nk: %{{y:.4f}}<extra></extra>'),row=1, col=1)
     if is_combined:
         fig.add_trace(go.Scatter(x=average_df['t'].rolling(window=bin_size).mean(), y=average_df['S/nk'].rolling(window=bin_size).mean(), 
-                                 name="Irr", line=dict(color=irr_colors[R]), legendgroup=f"r{R}", showlegend=False),row=1, col=2)
+                                 name=trace_name, line=dict(color=irr_colors[R]), legendgroup=f"r{R}", 
+                                 legendrank=R*2+1, showlegend=False,
+                                 hovertemplate=f'<b>Radius {R} (Irreversible)</b><br>Sweep: %{{x:.1f}}<br>S/Nk: %{{y:.4f}}<extra></extra>'),row=1, col=2)
     else:
         fig.add_trace(go.Scatter(x=average_df['t'].rolling(window=bin_size).mean(), y=average_df['S/nk'].rolling(window=bin_size).mean(), 
-                                 name=f"Radius {R}", line=dict(color=irr_colors[R]), showlegend=False),row=1, col=2)
+                                 name=f"Radius {R}", line=dict(color=irr_colors[R]), legendgroup=f"r{R}", showlegend=False,
+                                 hovertemplate=f'<b>Radius {R} (Irreversible)</b><br>Sweep: %{{x:.1f}}<br>S/Nk: %{{y:.4f}}<extra></extra>'),row=1, col=2)
 
     # Zoomed in portion about center of dataframe
     num_elements = len(average_df['t']) // 4
@@ -135,15 +142,21 @@ for R in range(r):
     # Extract the middle elements
     zoom = average_df.iloc[start_index:end_index]
     if is_combined:
-        fig.add_trace(go.Scatter(x=zoom['t'], y=zoom['S/nk'], name="Irr", 
-                                 line=dict(color=irr_colors[R]), legendgroup=f"r{R}", showlegend=False),row=2, col=1)
+        fig.add_trace(go.Scatter(x=zoom['t'], y=zoom['S/nk'], name="", 
+                                 line=dict(color=irr_colors[R]), legendgroup=f"r{R}", 
+                                 legendrank=R*2+1, showlegend=False,
+                                 hovertemplate=f'<b>Radius {R} (Irreversible)</b><br>Sweep: %{{x}}<br>S/Nk: %{{y:.4f}}<extra></extra>'),row=2, col=1)
         fig.add_trace(go.Scatter(x=zoom['t'].rolling(window=bin_size).mean(), y=zoom['S/nk'].rolling(window=bin_size).mean(), 
-                                 name="Irr", line=dict(color=irr_colors[R]), legendgroup=f"r{R}", showlegend=False),row=2, col=2)
+                                 name="", line=dict(color=irr_colors[R]), legendgroup=f"r{R}", 
+                                 legendrank=R*2+1, showlegend=False,
+                                 hovertemplate=f'<b>Radius {R} (Irreversible)</b><br>Sweep: %{{x:.1f}}<br>S/Nk: %{{y:.4f}}<extra></extra>'),row=2, col=2)
     else:
         fig.add_trace(go.Scatter(x=zoom['t'], y=zoom['S/nk'], name=f"Radius {R}", 
-                                 line=dict(color=irr_colors[R]), showlegend=False),row=2, col=1)
+                                 line=dict(color=irr_colors[R]), legendgroup=f"r{R}", showlegend=False,
+                                 hovertemplate=f'<b>Radius {R} (Irreversible)</b><br>Sweep: %{{x}}<br>S/Nk: %{{y:.4f}}<extra></extra>'),row=2, col=1)
         fig.add_trace(go.Scatter(x=zoom['t'].rolling(window=bin_size).mean(), y=zoom['S/nk'].rolling(window=bin_size).mean(), 
-                                 name=f"Radius {R}", line=dict(color=irr_colors[R]), showlegend=False),row=2, col=2)
+                                 name=f"Radius {R}", line=dict(color=irr_colors[R]), legendgroup=f"r{R}", showlegend=False,
+                                 hovertemplate=f'<b>Radius {R} (Irreversible)</b><br>Sweep: %{{x:.1f}}<br>S/Nk: %{{y:.4f}}<extra></extra>'),row=2, col=2)
     irr_avg_Sk = np.append(irr_avg_Sk, np.mean(zoom['S/nk']))
     irr_SEM = np.append(irr_SEM, np.std(zoom['S/nk']/math.sqrt(len(zoom['S/nk']))))
 
@@ -176,19 +189,26 @@ for R in range(r):
     if show_legend:
         rev_legend_shown.add(R)
     
-    # For single runs, just show "Radius X"; for combined runs, show "Rev" with group title
+    # For single runs, show "Radius X"; for combined runs, show empty string (group title shows radius)
     if is_combined:
-        fig.add_trace(go.Scatter(x=average_df['t'], y=average_df['S/nk'], name="Rev", 
-                                 line=dict(color=colors[R]), legendgroup=f"r{R}", legendgrouptitle_text=f"Radius {R}", showlegend=show_legend),row=1, col=1)
+        trace_name = ""
+        fig.add_trace(go.Scatter(x=average_df['t'], y=average_df['S/nk'], name=trace_name, 
+                                 line=dict(color=colors[R]), legendgroup=f"r{R}", legendgrouptitle_text=f"Radius {R}", 
+                                 legendrank=R*2, showlegend=show_legend,
+                                 hovertemplate=f'<b>Radius {R} (Reversible)</b><br>Sweep: %{{x}}<br>S/Nk: %{{y:.4f}}<extra></extra>'),row=1, col=1)
     else:
         fig.add_trace(go.Scatter(x=average_df['t'], y=average_df['S/nk'], name=f"Radius {R}", 
-                                 line=dict(color=colors[R]), showlegend=show_legend),row=1, col=1)
+                                 line=dict(color=colors[R]), legendgroup=f"r{R}", showlegend=show_legend,
+                                 hovertemplate=f'<b>Radius {R} (Reversible)</b><br>Sweep: %{{x}}<br>S/Nk: %{{y:.4f}}<extra></extra>'),row=1, col=1)
     if is_combined:
         fig.add_trace(go.Scatter(x=average_df['t'].rolling(window=bin_size).mean(), y=average_df['S/nk'].rolling(window=bin_size).mean(), 
-                                 name="Rev", line=dict(color=colors[R]), legendgroup=f"r{R}", showlegend=False),row=1, col=2)
+                                 name=trace_name, line=dict(color=colors[R]), legendgroup=f"r{R}", 
+                                 legendrank=R*2, showlegend=False,
+                                 hovertemplate=f'<b>Radius {R} (Reversible)</b><br>Sweep: %{{x:.1f}}<br>S/Nk: %{{y:.4f}}<extra></extra>'),row=1, col=2)
     else:
         fig.add_trace(go.Scatter(x=average_df['t'].rolling(window=bin_size).mean(), y=average_df['S/nk'].rolling(window=bin_size).mean(), 
-                                 name=f"Radius {R}", line=dict(color=colors[R]), showlegend=False),row=1, col=2)
+                                 name=f"Radius {R}", line=dict(color=colors[R]), legendgroup=f"r{R}", showlegend=False,
+                                 hovertemplate=f'<b>Radius {R} (Reversible)</b><br>Sweep: %{{x:.1f}}<br>S/Nk: %{{y:.4f}}<extra></extra>'),row=1, col=2)
 
     # Zoomed in portion about center of dataframe
     num_elements = len(average_df['t']) // 4
@@ -203,15 +223,21 @@ for R in range(r):
     # Extract the middle elements
     zoom = average_df.iloc[start_index:end_index]
     if is_combined:
-        fig.add_trace(go.Scatter(x=zoom['t'], y=zoom['S/nk'], name="Rev", 
-                                 line=dict(color=colors[R]), legendgroup=f"r{R}", showlegend=False),row=2, col=1)
+        fig.add_trace(go.Scatter(x=zoom['t'], y=zoom['S/nk'], name="", 
+                                 line=dict(color=colors[R]), legendgroup=f"r{R}", 
+                                 legendrank=R*2, showlegend=False,
+                                 hovertemplate=f'<b>Radius {R} (Reversible)</b><br>Sweep: %{{x}}<br>S/Nk: %{{y:.4f}}<extra></extra>'),row=2, col=1)
         fig.add_trace(go.Scatter(x=zoom['t'].rolling(window=bin_size).mean(), y=zoom['S/nk'].rolling(window=bin_size).mean(), 
-                                 name="Rev", line=dict(color=colors[R]), legendgroup=f"r{R}", showlegend=False),row=2, col=2)
+                                 name="", line=dict(color=colors[R]), legendgroup=f"r{R}", 
+                                 legendrank=R*2, showlegend=False,
+                                 hovertemplate=f'<b>Radius {R} (Reversible)</b><br>Sweep: %{{x:.1f}}<br>S/Nk: %{{y:.4f}}<extra></extra>'),row=2, col=2)
     else:
         fig.add_trace(go.Scatter(x=zoom['t'], y=zoom['S/nk'], name=f"Radius {R}", 
-                                 line=dict(color=colors[R]), showlegend=False),row=2, col=1)
+                                 line=dict(color=colors[R]), legendgroup=f"r{R}", showlegend=False,
+                                 hovertemplate=f'<b>Radius {R} (Reversible)</b><br>Sweep: %{{x}}<br>S/Nk: %{{y:.4f}}<extra></extra>'),row=2, col=1)
         fig.add_trace(go.Scatter(x=zoom['t'].rolling(window=bin_size).mean(), y=zoom['S/nk'].rolling(window=bin_size).mean(), 
-                                 name=f"Radius {R}", line=dict(color=colors[R]), showlegend=False),row=2, col=2)
+                                 name=f"Radius {R}", line=dict(color=colors[R]), legendgroup=f"r{R}", showlegend=False,
+                                 hovertemplate=f'<b>Radius {R} (Reversible)</b><br>Sweep: %{{x:.1f}}<br>S/Nk: %{{y:.4f}}<extra></extra>'),row=2, col=2)
     avg_Sk = np.append(avg_Sk, np.mean(zoom['S/nk']))
     SEM = np.append(SEM, np.std(zoom['S/nk']/math.sqrt(len(zoom['S/nk']))))
     # fig.add_trace(go.Histogram(x=average_df['S/nk'], nbinsx=1),row=1, col=2)
@@ -230,17 +256,28 @@ if average_df is not None:
 # Add toggle buttons to show/hide reversible and irreversible traces
 num_traces = len(fig.data)
 
-# Determine which traces are rev vs irr based on name
+# Determine which traces are rev vs irr based on line color
+# Rev traces use colors list (purple shades), Irr traces use irr_colors list (cyan shades)
 rev_visibility = []
 irr_visibility = []
 for trace in fig.data:
-    if trace.name == 'Rev':
-        rev_visibility.append(True)
-        irr_visibility.append('legendonly')
-    elif trace.name == 'Irr':
-        rev_visibility.append('legendonly')
-        irr_visibility.append(True)
+    # Check if trace has a line color property
+    if hasattr(trace, 'line') and hasattr(trace.line, 'color'):
+        trace_color = trace.line.color
+        # Check if color is in the reversible colors (purple shades)
+        if trace_color in colors:
+            rev_visibility.append(True)
+            irr_visibility.append('legendonly')
+        # Check if color is in the irreversible colors (cyan shades)
+        elif trace_color in irr_colors:
+            rev_visibility.append('legendonly')
+            irr_visibility.append(True)
+        else:
+            # Unknown color, show in both
+            rev_visibility.append(True)
+            irr_visibility.append(True)
     else:
+        # No color info, show in both
         rev_visibility.append(True)
         irr_visibility.append(True)
 
@@ -260,8 +297,8 @@ fig.update_layout(
         grouptitlefont=dict(size=10, family="Arial Black", color="rgba(255,255,255,1)" if is_dark_mode else "rgba(0,0,0,1)"),
         itemsizing='constant',
         itemwidth=30,
-        tracegroupgap=2,
-        groupclick="toggleitem"
+        tracegroupgap=0,
+        groupclick="togglegroup"
     ),
     updatemenus=[
         dict(
@@ -271,11 +308,6 @@ fig.update_layout(
                 dict(
                     args=[{"visible": True}],
                     label="Show All",
-                    method="restyle"
-                ),
-                dict(
-                    args=[{"visible": "legendonly"}],
-                    label="Hide All",
                     method="restyle"
                 )
             ] + ([
@@ -289,17 +321,39 @@ fig.update_layout(
                     label="Show Irr",
                     method="restyle"
                 )
-            ] if is_combined else []),
+            ] if is_combined else []) + [
+                dict(
+                    args=[{"visible": "legendonly"}],
+                    label="Hide All",
+                    method="restyle"
+                )
+            ],
             pad={"r": 0, "t": 0, "b": 0, "l": 0},
             showactive=False,
-            x=1.07,
+            x=1,
             xanchor="right",
             y=1.12,
             yanchor="top",
-            bgcolor="rgba(255,255,255,0)",
-            borderwidth=0,
+            bgcolor="rgba(255,255,255,0.1)" if is_dark_mode else "rgba(0,0,0,0.05)",
+            bordercolor="rgba(100,100,100,0.3)" if is_dark_mode else "rgba(0,0,0,0.2)",
+            borderwidth=1,
             font=dict(size=11, color="#1f77b4")
-        ),
+        )
+    ],
+    annotations=[
+        dict(
+            text="💡 Double-click legend items to isolate traces",
+            xref="paper",
+            yref="paper",
+            x=1,
+            y=-0.05,
+            xanchor="right",
+            yanchor="top",
+            showarrow=False,
+            font=dict(size=10, color="rgba(100,100,100,0.7)" if is_dark_mode else "rgba(150,150,150,0.8)"),
+            bgcolor="rgba(255,255,255,0.05)" if is_dark_mode else "rgba(255,255,255,0.7)",
+            borderpad=4
+        )
     ]
 )
 fig.show()
@@ -309,8 +363,10 @@ fig.show()
 ####################################################################################
 
 ### Avg Entropy v Radius
-fig2.add_trace(go.Scatter(x=np.arange(r), y=avg_Sk, error_y=dict(type='data', array=SEM), name="Reversible", line=dict(color='purple')),row=1, col=1)
-fig2.add_trace(go.Scatter(x=np.arange(r), y=irr_avg_Sk, error_y=dict(type='data', array=irr_SEM), name="Irreversible", line=dict(color='#00C4C4')),row=1, col=1)
+fig2.add_trace(go.Scatter(x=np.arange(r), y=avg_Sk, error_y=dict(type='data', array=SEM), name="Reversible", line=dict(color='purple'),
+                          hovertemplate='<b>Reversible</b><br>Radius: %{x}<br>Avg S/Nk: %{y:.4f}<extra></extra>'),row=1, col=1)
+fig2.add_trace(go.Scatter(x=np.arange(r), y=irr_avg_Sk, error_y=dict(type='data', array=irr_SEM), name="Irreversible", line=dict(color='#00C4C4'),
+                          hovertemplate='<b>Irreversible</b><br>Radius: %{x}<br>Avg S/Nk: %{y:.4f}<extra></extra>'),row=1, col=1)
 
 fig2.update_xaxes(title_text="Radius", row=1, col=1)
 fig2.update_yaxes(title_text="Avg S/Nk", row=1, col=1)
