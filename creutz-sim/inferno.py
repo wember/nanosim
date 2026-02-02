@@ -39,6 +39,7 @@ class Inferno:
         self.order = a
         self.rev_order = np.flip(a)
         self.radius = R
+        self.R_counter = 0
         # self.radius_spin = self.rev_radius_bond = np.random.randint(0, R, size=N)*np.random.choice([-1, 1], size=N)
         # self.rev_radius_spin = self.radius_bond = np.flip(self.radius_spin)
         self.lattice = np.concatenate((np.ones(N//2, dtype=int), (-1)*np.ones(N//2, dtype=int)))
@@ -247,15 +248,23 @@ class Inferno:
         """
         a = self.order[0]
         radius_cycle = 2 * self.radius + 1
-        R = (sweep_count % radius_cycle) - self.radius
+        R = (self.R_counter % radius_cycle) - self.radius
+        self.R_counter += 1
         # If irr flag is on, generate a random number instead
         if (flag != 0):
             a = np.random.randint(0, self.N)
-            R = np.random.randint(0, self.N)
+            if self.radius != 0:
+                R = np.random.randint(0, self.radius)
 
         # Attempt to flip spin
         self.spin_flip(a, (a + R)%self.N)
 
+        R = (self.R_counter % radius_cycle) - self.radius
+        self.R_counter += 1
+        # If irr flag is on, generate a random number instead
+        if (flag != 0):
+            if self.radius != 0:
+                R = np.random.randint(0, self.radius)
         # Attempt to change bond
         self.bond_change(a, (a + R)%self.N)
 
@@ -272,14 +281,22 @@ class Inferno:
         """
         a = self.rev_order[0]
         radius_cycle = 2 * self.radius + 1 
-        R = (sweep_count % radius_cycle) - self.radius
+        self.R_counter -= 1
+        R = (self.R_counter % radius_cycle) - self.radius
         # If irr flag is on, generate a random number instead
         if (flag != 0):
             a = np.random.randint(0, self.N)
-            R = np.random.randint(0, self.N)
+            if self.radius != 0:
+                R = np.random.randint(0, self.radius)
         # Attempt to change bond
         self.bond_change(a, (a + R)%self.N)
 
+        self.R_counter -= 1
+        R = (self.R_counter % radius_cycle) - self.radius
+        # If irr flag is on, generate a random number instead
+        if (flag != 0):
+            if self.radius != 0:
+                R = np.random.randint(0, self.radius)
         # Attempt to flip spin
         self.spin_flip(a, (a + R)%self.N)
 
