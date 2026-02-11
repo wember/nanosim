@@ -59,65 +59,18 @@ class Inferno:
         self.E_total = self.E_lattice + sum(self.E_demon)
 
 ################################################################################
-                ###            TEST SETUP           ###
-################################################################################
-        # N=2
-        # a = np.arange(N)
-        # total_energy = N # total energy of the system
-        # self.N = N
-        # self.order = a
-        # self.rev_order = np.flip(a)
-        # self.lattice = np.array([1,1])
-        # self.bonds = [-1,-1]
-        # self.bond_count = np.ones(3, dtype=int)
-        # self.count_bonds()
-        # self.E_lattice = sum(self.bonds)
-        # self.E_demon = np.array([4,0])
-        # self.d_energy = total_energy - self.E_lattice
-        # self.E_total = self.E_lattice + sum(self.E_demon)
-
 ################################################################################
 ################################################################################
-################################################################################
-
-    # def calc_E_lat(self,lattice,N):
-    #     """
-    #         Calculate energy of the lattice configuration.
-    #     """
-    #     ETOT = 0
-    #
-    #     # Loop over the entire lattice calculating nearest neighbor interactions
-    #     for a in range(N):
-    #         # Grab the lattice site spin value
-    #         s =  lattice[a]
-    #         # Calculate the energy of the configuration based on
-    #         # nearest neighbors
-    #         nb = lattice[(a+1)%N] + lattice[(a-1)%N]
-    #         # running sum of energy of Ising latus
-    #         ETOT += 2 * s * nb
-    #
-    #     # Update the value of the lattice energy
-    #     return ETOT
+    def reset(self):
+        """
+            Resets the "random" order for reversible simulations
+        """     
+        a = np.arange(self.N)
+        np.random.shuffle(a)
+        self.order = a
+        self.rev_order = np.flip(a)
 
     def spin_flip(self, a, i):
-        # print(self.lattice, "lattice: ", self.E_lattice,  "demon: ", self.E_demon,  self.d_energy, "total: ", self.E_lattice+sum(self.E_demon))
-        # print(self.bonds, self.bond_count)
-        # ### entropy calc for testing
-        # self.count_bonds()
-        #
-        # print(" N0 | Nx | U/J | Su/k  | K/J | Sk/k  | Se/k | p(u,k)")
-        # if (self.bond_count[1] == 0):
-        #     uk = (f(self.N)*2**(self.bond_count[1]+1))/(f(self.N-self.bond_count[1]-self.bond_count[2])*f(self.bond_count[1])*f(self.bond_count[2]))
-        #     SUtest = Su0(self.N, self.bond_count[1], self.bond_count[2])
-        # else:
-        #     uk = (f(self.N)*2**(self.bond_count[1]))/(f(self.N-self.bond_count[1]-self.bond_count[2])*f(self.bond_count[1])*f(self.bond_count[2]))
-        #     SUtest = Su(self.N, self.bond_count[1], self.bond_count[2])
-        # sk = f(self.d_energy+self.N-1)/(f(self.d_energy)*f(self.N-1))
-        # # print(f" {self.bond_count[1]}  |  {self.bond_count[2]} | {self.E_lattice}  |ln({uk})|  {self.d_energy}  |ln({sk})|ln({sk*uk})")
-        #
-        # print("Su : ", SUtest, math.log(uk))
-        # print("Sk : ", Sk(self.N, self.d_energy), math.log(sk))
-        # print("----------------------")
         """
             Attempt to flip the spin of a given lattice site
         """
@@ -165,24 +118,6 @@ class Inferno:
                 self.bonds[(a-1)%self.N] = 1
 
     def bond_change(self, a, i):
-        # print(self.lattice, "lattice: ", self.E_lattice, "demon: ", self.E_demon,  self.d_energy, "total: ", self.E_lattice+sum(self.E_demon))
-        # print(self.bonds, self.bond_count)
-        # ### entropy calc for testing
-        # self.count_bonds()
-        #
-        # print(" N0 | Nx | U/J | Su/k  | K/J | Sk/k  | Se/k | p(u,k)")
-        # if (self.bond_count[1] == 0):
-        #     uk = (f(self.N)*2**(self.bond_count[1]+1))/(f(self.N-self.bond_count[1]-self.bond_count[2])*f(self.bond_count[1])*f(self.bond_count[2]))
-        #     SUtest = Su0(self.N, self.bond_count[1], self.bond_count[2])
-        # else:
-        #     uk = (f(self.N)*2**(self.bond_count[1]))/(f(self.N-self.bond_count[1]-self.bond_count[2])*f(self.bond_count[1])*f(self.bond_count[2]))
-        #     SUtest = Su(self.N, self.bond_count[1], self.bond_count[2])
-        # sk = f(self.d_energy+self.N-1)/(f(self.d_energy)*f(self.N-1))
-        # # print(f" {self.bond_count[1]}  |  {self.bond_count[2]} | {self.E_lattice}  |ln({uk})|  {self.d_energy}  |ln({sk})|ln({sk*uk})")
-        #
-        # print("Su : ", SUtest, math.log(uk))
-        # print("Sk : ", Sk(self.N, self.d_energy), math.log(sk))
-        # print("----------------------")
         """
             Attempt to change the bond given lattice site
         """
