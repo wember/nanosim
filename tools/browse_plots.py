@@ -2508,6 +2508,7 @@ def plot_loading(dirname):
                 background: {spinner_color};
                 border-radius: 50%;
                 transform: translate(-50%, -50%);
+                margin: 2px 0 0 2px;
                 box-shadow: 0 0 10px {spinner_color}, 0 0 20px {spinner_color};
             }}
             
