@@ -1,15 +1,17 @@
 #!/usr/bin/env venv/bin/python
 """Simple web interface to browse current and archived simulation runs."""
 
-from flask import Flask, render_template_string, send_file, request, jsonify
+from flask import Flask, render_template_string, send_file, request, jsonify, session
 from pathlib import Path
 from datetime import datetime
 import hashlib
 import zipfile
 import tempfile
 import shutil
+import secrets
 
 app = Flask(__name__)
+app.secret_key = secrets.token_hex(16)  # For session management
 
 # Add custom Jinja2 filter for formatting numbers with commas
 @app.template_filter('commafy')
@@ -2364,18 +2366,77 @@ def plot_loading(dirname):
     """Show loading page while plots are being generated."""
     from flask import request
     
+    # Set session flag to indicate we're coming from loading page
+    session['from_loading'] = True
+    session['loading_dirname'] = dirname
+    
     # Get theme from query parameter, default to dark
     theme = request.args.get('theme', 'dark')
     
-    # Format the title
+    # Determine run type for spinner color
     if dirname == 'current':
+        data_path = DATA_DIR
         title = 'Current Run'
     else:
+        data_path = ARCHIVE_DIR / dirname
         try:
             dt = datetime.strptime(dirname, '%Y%m%d_%H%M%S')
             title = dt.strftime('%b %d, %Y %H:%M:%S')
         except ValueError:
             title = dirname
+    
+    # Determine spinner color based on run type
+    spinner_color = '#ab63fa'  # Default purple for reversible
+    is_combined = False
+    gradient_style = ""
+    
+    if data_path.exists():
+        # Check if this is a combined archive
+        is_combined = (data_path / 'rev').exists() and (data_path / 'irr').exists()
+        
+        if is_combined:
+            # Use gradient for combined - apply to atom spinner
+            spinner_color = '#ab63fa'
+            gradient_style = """
+            .nucleus {
+                background: linear-gradient(135deg, #ab63fa 0%, #00b8d4 100%);
+                box-shadow: 0 0 10px #ab63fa, 0 0 10px #00b8d4;
+            }
+            
+            .orbit-1 {
+                border-color: #ab63fa;
+            }
+            
+            .orbit-2 {
+                border-color: #8b7dd8;
+            }
+            
+            .orbit-3 {
+                border-color: #00b8d4;
+            }
+            
+            .orbit-1 .electron {
+                background: #ab63fa;
+                box-shadow: 0 0 5px #ab63fa;
+            }
+            
+            .orbit-2 .electron {
+                background: #8b7dd8;
+                box-shadow: 0 0 5px #8b7dd8;
+            }
+            
+            .orbit-3 .electron {
+                background: #00b8d4;
+                box-shadow: 0 0 5px #00b8d4;
+            }
+            """
+        else:
+            # Check if irreversible
+            params = parse_start_file(data_path)
+            if params and params.get('flag') == 'i':
+                spinner_color = '#00b8d4'  # Teal for irreversible
+            else:
+                spinner_color = '#ab63fa'  # Purple for reversible
     
     loading_html = f"""
     <!DOCTYPE html>
@@ -2431,20 +2492,106 @@ def plot_loading(dirname):
                 color: var(--text-primary);
             }}
             
-            .spinner {{
-                width: 60px;
-                height: 60px;
-                border: 6px solid var(--border-color);
-                border-top: 6px solid #ab63fa;
-                border-radius: 50%;
-                animation: spin 1s linear infinite;
+            .atom-spinner {{
+                position: relative;
+                width: 80px;
+                height: 80px;
                 margin: 30px auto;
+                transform-style: preserve-3d;
+                perspective: 400px;
             }}
             
-            @keyframes spin {{
+            .nucleus {{
+                position: absolute;
+                top: 50%;
+                left: 50%;
+                width: 12px;
+                height: 12px;
+                background: radial-gradient(circle at 30% 30%, {spinner_color}, darken({spinner_color}, 20%));
+                border-radius: 50%;
+                transform: translate(-50%, -50%);
+                box-shadow: 
+                    0 0 10px {spinner_color},
+                    0 0 20px {spinner_color},
+                    inset -2px -2px 4px rgba(0,0,0,0.3),
+                    inset 2px 2px 4px rgba(255,255,255,0.2);
+                margin: 2px 0 0 2px;
+            }}
+            
+            .orbit {{
+                position: absolute;
+                top: 50%;
+                left: 50%;
+                border-radius: 50%;
+                opacity: 0.5;
+            }}
+            
+            .orbit-1 {{
+                width: 40px;
+                height: 40px;
+                margin: -20px 0 0 -20px;
+                border: 2px solid {spinner_color};
+                animation: rotate 1.5s linear infinite;
+                transform: rotateX(75deg) rotateY(0deg);
+                box-shadow: 0 0 8px {spinner_color};
+            }}
+            
+            .orbit-2 {{
+                width: 60px;
+                height: 60px;
+                margin: -30px 0 0 -30px;
+                border: 2px solid {spinner_color};
+                animation: rotate 2s linear infinite reverse;
+                transform: rotateX(75deg) rotateY(60deg);
+                box-shadow: 0 0 8px {spinner_color};
+            }}
+            
+            .orbit-3 {{
+                width: 80px;
+                height: 80px;
+                margin: -40px 0 0 -40px;
+                border: 2px solid {spinner_color};
+                animation: rotate 2.5s linear infinite;
+                transform: rotateX(75deg) rotateY(120deg);
+                box-shadow: 0 0 8px {spinner_color};
+            }}
+            
+            .electron {{
+                position: absolute;
+                width: 6px;
+                height: 6px;
+                background: radial-gradient(circle at 30% 30%, {spinner_color}, darken({spinner_color}, 15%));
+                border-radius: 50%;
+                box-shadow: 
+                    0 0 5px {spinner_color},
+                    0 0 10px {spinner_color},
+                    inset -1px -1px 2px rgba(0,0,0,0.3);
+            }}
+            
+            .orbit-1 .electron {{
+                top: -4px;
+                left: 50%;
+                margin-left: -3px;
+            }}
+            
+            .orbit-2 .electron {{
+                top: -4px;
+                left: 50%;
+                margin-left: -3px;
+            }}
+            
+            .orbit-3 .electron {{
+                top: -4px;
+                left: 50%;
+                margin-left: -3px;
+            }}
+            
+            @keyframes rotate {{
                 0% {{ transform: rotate(0deg); }}
                 100% {{ transform: rotate(360deg); }}
             }}
+            
+            {gradient_style}
             
             .status {{
                 font-size: 1.2em;
@@ -2488,7 +2635,18 @@ def plot_loading(dirname):
         <div class="back-link"><a href="/" title="Back to simulation browser">‹</a></div>
         <div class="loading-container">
             <h1>Simulation Plots - {title}</h1>
-            <div class="spinner"></div>
+            <div class="atom-spinner">
+                <div class="nucleus"></div>
+                <div class="orbit orbit-1">
+                    <div class="electron"></div>
+                </div>
+                <div class="orbit orbit-2">
+                    <div class="electron"></div>
+                </div>
+                <div class="orbit orbit-3">
+                    <div class="electron"></div>
+                </div>
+            </div>
             <div class="status">Plotting data...</div>
             <p style="color: var(--text-secondary); margin-top: 30px;">This may take a moment for larger datasets.</p>
         </div>
@@ -2504,7 +2662,17 @@ def plot_data(dirname):
     import subprocess
     import tempfile
     import shutil
-    from flask import request
+    from flask import request, redirect, url_for, make_response
+    
+    # Check if this is a direct access (refresh) vs coming from loading page
+    # Check session flag instead of referer header
+    from_loading = session.pop('from_loading', False)
+    loading_dirname = session.get('loading_dirname', '')
+    
+    # If not from loading page or different dirname, redirect to loading page
+    if not from_loading or loading_dirname != dirname:
+        theme = request.args.get('theme', 'dark')
+        return redirect(url_for('plot_loading', dirname=dirname, theme=theme))
     
     # Helper function to format numbers with commas
     def format_param(value):
@@ -3058,7 +3226,12 @@ def plot_data(dirname):
             </html>
             """
             
-            return html_content
+            # Add cache control headers to prevent browser caching
+            response = make_response(html_content)
+            response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+            response.headers['Pragma'] = 'no-cache'
+            response.headers['Expires'] = '0'
+            return response
                 
         except subprocess.TimeoutExpired:
             return "Plot generation timed out (>30s)", 500
