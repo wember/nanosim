@@ -8,10 +8,9 @@ from pathlib import Path
 import argparse
 from tqdm import tqdm
 import time
-import signal
 import sys
-import atexit
-import shutil
+import multiprocessing as mp
+from functools import partial
 
 def add_row(filename, row_data):    # appends a new row to csv file
     try:
@@ -93,93 +92,6 @@ def get_params():
     return defaults['n'], defaults['s'], defaults['flag'], defaults['r'], defaults['m'], args.data_dir
 
 
-n, s, flag, r, m, data_dir = get_params()
-
-# Calculate total iterations for progress tracking
-# Note: r is the max radius, but loop goes from 0 to r inclusive, so (r+1) radii total
-total_sims = (r + 1) * m
-total_sweeps_per_sim = s  # s//2 forward + s//2 reverse
-
-# For combined runs, we do both reversible and irreversible, so double the sweeps
-if flag == 'c':
-    total_sweeps = total_sims * s * 2  # Both rev and irr
-else:
-    total_sweeps = total_sims * s  # Just one dynamics type
-
-print(f"Starting {total_sims} simulations ({r+1} radii × {m} runs)")
-print()
-
-# Use relative path from repo root
-repo_root = Path(__file__).parent.parent
-data_root = repo_root / data_dir
-init_folder = data_root / 'init_fin'
-
-# Create timestamped folder for this run directly in data directory
-timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-data_root.mkdir(parents=True, exist_ok=True)
-data_folder = data_root / timestamp
-data_folder.mkdir(parents=True, exist_ok=True)
-
-# Determine status file location based on flag
-if flag == 'r':  # reversible only
-    status_folder = data_folder / 'rev'
-elif flag == 'i':  # irreversible only
-    status_folder = data_folder / 'irr'
-else:  # combined
-    status_folder = data_folder
-status_folder.mkdir(parents=True, exist_ok=True)
-
-# Status tracking files
-status_file = status_folder / 'sim_status.txt'
-start_marker = status_folder / 'sim_started.txt'
-completion_marker = status_folder / 'sim_completed.txt'
-
-# Write simulation start marker with parameters
-with open(start_marker, 'w') as f:
-    f.write(f"Simulation started: {datetime.now().isoformat()}\n")
-    f.write(f"Parameters: n={n}, sweeps={s}, flag={flag}, radius={r}, runs={m}\n")
-    f.write(f"Total simulations: {total_sims}\n")
-
-# Clean handler for interrupted simulations
-def write_interrupted_status(signum=None, frame=None):
-    """Write interrupted status before exiting."""
-    with open(status_file, 'w') as f:
-        f.write(f"Status: INTERRUPTED\n")
-        f.write(f"Time: {datetime.now().isoformat()}\n")
-        f.write(f"Completed: {sim_counter}/{total_sims} simulations\n")
-        if signum:
-            f.write(f"Signal: {signum}\n")
-    print(f"\n\nSimulation interrupted! Status written to {status_file}")
-    sys.exit(1)
-
-def write_error_status(exc_type, exc_value, exc_traceback):
-    """Write error status on uncaught exceptions."""
-    if exc_type is KeyboardInterrupt:
-        write_interrupted_status()
-        return
-    with open(status_file, 'w') as f:
-        f.write(f"Status: ERROR\n")
-        f.write(f"Time: {datetime.now().isoformat()}\n")
-        f.write(f"Completed: {sim_counter}/{total_sims} simulations\n")
-        f.write(f"Error: {exc_type.__name__}: {exc_value}\n")
-    print(f"\n\nSimulation crashed! Status written to {status_file}")
-
-# Register signal handlers for Ctrl-C and termination
-signal.signal(signal.SIGINT, write_interrupted_status)
-signal.signal(signal.SIGTERM, write_interrupted_status)
-
-# Register exception handler for crashes
-sys.excepthook = write_error_status
-
-file_names = [data_folder / 'rev' / f'r{i}' / f'sim_data_r{i}' for i in range(r+1)]
-irr_files = [data_folder / 'irr' / f'r{i}' / f'irr_sim_data_r{i}' for i in range(r+1)]
-init_files = [init_folder / f'r{i}' / f'sim_data_r{i}' for i in range(r+1)]
-
-# Progress tracking
-sim_counter = 0
-start_time = time.time()
-completed_sweeps = 0
-
 def format_time(seconds):
     """Format time in days/hours/minutes"""
     if seconds >= 172800:  # More than 48 hours (2 days)
@@ -191,49 +103,18 @@ def format_time(seconds):
     else:
         return f"{seconds:.1f}s"
 
-def update_progress_time():
-    """Update progress bar with elapsed/remaining time"""
-    elapsed = time.time() - pbar_start_time
-    rate = pbar.n / elapsed if elapsed > 0 else 0
-    remaining = (total_sweeps - pbar.n) / rate if rate > 0 else 0
-    pbar.set_postfix_str(f"[elapsed {format_time(elapsed)}|remaining {format_time(remaining)}|{rate:.2f}sweep/s]", refresh=True)
-
-def handle_resize(signum, frame):
-    """Handle terminal resize to refresh progress bar"""
-    if 'pbar' in globals() and pbar is not None:
-        try:
-            # Force tqdm to recalculate terminal width and redraw
-            # Clear the line completely first
-            sys.stderr.write('\r\033[K')
-            sys.stderr.flush()
-            # Reset tqdm's internal state and refresh
-            pbar.ncols = None  # Force recalculation
-            pbar.refresh()
-        except:
-            pass
-
-# Set up signal handler for terminal resize (if available)
-try:
-    signal.signal(signal.SIGWINCH, handle_resize)
-except (AttributeError, ValueError):
-    # SIGWINCH not available on this platform
-    pass
-
-# Create progress bar with custom format and dynamic width
-pbar = tqdm(total=total_sweeps, desc="Progress", unit="sweep",
-            bar_format='{desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt} {postfix}',
-            dynamic_ncols=True,  # Dynamically adjust to terminal width
-            mininterval=0.1,  # Update every 0.1 seconds
-            maxinterval=1.0,  # Force update at least every second
-            leave=True)  # Keep the bar visible after completion
-
-# Track for custom time display
-pbar_start_time = time.time()
 
 ######################################################################################
 ##################################### begin sim ######################################
 ######################################################################################
-for R in range(r+1):
+
+def run_radius_simulations(R, n, s, flag, m, file_names, irr_files, init_files, pbar_queue):
+    """Worker function to run all simulations for a given radius R."""
+    # Ignore keyboard interrupts in worker processes - main process handles them
+    import signal
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
+    
+    completed_count = 0
     x = Inferno(n, R)
     for M in range(m):
         # Determine which dynamics to run based on flag
@@ -272,9 +153,6 @@ for R in range(r+1):
 
             ### Forward simulation
             for i in range(s//2):
-                # Update progress description periodically
-                if i % max(1, (s//2)//10) == 0:  # Update ~10 times during phase
-                    pbar.set_description(f"R={R}/{r}, M={M}/{m-1} [fwd {i}/{s//2}]")
                 # flag = (i // (n//k)) % 2    # if 0, perform reversible dynamics
                 data = np.zeros(5)
                 # Attempt to flip each spin in lattice
@@ -308,19 +186,13 @@ for R in range(r+1):
                 else:
                     add_row(irr_filename, new_row)
                 
-                # Update sweep progress
-                completed_sweeps += 1
-                pbar.update(1)
-                update_progress_time()
-            
-            # Update description to show completion of forward phase
-            pbar.set_description(f"R={R}/{r}, M={M}/{m-1} [fwd {s//2}/{s//2}]")
+                # Signal progress to main process
+                if pbar_queue:
+                    pbar_queue.put(1)
+                completed_count += 1
 
             ### Reverse simulation
             for i in range(s//2):
-                # Update progress description periodically
-                if i % max(1, (s//2)//10) == 0:  # Update ~10 times during phase
-                    pbar.set_description(f"R={R}/{r}, M={M}/{m-1} [rev {i}/{s//2}]")
                 # flag = (i // (n//k)) % 2    # if 0, perform reversible dynamics
                 data = np.zeros(5)
                 # Attempt to flip each spin in lattice (full sweep)
@@ -356,48 +228,189 @@ for R in range(r+1):
                 else:
                     add_row(irr_filename, new_row)
                 
-                # Update sweep progress
-                completed_sweeps += 1
-                pbar.update(1)
-                update_progress_time()
-            
-            # Update description to show completion of reverse phase
-            pbar.set_description(f"R={R}/{r}, M={M}/{m-1} [rev {s//2}/{s//2}]")
-            
-            # Update simulation counter
-            sim_counter += 1
+                # Signal progress to main process
+                if pbar_queue:
+                    pbar_queue.put(1)
+                completed_count += 1
 
             # Reset "random" order for next simulation
             x.reset()
+    
+    return completed_count
 
-# Close progress bar
-pbar.close()
 
-# Print summary
-total_time = time.time() - start_time
-if total_time < 60:
-    time_str = f"{total_time:.1f}s"
-elif total_time < 3600:
-    time_str = f"{total_time/60:.1f}m ({total_time:.0f}s)"
-else:
-    time_str = f"{total_time/3600:.2f}h ({total_time/60:.1f}m)"
+if __name__ == '__main__':
+    # Get parameters
+    n, s, flag, r, m, data_dir = get_params()
 
-avg_time_per_sim = total_time / total_sims
-print(f"\nSimulation complete!")
-print(f"  Total time: {time_str}")
-print(f"  Average: {avg_time_per_sim:.2f}s per simulation")
-print(f"  Throughput: {total_sweeps/total_time:.0f} sweeps/sec")
+    # Calculate total iterations for progress tracking
+    # Note: r is the max radius, but loop goes from 0 to r inclusive, so (r+1) radii total
+    total_sims = (r + 1) * m
+    total_sweeps_per_sim = s  # s//2 forward + s//2 reverse
 
-# Write completion status
-with open(completion_marker, 'w') as f:
-    f.write(f"Simulation completed: {datetime.now().isoformat()}\n")
-    f.write(f"Total time: {time_str}\n")
-    f.write(f"Average: {avg_time_per_sim:.2f}s per simulation\n")
-    f.write(f"Throughput: {total_sweeps/total_time:.0f} sweeps/sec\n")
+    # For combined runs, we do both reversible and irreversible, so double the sweeps
+    if flag == 'c':
+        total_sweeps = total_sims * s * 2  # Both rev and irr
+    else:
+        total_sweeps = total_sims * s  # Just one dynamics type
 
-with open(status_file, 'w') as f:
-    f.write(f"Status: COMPLETED\n")
-    f.write(f"Time: {datetime.now().isoformat()}\n")
-    f.write(f"Completed: {total_sims}/{total_sims} simulations\n")
+    # Determine number of CPU cores to use (limited by number of jobs)
+    num_cores = min(mp.cpu_count(), r + 1)
+    
+    print(f"Starting {total_sims} simulations ({r+1} radii × {m} runs)")
+    print(f"Using {num_cores} CPU cores for parallel processing")
+    print()
 
-print(f"Status written to {status_file}")
+    # Use relative path from repo root
+    repo_root = Path(__file__).parent.parent
+    data_root = repo_root / data_dir
+    init_folder = data_root / 'init_fin'
+
+    # Create timestamped folder for this run directly in data directory
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    data_root.mkdir(parents=True, exist_ok=True)
+    data_folder = data_root / timestamp
+    data_folder.mkdir(parents=True, exist_ok=True)
+
+    # Determine status file location based on flag
+    if flag == 'r':  # reversible only
+        status_folder = data_folder / 'rev'
+    elif flag == 'i':  # irreversible only
+        status_folder = data_folder / 'irr'
+    else:  # combined
+        status_folder = data_folder
+    status_folder.mkdir(parents=True, exist_ok=True)
+
+    # Status tracking files
+    status_file = status_folder / 'sim_status.txt'
+    start_marker = status_folder / 'sim_started.txt'
+    completion_marker = status_folder / 'sim_completed.txt'
+
+    # Write simulation start marker with parameters
+    with open(start_marker, 'w') as f:
+        f.write(f"Simulation started: {datetime.now().isoformat()}\n")
+        f.write(f"Parameters: n={n}, sweeps={s}, flag={flag}, radius={r}, runs={m}\n")
+        f.write(f"Total simulations: {total_sims}\n")
+
+    file_names = [data_folder / 'rev' / f'r{i}' / f'sim_data_r{i}' for i in range(r+1)]
+    irr_files = [data_folder / 'irr' / f'r{i}' / f'irr_sim_data_r{i}' for i in range(r+1)]
+    init_files = [init_folder / f'r{i}' / f'sim_data_r{i}' for i in range(r+1)]
+
+    # Progress tracking
+    start_time = time.time()
+
+    def update_progress_time():
+        """Update progress bar with elapsed/remaining time"""
+        elapsed = time.time() - pbar_start_time
+        rate = pbar.n / elapsed if elapsed > 0 else 0
+        remaining = (total_sweeps - pbar.n) / rate if rate > 0 else 0
+        pbar.set_postfix_str(f"[elapsed {format_time(elapsed)}|remaining {format_time(remaining)}|{rate:.2f}sweep/s]", refresh=True)
+
+    # Create progress bar with custom format and dynamic width
+    pbar = tqdm(total=total_sweeps, desc="Progress", unit="sweep",
+                bar_format='{desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt} {postfix}',
+                dynamic_ncols=True,  # Dynamically adjust to terminal width
+                mininterval=0.1,  # Update every 0.1 seconds
+                maxinterval=1.0,  # Force update at least every second
+                leave=True)  # Keep the bar visible after completion
+
+    # Track for custom time display
+    pbar_start_time = time.time()
+    
+    # Create a manager and queue for progress updates
+    manager = mp.Manager()
+    pbar_queue = manager.Queue()
+    
+    # Create worker function with fixed parameters
+    worker_func = partial(run_radius_simulations, 
+                         n=n, s=s, flag=flag, m=m,
+                         file_names=file_names, 
+                         irr_files=irr_files,
+                         init_files=init_files,
+                         pbar_queue=pbar_queue)
+    
+    # Create process pool and submit all R values
+    pool = mp.Pool(processes=num_cores)
+    
+    try:
+        # Submit all jobs asynchronously
+        results = pool.map_async(worker_func, range(r+1))
+        
+        # Monitor progress while jobs run
+        completed_sweeps = 0
+        while not results.ready():
+            try:
+                # Check queue for progress updates with timeout
+                pbar_queue.get(timeout=0.1)
+                completed_sweeps += 1
+                pbar.update(1)
+                update_progress_time()
+            except Exception:
+                # Queue empty or timeout, continue checking
+                pass
+        
+        # Get any remaining progress updates
+        while not pbar_queue.empty():
+            try:
+                pbar_queue.get_nowait()
+                completed_sweeps += 1
+                pbar.update(1)
+                update_progress_time()
+            except Exception:
+                break
+        
+        # Ensure progress bar is at 100%
+        if pbar.n < total_sweeps:
+            pbar.update(total_sweeps - pbar.n)
+        
+        # Get results (blocks until all complete)
+        sweep_counts = results.get()
+        
+        # Close pool normally
+        pool.close()
+        pool.join()
+        
+    except KeyboardInterrupt:
+        print("\n\nInterrupted! Terminating...")
+        pbar.close()
+        pool.terminate()
+        pool.join()
+        
+        # Write interrupted status
+        with open(status_file, 'w') as f:
+            f.write(f"Status: INTERRUPTED\n")
+            f.write(f"Time: {datetime.now().isoformat()}\n")
+        print(f"Status written to {status_file}")
+        sys.exit(1)
+
+    # Close progress bar
+    pbar.close()
+
+    # Print summary
+    total_time = time.time() - start_time
+    if total_time < 60:
+        time_str = f"{total_time:.1f}s"
+    elif total_time < 3600:
+        time_str = f"{total_time/60:.1f}m ({total_time:.0f}s)"
+    else:
+        time_str = f"{total_time/3600:.2f}h ({total_time/60:.1f}m)"
+
+    avg_time_per_sim = total_time / total_sims
+    print(f"\nSimulation complete!")
+    print(f"  Total time: {time_str}")
+    print(f"  Average: {avg_time_per_sim:.2f}s per simulation")
+    print(f"  Throughput: {total_sweeps/total_time:.0f} sweeps/sec")
+
+    # Write completion status
+    with open(completion_marker, 'w') as f:
+        f.write(f"Simulation completed: {datetime.now().isoformat()}\n")
+        f.write(f"Total time: {time_str}\n")
+        f.write(f"Average: {avg_time_per_sim:.2f}s per simulation\n")
+        f.write(f"Throughput: {total_sweeps/total_time:.0f} sweeps/sec\n")
+
+    with open(status_file, 'w') as f:
+        f.write(f"Status: COMPLETED\n")
+        f.write(f"Time: {datetime.now().isoformat()}\n")
+        f.write(f"Completed: {total_sims}/{total_sims} simulations\n")
+
+    print(f"Status written to {status_file}")
