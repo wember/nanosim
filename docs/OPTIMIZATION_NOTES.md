@@ -1,5 +1,19 @@
 # Nanosim Performance Optimization Strategy
 
+## Table of Contents
+
+1. [Implemented Optimizations](#implemented-optimizations-february-2026)
+   - Multiprocessing Parallelization
+   - Performance Results
+   - Implementation Details
+   - Key Design Decisions
+
+2. [Future Optimization: JIT Compilation](#future-optimization-jit-compilation-with-numba)
+   - Current Bottlenecks
+   - Key Challenges
+   - Implementation Approaches
+   - Validation Strategy
+
 ## Context
 
 Current simulation works correctly but needs significant speedup for production runs at N=10,000 to N=1,000,000.
@@ -151,79 +165,214 @@ Efficiency loss due to:
 
 **Note**: With existing 8.4x parallelization, combined speedup could reach 84-840x total.
 
-#### Strategy
+#### Current Bottleneck Analysis
 
-Extract compute-intensive methods into pure functions and compile with `@njit`:
+The hotspot is in `Inferno` class methods called n×s times per simulation:
+
+- `demon_move()` / `demon_reverse()` - orchestrates each Monte Carlo step
+- `spin_flip()` - attempts spin flip with Metropolis criterion (~100 lines)
+- `bond_change()` - attempts bond creation/breaking (~60 lines)
+- `count_bonds()` - updates bond statistics using `np.unique()`
+
+For N=1,000,000, s=10,000: ~10 billion method calls per simulation.
+
+#### Key Challenges
+
+**1. Class State Mutation**
+Current methods mutate instance arrays in-place:
+
+- `self.lattice` - spin configuration
+- `self.E_demon` - demon energies (N-element array)
+- `self.bonds` - bond states
+- `self.E_lattice`, `self.d_energy` - energy trackers
+- `self.R_counter` - radius cycle position
+
+Solutions:
+
+- **Approach A**: Extract as pure functions, pass arrays explicitly
+- **Approach B**: Use Numba's `jitclass` to compile entire class
+
+**2. Random Number Generation**
+
+- **Reversible dynamics**: Uses deterministic `self.order` array with `np.roll()`
+  - JIT-compatible, no issues
+- **Irreversible dynamics**: Uses `np.random.randint()` and `random.randint()`
+  - Must use `numba.random` for JIT compatibility
+  - Different RNG stream than Python stdlib (acceptable for stochastic dynamics)
+
+**3. NumPy Compatibility Issues**
+
+- `np.random.shuffle()` - not JIT-compilable
+  - Solution: Implement Fisher-Yates shuffle manually
+- `np.unique()` in `count_bonds()` - not JIT-compilable
+  - Solution: Replace with simple loop counter (see below)
+
+#### Implementation Approach A: Pure Functions (Recommended)
+
+Extract methods as standalone JIT functions. Minimal code changes, easy to validate:
 
 ```python
 from numba import njit
+import numba
 
 @njit
 def spin_flip_jit(lattice, bonds, E_demon, E_lattice, d_energy, a, i, N):
-    """Pure function version of spin_flip for JIT compilation."""
+    """JIT-compiled spin flip with Metropolis criterion."""
     s = lattice[a]
-    d = E_demon[i]
-    nb = lattice[(a+1)%N]*abs(bonds[a%N]) + lattice[(a-1)%N]*abs(bonds[(a-1)%N])
+    nb = lattice[(a+1)%N]*abs(bonds[a]) + lattice[(a-1)%N]*abs(bonds[(a-1)%N])
     cost = 2*s*nb
 
-    if cost < 0:
+    # Metropolis acceptance
+    if cost < 0 or cost <= E_demon[i]:
         s *= -1
         E_demon[i] -= cost
         d_energy -= cost
         E_lattice += cost
-    elif cost <= E_demon[i]:
-        s *= -1
-        E_demon[i] -= cost
-        d_energy -= cost
-        E_lattice += cost
+        lattice[a] = s
 
-    lattice[a] = s
-
-    # Update bonds
-    if bonds[a] != 0:
-        if lattice[a] == lattice[(a+1)%N]:
-            bonds[a] = -1
-        else:
-            bonds[a] = 1
-
-    if bonds[(a-1)%N] != 0:
-        if lattice[a] == lattice[(a-1)%N]:
-            bonds[(a-1)%N] = -1
-        else:
-            bonds[(a-1)%N] = 1
+        # Update bonds (in-place modification)
+        if bonds[a] != 0:
+            bonds[a] = -1 if lattice[a] == lattice[(a+1)%N] else 1
+        if bonds[(a-1)%N] != 0:
+            bonds[(a-1)%N] = -1 if lattice[a] == lattice[(a-1)%N] else 1
 
     return E_lattice, d_energy
 
-# Similar for bond_change_jit, count_bonds_jit
+@njit
+def bond_change_jit(lattice, bonds, E_demon, E_lattice, d_energy, a, i, N):
+    """JIT-compiled bond creation/breaking."""
+    s = lattice[a]
+    b = bonds[a]
+    n = lattice[(a+1)%N]
+    cost = -1 if s == n else 1
+
+    # Attempt to make/break bond
+    if b == 0 and E_demon[i] >= cost:  # Remake bond
+        E_lattice += cost
+        E_demon[i] -= cost
+        d_energy -= cost
+        bonds[a] = cost
+    elif b != 0 and E_demon[i] + cost >= 0:  # Break bond
+        E_lattice -= cost
+        E_demon[i] += cost
+        d_energy += cost
+        bonds[a] = 0
+
+    # Update neighbor bond
+    if bonds[(a-1)%N] != 0:
+        bonds[(a-1)%N] = -1 if lattice[a] == lattice[(a-1)%N] else 1
+
+    return E_lattice, d_energy
+
+@njit
+def count_bonds_jit(bonds):
+    """Count bond types without np.unique (not JIT-compatible)."""
+    bond_count = np.zeros(3, dtype=np.int64)
+    for b in bonds:
+        if b == -1:
+            bond_count[0] += 1
+        elif b == 0:
+            bond_count[1] += 1
+        elif b == 1:
+            bond_count[2] += 1
+    return bond_count
+
+# Wrapper class maintains interface:
+class InfernoJIT:
+    def spin_flip(self, a, i):
+        self.E_lattice, self.d_energy = spin_flip_jit(
+            self.lattice, self.bonds, self.E_demon,
+            self.E_lattice, self.d_energy, a, i, self.N
+        )
+
+    def count_bonds(self):
+        self.bond_count = count_bonds_jit(self.bonds)
 ```
+
+**Pros**: Easy to test, can keep both versions, minimal changes
+**Cons**: Extra function call overhead (negligible after JIT compilation)
+
+#### Implementation Approach B: JIT Class
+
+Use `jitclass` to compile entire `Inferno` class. Maximum speedup but more complex:
+
+```python
+from numba import jitclass, int64
+from numba.types import Array
+
+spec = [
+    ('N', int64),
+    ('lattice', int64[:]),
+    ('bonds', int64[:]),
+    ('E_lattice', int64),
+    ('E_demon', int64[:]),
+    ('d_energy', int64),
+    ('order', int64[:]),
+    ('rev_order', int64[:]),
+    ('radius', int64),
+    ('R_counter', int64),
+    ('bond_count', int64[:]),
+    # ... other fields
+]
+
+@jitclass(spec)
+class InfernoJIT:
+    def __init__(self, N, R):
+        # Must initialize all fields in spec
+        pass
+
+    def spin_flip(self, a, i):
+        # Entire method compiled
+        pass
+```
+
+**Pros**: Maximum speedup, natural structure
+**Cons**: Debugging harder, `np.random.shuffle` requires workaround
 
 #### Implementation Steps
 
-1. **Profile baseline** - measure current performance at various N
-2. **Extract functions** - create standalone JIT-able versions of:
-   - `spin_flip()`
-   - `bond_change()`
-   - `count_bonds()`
-3. **Wrap in class** - keep class interface, call JIT functions internally
-4. **Validate correctness** - run small N (10-100) with/without JIT, compare outputs exactly
-5. **Handle RNG carefully** - Numba has its own RNG that differs from numpy.random
-   - May need to pass RNG state explicitly
-   - Critical for maintaining reversibility
-6. **Benchmark scaling** - test at N=100, 1K, 10K, 100K, 1M
+1. **Profile baseline** - Measure performance at N=1000, 10000, 100000
+2. **Replace np.unique** - Implement `count_bonds` with loop
+3. **Extract functions** - Start with Approach A (pure functions)
+4. **Handle RNG**:
+   - Reversible: Keep `self.order` with `np.roll()` (JIT-compatible)
+   - Irreversible: Use `numba.random.randint()` instead of `np.random.randint()`
+5. **Validate correctness**:
+   - Bit-exact for small N (10-100)
+   - Reversibility: forward+reverse returns to initial state
+   - Energy conservation: E_total constant
+6. **Benchmark** - N=100, 1K, 10K, 100K, 1M
+7. **If successful, consider Approach B** for additional speedup
 
-#### Known Risks
+#### Validation Strategy
 
-- **Random number generation**: Numba's RNG vs numpy.random - affects irreversible dynamics
-- **Floating point precision**: Any changes break reversibility guarantee
-- **First compilation overhead**: ~1-2s on first run (acceptable for long simulations)
-- **Array bounds**: Modulo operations with large indices need careful testing
+```python
+# Critical: Test reversibility with JIT
+x = InfernoJIT(100, 5)
+lattice_init = x.lattice.copy()
+E_demon_init = x.E_demon.copy()
 
-#### Fallback
+# Forward + reverse cycle
+for i in range(1000):
+    x.demon_move(flag=0, sweep_count=i)
+for i in range(999, -1, -1):
+    x.demon_reverse(flag=0, sweep_count=i)
 
-If JIT breaks physics/reversibility, can create separate JIT and non-JIT code paths:
+# Must be identical for reversible dynamics
+assert np.array_equal(x.lattice, lattice_init)
+assert np.array_equal(x.E_demon, E_demon_init)
+print("✓ Reversibility validated")
+```
 
-- Development/validation: use pure Python
-- Production: use JIT version (validated against small-N reference runs)
+#### Known Risks & Mitigation
+
+| Risk                             | Impact                                                     | Mitigation                                            |
+| -------------------------------- | ---------------------------------------------------------- | ----------------------------------------------------- |
+| RNG differences                  | Breaks bit-exact reproducibility for irreversible dynamics | Acceptable - irreversible is stochastic               |
+| Reversibility broken             | Physics invalidated                                        | Extensive validation suite, compare against reference |
+| Compilation overhead             | 1-2s first run                                             | Negligible for long simulations (hours)               |
+| `np.unique` incompatible         | count_bonds breaks                                         | Replace with simple loop (shown above)                |
+| `np.random.shuffle` incompatible | Initialization breaks                                      | Implement Fisher-Yates manually                       |
 
 ---
 

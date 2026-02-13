@@ -109,7 +109,33 @@ def format_time(seconds):
 ######################################################################################
 
 def run_radius_simulations(R, n, s, flag, m, file_names, irr_files, init_files, pbar_queue):
-    """Worker function to run all simulations for a given radius R."""
+    """
+    Worker function to run all simulations for a given radius R.
+    
+    This function is executed in parallel by multiprocessing.Pool workers. Each worker
+    handles all M runs for a single R value (radius). The pool automatically distributes
+    R values across available CPU cores and queues remaining jobs.
+    
+    Architecture:
+    - Each worker is independent (no shared state except progress queue)
+    - Workers ignore SIGINT - main process handles Ctrl-C interrupts
+    - Progress updates sent via shared queue for real-time progress bar
+    - Each (R, M) combination writes to independent CSV files
+    
+    Args:
+        R: Radius value (0 to r) for bond-demon coupling
+        n: Lattice size
+        s: Number of sweeps (s//2 forward + s//2 reverse)
+        flag: Dynamics type ('c'=combined, 'r'=reversible, 'i'=irreversible)
+        m: Number of independent runs per radius
+        file_names: List of file paths for reversible dynamics output
+        irr_files: List of file paths for irreversible dynamics output
+        init_files: List of file paths for initial/final state snapshots
+        pbar_queue: Shared queue for sending progress updates to main process
+    
+    Returns:
+        int: Total number of completed sweeps (for validation)
+    """
     # Ignore keyboard interrupts in worker processes - main process handles them
     import signal
     signal.signal(signal.SIGINT, signal.SIG_IGN)
@@ -240,6 +266,11 @@ def run_radius_simulations(R, n, s, flag, m, file_names, irr_files, init_files, 
 
 
 if __name__ == '__main__':
+    # CRITICAL: All initialization must be inside this block!
+    # On macOS/Windows, multiprocessing uses 'spawn' method which imports this module
+    # in each worker process. Code outside this block would execute in every worker,
+    # causing duplicate output, incorrect state, and resource conflicts.
+    
     # Get parameters
     n, s, flag, r, m, data_dir = get_params()
 
@@ -254,8 +285,11 @@ if __name__ == '__main__':
     else:
         total_sweeps = total_sims * s  # Just one dynamics type
 
-    # Determine number of CPU cores to use (limited by number of jobs)
-    num_cores = min(mp.cpu_count(), r + 1)
+    # Parallelization strategy: Distribute R values (radii) across CPU cores
+    # Each worker handles all M runs for one R value, writing to independent files.
+    # Pool automatically queues remaining jobs when cores < (r+1).
+    # Example: 8 cores, 11 radii → 8 run immediately, 3 queued, grabbed as workers finish.
+    num_cores = min(mp.cpu_count(), r + 1)  # Don't create more workers than jobs
     
     print(f"Starting {total_sims} simulations ({r+1} radii × {m} runs)")
     print(f"Using {num_cores} CPU cores for parallel processing")
@@ -317,11 +351,14 @@ if __name__ == '__main__':
     # Track for custom time display
     pbar_start_time = time.time()
     
-    # Create a manager and queue for progress updates
+    # Create a manager and queue for inter-process communication
+    # Workers send progress updates (1 per sweep) through this queue.
+    # Main process consumes updates and increments progress bar in real-time.
+    # Queue is thread-safe and works across process boundaries.
     manager = mp.Manager()
     pbar_queue = manager.Queue()
     
-    # Create worker function with fixed parameters
+    # Create worker function with fixed parameters using partial application
     worker_func = partial(run_radius_simulations, 
                          n=n, s=s, flag=flag, m=m,
                          file_names=file_names, 
@@ -333,20 +370,23 @@ if __name__ == '__main__':
     pool = mp.Pool(processes=num_cores)
     
     try:
-        # Submit all jobs asynchronously
+        # Submit all (r+1) jobs to pool. Pool distributes across workers automatically.
+        # map_async returns immediately - workers run in background.
         results = pool.map_async(worker_func, range(r+1))
         
-        # Monitor progress while jobs run
+        # Monitor progress while workers run
+        # Each worker puts '1' in queue after completing a sweep.
+        # We consume the queue and update the progress bar in real-time.
         completed_sweeps = 0
-        while not results.ready():
+        while not results.ready():  # Loop until all workers finish
             try:
-                # Check queue for progress updates with timeout
+                # Wait 0.1s for progress update from any worker
                 pbar_queue.get(timeout=0.1)
                 completed_sweeps += 1
                 pbar.update(1)
                 update_progress_time()
-            except Exception:
-                # Queue empty or timeout, continue checking
+            except Exception:  # Must be Exception, not bare except:!
+                # Queue empty or timeout - KeyboardInterrupt must propagate up!
                 pass
         
         # Get any remaining progress updates
@@ -371,10 +411,14 @@ if __name__ == '__main__':
         pool.join()
         
     except KeyboardInterrupt:
+        # Ctrl-C pressed - clean shutdown
+        # Workers ignore SIGINT (set in worker function), so only main process catches it.
+        # terminate() sends SIGTERM to all workers for immediate forced shutdown.
+        # join() waits for workers to clean up before exiting.
         print("\n\nInterrupted! Terminating...")
-        pbar.close()
-        pool.terminate()
-        pool.join()
+        pbar.close()       # Close progress bar first to clear terminal
+        pool.terminate()   # Force kill all worker processes
+        pool.join()        # Wait for cleanup
         
         # Write interrupted status
         with open(status_file, 'w') as f:
