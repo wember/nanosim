@@ -204,10 +204,9 @@ pbar_start_time = time.time()
 ######################################################################################
 ##################################### begin sim ######################################
 ######################################################################################
-for M in range(m):
-    for R in range(r+1):
-        x = Inferno(n, R)
-
+for R in range(r+1):
+    x = Inferno(n, R)
+    for M in range(m):
         # Determine which dynamics to run based on flag
         if flag == 'c':  # combined
             dynamics_flags = [0, 1]
@@ -338,6 +337,9 @@ for M in range(m):
             
             # Update simulation counter
             sim_counter += 1
+
+            # Reset "random" order for next simulation
+            x.reset()
 
 # Close progress bar
 pbar.close()

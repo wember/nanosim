@@ -33,12 +33,13 @@ class Inferno:
         a = np.arange(N)
         np.random.shuffle(a)
 
-        total_energy = 2*N # total energy of the system
+        total_energy = N//2 # total energy of the system
 
         self.N = N
         self.order = a
         self.rev_order = np.flip(a)
         self.radius = R
+        self.R_counter = 0
         # self.radius_spin = self.rev_radius_bond = np.random.randint(0, R, size=N)*np.random.choice([-1, 1], size=N)
         # self.rev_radius_spin = self.radius_bond = np.flip(self.radius_spin)
         self.lattice = np.concatenate((np.ones(N//2, dtype=int), (-1)*np.ones(N//2, dtype=int)))
@@ -58,65 +59,18 @@ class Inferno:
         self.E_total = self.E_lattice + sum(self.E_demon)
 
 ################################################################################
-                ###            TEST SETUP           ###
-################################################################################
-        # N=2
-        # a = np.arange(N)
-        # total_energy = N # total energy of the system
-        # self.N = N
-        # self.order = a
-        # self.rev_order = np.flip(a)
-        # self.lattice = np.array([1,1])
-        # self.bonds = [-1,-1]
-        # self.bond_count = np.ones(3, dtype=int)
-        # self.count_bonds()
-        # self.E_lattice = sum(self.bonds)
-        # self.E_demon = np.array([4,0])
-        # self.d_energy = total_energy - self.E_lattice
-        # self.E_total = self.E_lattice + sum(self.E_demon)
-
 ################################################################################
 ################################################################################
-################################################################################
-
-    # def calc_E_lat(self,lattice,N):
-    #     """
-    #         Calculate energy of the lattice configuration.
-    #     """
-    #     ETOT = 0
-    #
-    #     # Loop over the entire lattice calculating nearest neighbor interactions
-    #     for a in range(N):
-    #         # Grab the lattice site spin value
-    #         s =  lattice[a]
-    #         # Calculate the energy of the configuration based on
-    #         # nearest neighbors
-    #         nb = lattice[(a+1)%N] + lattice[(a-1)%N]
-    #         # running sum of energy of Ising latus
-    #         ETOT += 2 * s * nb
-    #
-    #     # Update the value of the lattice energy
-    #     return ETOT
+    def reset(self):
+        """
+            Resets the "random" order for reversible simulations
+        """     
+        a = np.arange(self.N)
+        np.random.shuffle(a)
+        self.order = a
+        self.rev_order = np.flip(a)
 
     def spin_flip(self, a, i):
-        # print(self.lattice, "lattice: ", self.E_lattice,  "demon: ", self.E_demon,  self.d_energy, "total: ", self.E_lattice+sum(self.E_demon))
-        # print(self.bonds, self.bond_count)
-        # ### entropy calc for testing
-        # self.count_bonds()
-        #
-        # print(" N0 | Nx | U/J | Su/k  | K/J | Sk/k  | Se/k | p(u,k)")
-        # if (self.bond_count[1] == 0):
-        #     uk = (f(self.N)*2**(self.bond_count[1]+1))/(f(self.N-self.bond_count[1]-self.bond_count[2])*f(self.bond_count[1])*f(self.bond_count[2]))
-        #     SUtest = Su0(self.N, self.bond_count[1], self.bond_count[2])
-        # else:
-        #     uk = (f(self.N)*2**(self.bond_count[1]))/(f(self.N-self.bond_count[1]-self.bond_count[2])*f(self.bond_count[1])*f(self.bond_count[2]))
-        #     SUtest = Su(self.N, self.bond_count[1], self.bond_count[2])
-        # sk = f(self.d_energy+self.N-1)/(f(self.d_energy)*f(self.N-1))
-        # # print(f" {self.bond_count[1]}  |  {self.bond_count[2]} | {self.E_lattice}  |ln({uk})|  {self.d_energy}  |ln({sk})|ln({sk*uk})")
-        #
-        # print("Su : ", SUtest, math.log(uk))
-        # print("Sk : ", Sk(self.N, self.d_energy), math.log(sk))
-        # print("----------------------")
         """
             Attempt to flip the spin of a given lattice site
         """
@@ -164,24 +118,6 @@ class Inferno:
                 self.bonds[(a-1)%self.N] = 1
 
     def bond_change(self, a, i):
-        # print(self.lattice, "lattice: ", self.E_lattice, "demon: ", self.E_demon,  self.d_energy, "total: ", self.E_lattice+sum(self.E_demon))
-        # print(self.bonds, self.bond_count)
-        # ### entropy calc for testing
-        # self.count_bonds()
-        #
-        # print(" N0 | Nx | U/J | Su/k  | K/J | Sk/k  | Se/k | p(u,k)")
-        # if (self.bond_count[1] == 0):
-        #     uk = (f(self.N)*2**(self.bond_count[1]+1))/(f(self.N-self.bond_count[1]-self.bond_count[2])*f(self.bond_count[1])*f(self.bond_count[2]))
-        #     SUtest = Su0(self.N, self.bond_count[1], self.bond_count[2])
-        # else:
-        #     uk = (f(self.N)*2**(self.bond_count[1]))/(f(self.N-self.bond_count[1]-self.bond_count[2])*f(self.bond_count[1])*f(self.bond_count[2]))
-        #     SUtest = Su(self.N, self.bond_count[1], self.bond_count[2])
-        # sk = f(self.d_energy+self.N-1)/(f(self.d_energy)*f(self.N-1))
-        # # print(f" {self.bond_count[1]}  |  {self.bond_count[2]} | {self.E_lattice}  |ln({uk})|  {self.d_energy}  |ln({sk})|ln({sk*uk})")
-        #
-        # print("Su : ", SUtest, math.log(uk))
-        # print("Sk : ", Sk(self.N, self.d_energy), math.log(sk))
-        # print("----------------------")
         """
             Attempt to change the bond given lattice site
         """
@@ -247,15 +183,23 @@ class Inferno:
         """
         a = self.order[0]
         radius_cycle = 2 * self.radius + 1
-        R = (sweep_count % radius_cycle) - self.radius
+        R = (self.R_counter % radius_cycle) - self.radius
+        self.R_counter += 1
         # If irr flag is on, generate a random number instead
         if (flag != 0):
             a = np.random.randint(0, self.N)
-            R = np.random.randint(0, self.N)
+            if self.radius != 0:
+                R = np.random.randint(0, self.radius)
 
         # Attempt to flip spin
         self.spin_flip(a, (a + R)%self.N)
 
+        R = (self.R_counter % radius_cycle) - self.radius
+        self.R_counter += 1
+        # If irr flag is on, generate a random number instead
+        if (flag != 0):
+            if self.radius != 0:
+                R = np.random.randint(0, self.radius)
         # Attempt to change bond
         self.bond_change(a, (a + R)%self.N)
 
@@ -272,14 +216,22 @@ class Inferno:
         """
         a = self.rev_order[0]
         radius_cycle = 2 * self.radius + 1 
-        R = (sweep_count % radius_cycle) - self.radius
+        self.R_counter -= 1
+        R = (self.R_counter % radius_cycle) - self.radius
         # If irr flag is on, generate a random number instead
         if (flag != 0):
             a = np.random.randint(0, self.N)
-            R = np.random.randint(0, self.N)
+            if self.radius != 0:
+                R = np.random.randint(0, self.radius)
         # Attempt to change bond
         self.bond_change(a, (a + R)%self.N)
 
+        self.R_counter -= 1
+        R = (self.R_counter % radius_cycle) - self.radius
+        # If irr flag is on, generate a random number instead
+        if (flag != 0):
+            if self.radius != 0:
+                R = np.random.randint(0, self.radius)
         # Attempt to flip spin
         self.spin_flip(a, (a + R)%self.N)
 
