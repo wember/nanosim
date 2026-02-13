@@ -2497,8 +2497,6 @@ def plot_loading(dirname):
                 width: 80px;
                 height: 80px;
                 margin: 30px auto;
-                transform-style: preserve-3d;
-                perspective: 400px;
             }}
             
             .nucleus {{
@@ -2507,15 +2505,10 @@ def plot_loading(dirname):
                 left: 50%;
                 width: 12px;
                 height: 12px;
-                background: radial-gradient(circle at 30% 30%, {spinner_color}, darken({spinner_color}, 20%));
+                background: {spinner_color};
                 border-radius: 50%;
                 transform: translate(-50%, -50%);
-                box-shadow: 
-                    0 0 10px {spinner_color},
-                    0 0 20px {spinner_color},
-                    inset -2px -2px 4px rgba(0,0,0,0.3),
-                    inset 2px 2px 4px rgba(255,255,255,0.2);
-                margin: 2px 0 0 2px;
+                box-shadow: 0 0 10px {spinner_color}, 0 0 20px {spinner_color};
             }}
             
             .orbit {{
@@ -2523,7 +2516,7 @@ def plot_loading(dirname):
                 top: 50%;
                 left: 50%;
                 border-radius: 50%;
-                opacity: 0.5;
+                opacity: 0.4;
             }}
             
             .orbit-1 {{
@@ -2532,7 +2525,6 @@ def plot_loading(dirname):
                 margin: -20px 0 0 -20px;
                 border: 2px solid {spinner_color};
                 animation: rotate 1.5s linear infinite;
-                transform: rotateX(75deg) rotateY(0deg);
                 box-shadow: 0 0 8px {spinner_color};
             }}
             
@@ -2541,8 +2533,8 @@ def plot_loading(dirname):
                 height: 60px;
                 margin: -30px 0 0 -30px;
                 border: 2px solid {spinner_color};
-                animation: rotate 2s linear infinite reverse;
-                transform: rotateX(75deg) rotateY(60deg);
+                animation: rotate 2s linear infinite;
+                animation-delay: -0.66s;
                 box-shadow: 0 0 8px {spinner_color};
             }}
             
@@ -2552,7 +2544,6 @@ def plot_loading(dirname):
                 margin: -40px 0 0 -40px;
                 border: 2px solid {spinner_color};
                 animation: rotate 2.5s linear infinite;
-                transform: rotateX(75deg) rotateY(120deg);
                 box-shadow: 0 0 8px {spinner_color};
             }}
             
@@ -2560,12 +2551,9 @@ def plot_loading(dirname):
                 position: absolute;
                 width: 6px;
                 height: 6px;
-                background: radial-gradient(circle at 30% 30%, {spinner_color}, darken({spinner_color}, 15%));
+                background: {spinner_color};
                 border-radius: 50%;
-                box-shadow: 
-                    0 0 5px {spinner_color},
-                    0 0 10px {spinner_color},
-                    inset -1px -1px 2px rgba(0,0,0,0.3);
+                box-shadow: 0 0 5px {spinner_color}, 0 0 10px {spinner_color};
             }}
             
             .orbit-1 .electron {{
