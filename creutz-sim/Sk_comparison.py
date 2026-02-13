@@ -87,6 +87,8 @@ for R in range(r):
         continue
     
     all_csv_files = glob.glob(str(folder_path / '*.csv'))
+    # Filter out _0.csv files as they have too much noise
+    all_csv_files = [f for f in all_csv_files if not f.endswith('_0.csv')]
     if not all_csv_files:
         continue
 
@@ -167,6 +169,8 @@ rev_filepath = filepath / 'rev' if (filepath / 'rev').exists() and any((filepath
 for R in range(r):
     folder_path = rev_filepath / f'r{R}'
     all_csv_files = glob.glob(str(folder_path / '*.csv'))
+    # Filter out _0.csv files as they have too much noise
+    all_csv_files = [f for f in all_csv_files if not f.endswith('_0.csv')]
     
     if not all_csv_files:
         continue

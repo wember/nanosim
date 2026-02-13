@@ -11,6 +11,7 @@ import time
 import signal
 import sys
 import atexit
+import shutil
 
 def add_row(filename, row_data):    # appends a new row to csv file
     try:
@@ -52,24 +53,27 @@ def get_params():
         print()
         
         try:
-            n = input(f"Lattice size [{defaults['n']}]: ").strip()
+            n = input(f"Lattice size (n) [{defaults['n']}]: ").strip()
             defaults['n'] = int(n) if n else defaults['n']
             
-            s = input(f"Number of sweeps [{defaults['s']}]: ").strip()
+            s = input(f"Number of sweeps (s) [{defaults['s']}]: ").strip()
             defaults['s'] = int(s) if s else defaults['s']
             
             f = input(f"Dynamics (c=combined, r=reversible, i=irreversible) [{defaults['flag']}]: ").strip()
             defaults['flag'] = f if f in ['c', 'r', 'i'] else defaults['flag']
             
-            r = input(f"Max radius [{defaults['r']}]: ").strip()
+            r = input(f"Max radius (r) [{defaults['r']}]: ").strip()
             defaults['r'] = int(r) if r else defaults['r']
             
-            m = input(f"Number of runs [{defaults['m']}]: ").strip()
+            m = input(f"Number of runs (m) [{defaults['m']}]: ").strip()
             defaults['m'] = int(m) if m else defaults['m']
             
             print()
-        except (ValueError, KeyboardInterrupt):
-            print("\nUsing default values")
+        except KeyboardInterrupt:
+            print("\n\nSimulation cancelled by user.")
+            sys.exit(0)
+        except ValueError:
+            print("\nInvalid input. Using default values")
     else:
         # Use command line args if provided
         if args.lattice_size is not None:
@@ -178,7 +182,7 @@ completed_sweeps = 0
 
 def format_time(seconds):
     """Format time in days/hours/minutes"""
-    if seconds >= 86400:  # More than 1 day
+    if seconds >= 172800:  # More than 48 hours (2 days)
         return f"{seconds / 86400:.1f}d"
     elif seconds >= 3600:  # More than 1 hour
         return f"{seconds / 3600:.1f}h"
@@ -194,9 +198,34 @@ def update_progress_time():
     remaining = (total_sweeps - pbar.n) / rate if rate > 0 else 0
     pbar.set_postfix_str(f"[elapsed {format_time(elapsed)}|remaining {format_time(remaining)}|{rate:.2f}sweep/s]", refresh=True)
 
-# Create progress bar with custom format
+def handle_resize(signum, frame):
+    """Handle terminal resize to refresh progress bar"""
+    if 'pbar' in globals() and pbar is not None:
+        try:
+            # Force tqdm to recalculate terminal width and redraw
+            # Clear the line completely first
+            sys.stderr.write('\r\033[K')
+            sys.stderr.flush()
+            # Reset tqdm's internal state and refresh
+            pbar.ncols = None  # Force recalculation
+            pbar.refresh()
+        except:
+            pass
+
+# Set up signal handler for terminal resize (if available)
+try:
+    signal.signal(signal.SIGWINCH, handle_resize)
+except (AttributeError, ValueError):
+    # SIGWINCH not available on this platform
+    pass
+
+# Create progress bar with custom format and dynamic width
 pbar = tqdm(total=total_sweeps, desc="Progress", unit="sweep",
-            bar_format='{desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt} {postfix}')
+            bar_format='{desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt} {postfix}',
+            dynamic_ncols=True,  # Dynamically adjust to terminal width
+            mininterval=0.1,  # Update every 0.1 seconds
+            maxinterval=1.0,  # Force update at least every second
+            leave=True)  # Keep the bar visible after completion
 
 # Track for custom time display
 pbar_start_time = time.time()
