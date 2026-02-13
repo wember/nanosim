@@ -33,7 +33,7 @@ class Inferno:
         a = np.arange(N)
         np.random.shuffle(a)
 
-        total_energy = 2*N # total energy of the system
+        total_energy = N//2 # total energy of the system
 
         self.N = N
         self.order = a
