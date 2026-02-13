@@ -8,7 +8,7 @@ Current simulation works correctly but needs significant speedup for production 
 
 ### Multiprocessing Parallelization - COMPLETED ✅
 
-**Achieved Speedup**: ~11x on 11-core system (36 hours → 3.2 hours for N=1000, s=10000)
+**Achieved Speedup**: ~10x on 11-core system (32 hours → 3.2 hours for N=1000, s=10000)
 
 #### Implementation Details
 
@@ -108,10 +108,10 @@ Only function definitions remain at module level:
 #### Performance Results
 
 - **Test case**: N=1000, s=10000, r=10, m=5 (55 simulations)
-- **Sequential**: ~27 hours
+- **Sequential**: ~32 hours
 - **Parallel (11 cores)**: ~3.2 hours
-- **Speedup**: 8.4x
-- **Parallel efficiency**: ~76% (8.4/11)
+- **Speedup**: 10x
+- **Parallel efficiency**: ~90% (10/11)
 
 Efficiency loss due to:
 
@@ -231,7 +231,7 @@ If JIT breaks physics/reversibility, can create separate JIT and non-JIT code pa
 
 **Achieved Speedup**: ~8.4x on 11-core system (see "Implemented Optimizations" section above)
 
-Status: Production-ready. Currently running N=1000, s=10000 simulation with 3.2-hour completion time (down from 27 hours sequential).
+Status: Production-ready. Currently running N=1000, s=10000 simulation with 3.2-hour completion time (down from 32 hours sequential).
 
 ---
 
