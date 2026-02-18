@@ -1,7 +1,7 @@
 import numpy as np
 import random
 import math
-from numba import njit
+
 
 # test #
 from scipy.special import factorial as f
@@ -9,132 +9,6 @@ from scipy.special import loggamma as logg
 Sk = lambda N, K: logg(K + N) - logg(K+1) - logg(N) # N == lattice size, K == kinetic energy
 Su = lambda N, N0, Nx: logg(N+1) + np.log(2**(N0)) - (logg(N-N0-Nx+1) + logg(N0+1) + logg(Nx+1)) # N == lattice size, N0 == broken bonds, Nx == bonds between anti-aligned spins
 Su0 = lambda N, N0, Nx: logg(N+1) + np.log(2**(N0+1)) - (logg(N-N0-Nx+1) + logg(N0+1) + logg(Nx+1)) # N == lattice size, N0 == broken bonds, Nx == bonds between anti-aligned spins
-
-
-################################################################################
-# JIT-Compiled Functions (Hot Path Optimization)
-################################################################################
-
-@njit
-def spin_flip_jit(lattice, bonds, E_demon, E_lattice, d_energy, a, i, N):
-    """
-    JIT-compiled spin flip with Metropolis criterion.
-    
-    Args:
-        lattice: array of spin values
-        bonds: array of bond values
-        E_demon: array of demon energies
-        E_lattice: lattice energy
-        d_energy: total demon energy
-        a: lattice site index
-        i: demon index
-        N: lattice size
-    
-    Returns:
-        (E_lattice, d_energy): updated energies
-    """
-    s = lattice[a]
-    
-    # Calculate energy based on nearest neighbors
-    nb = lattice[(a+1)%N]*abs(bonds[a%N]) + lattice[(a-1)%N]*abs(bonds[(a-1)%N])
-    cost = 2*s*nb
-    
-    # Metropolis acceptance: flip if favorable or if demon has energy
-    if cost < 0 or cost <= E_demon[i]:
-        s *= -1
-        E_demon[i] -= cost
-        d_energy -= cost
-        E_lattice += cost
-        lattice[a] = s
-        
-        # Update bonds
-        if bonds[a] != 0:
-            if lattice[a] == lattice[(a+1)%N]:
-                bonds[a] = -1
-            else:
-                bonds[a] = 1
-        
-        if bonds[(a-1)%N] != 0:
-            if lattice[a] == lattice[(a-1)%N]:
-                bonds[(a-1)%N] = -1
-            else:
-                bonds[(a-1)%N] = 1
-    
-    return E_lattice, d_energy
-
-
-@njit
-def bond_change_jit(lattice, bonds, E_demon, E_lattice, d_energy, a, i, N):
-    """
-    JIT-compiled bond creation/breaking.
-    
-    Args:
-        lattice: array of spin values
-        bonds: array of bond values
-        E_demon: array of demon energies
-        E_lattice: lattice energy
-        d_energy: total demon energy
-        a: lattice site index
-        i: demon index
-        N: lattice size
-    
-    Returns:
-        (E_lattice, d_energy): updated energies
-    """
-    s = lattice[a]
-    b = bonds[a]
-    n = lattice[(a+1)%N]
-    cost = -1 if s == n else 1
-    
-    # If bond is broken, attempt to remake
-    if (b == 0) and (E_demon[i] >= cost):
-        E_lattice += cost
-        E_demon[i] -= cost
-        d_energy -= cost
-        bonds[a] = cost
-    
-    # If bond is made, attempt to break
-    elif (b != 0) and (E_demon[i] + cost >= 0):
-        E_lattice -= cost
-        E_demon[i] += cost
-        d_energy += cost
-        bonds[a] = 0
-    
-    # Update neighbor bond if it exists
-    if bonds[(a-1)%N] != 0:
-        if lattice[a] == lattice[(a-1)%N]:
-            bonds[(a-1)%N] = -1
-        else:
-            bonds[(a-1)%N] = 1
-    
-    return E_lattice, d_energy
-
-
-@njit
-def count_bonds_jit(bonds):
-    """
-    JIT-compiled bond counting.
-    
-    Args:
-        bonds: array of bond values
-    
-    Returns:
-        bond_count: array [count_of_-1, count_of_0, count_of_1]
-    """
-    bond_count = np.zeros(3, dtype=np.int64)
-    for b in bonds:
-        if b == -1:
-            bond_count[0] += 1
-        elif b == 0:
-            bond_count[1] += 1
-        elif b == 1:
-            bond_count[2] += 1
-    return bond_count
-
-
-################################################################################
-# Inferno Class
-################################################################################
 
 class Inferno:
     """
@@ -198,27 +72,110 @@ class Inferno:
 
     def spin_flip(self, a, i):
         """
-            Attempt to flip the spin of a given lattice site (JIT-optimized)
+            Attempt to flip the spin of a given lattice site
         """
-        self.E_lattice, self.d_energy = spin_flip_jit(
-            self.lattice, self.bonds, self.E_demon,
-            self.E_lattice, self.d_energy, a, i, self.N
-        )
+        # Grab the lattice site spin value
+        s =  self.lattice[a]
+        d = self.E_demon[i]
+        # Calculate the energy of the configuration based on
+        # nearest neighbors
+        nb = self.lattice[(a+1)%self.N]*abs(self.bonds[(a)%self.N]) + self.lattice[(a-1)%self.N]*abs(self.bonds[(a-1)%self.N])
+        # Check the cost of flipping the spin
+        cost = 2*s*nb
+        # If energetically favorable, flip and add energy to demon
+        if cost < 0:
+            s *= -1
+            # Notice we substract the cost to maintain net0 energy
+
+            self.E_demon[i] -= cost
+            self.d_energy -= cost
+            self.E_lattice += cost
+        # If it costs energy, only flip if demon has enough energy
+        elif cost <= self.E_demon[i]:
+            s *= -1
+            self.E_demon[i] -= cost
+            self.d_energy -= cost
+            self.E_lattice += cost
+        # Otherwise, pass
+        else:
+            pass
+
+        # Update spin
+        self.lattice[a] = s
+
+        # Update bond of lattice site and of leftmost neighbor
+        if (self.bonds[a] != 0):
+            if (self.lattice[a] == self.lattice[(a+1)%self.N]):
+                self.bonds[a] = -1
+            else:
+                self.bonds[a] = 1
+
+
+        if (self.bonds[(a-1)%self.N] != 0):
+            if (self.lattice[a] == self.lattice[(a-1)%self.N]):
+                self.bonds[(a-1)%self.N] = -1
+            else:
+                self.bonds[(a-1)%self.N] = 1
 
     def bond_change(self, a, i):
         """
-            Attempt to change the bond given lattice site (JIT-optimized)
+            Attempt to change the bond given lattice site
         """
-        self.E_lattice, self.d_energy = bond_change_jit(
-            self.lattice, self.bonds, self.E_demon,
-            self.E_lattice, self.d_energy, a, i, self.N
-        )
+        # Grab the lattice site spin, bond value, and demon energy
+        s =  self.lattice[a]
+        b =  self.bonds[a]
+        d = self.E_demon[i]
+        # Grab value of bonded neighbor
+        n = self.lattice[(a+1)%self.N]
+        # Check the cost of breaking the bond
+        if (s == n):
+            cost = -1
+        else:
+            cost = 1
+
+        # if bond is broken, attempt to remake
+        if (b == 0) and (d - cost >= 0):
+            b = cost
+
+            if (self.bonds[a] == 0):
+                self.E_lattice += cost
+                self.E_demon[i] -= cost
+                self.d_energy -= cost
+                self.bonds[a] = b
+
+        # if bond is made, attempt to break
+        elif (d + cost >= 0):
+            b = 0
+
+            if (self.bonds[a] != 0):
+                self.E_lattice -= cost
+                self.E_demon[i] += cost
+                self.d_energy += cost
+                self.bonds[a] = b
+
+        else:
+            pass
+
+        if (self.bonds[(a-1)%self.N] != 0):
+            if (self.lattice[a] == self.lattice[(a-1)%self.N]):
+                self.bonds[(a-1)%self.N] = -1
+            else:
+                self.bonds[(a-1)%self.N] = 1
 
     def count_bonds(self):
         """
-            Updates the bond-count array of number of aligned (-1), broken (0), and misaligned (1) bonds (JIT-optimized)
+            Updates the bond-count array of number of aligned (-1), broken (0), and misaligned (-1) bonds
         """
-        self.bond_count = count_bonds_jit(self.bonds)
+        unique, counts = np.unique(self.bonds, return_counts=True)
+        list = dict(zip(unique.astype(str), counts.astype(str)))
+        index = 0
+        for i in [-1,0,1]:
+            bond_type = str(i)
+            if i in unique:
+                self.bond_count[index] = list[bond_type]
+            else:
+                self.bond_count[index] = 0
+            index += 1
 
     def demon_move(self, flag, sweep_count):
         """
