@@ -157,8 +157,8 @@ for R in range(r):
         fig.add_trace(go.Scatter(x=zoom['t'].rolling(window=bin_size).mean(), y=zoom['S/nk'].rolling(window=bin_size).mean(), 
                                  name=f"Radius {R}", line=dict(color=irr_colors[R]), legendgroup=f"r{R}", showlegend=False,
                                  hovertemplate=f'<b>Radius {R} (Irreversible)</b><br>Sweep: %{{x:.1f}}<br>S/Nk: %{{y:.4f}}<extra></extra>'),row=2, col=2)
-    irr_avg_Sk = np.append(irr_avg_Sk, np.mean(zoom['S/nk']))
-    irr_SEM = np.append(irr_SEM, np.std(zoom['S/nk']/math.sqrt(len(zoom['S/nk']))))
+    irr_avg_Sk = np.append(irr_avg_Sk, np.mean(average_df['S/nk']))
+    irr_SEM = np.append(irr_SEM, np.std(average_df['S/nk']/math.sqrt(len(average_df['S/nk']))))
 
 ######### Plot reversible data
 # Check if data is in rev subdirectory (when run with -f 0)
@@ -238,8 +238,8 @@ for R in range(r):
         fig.add_trace(go.Scatter(x=zoom['t'].rolling(window=bin_size).mean(), y=zoom['S/nk'].rolling(window=bin_size).mean(), 
                                  name=f"Radius {R}", line=dict(color=colors[R]), legendgroup=f"r{R}", showlegend=False,
                                  hovertemplate=f'<b>Radius {R} (Reversible)</b><br>Sweep: %{{x:.1f}}<br>S/Nk: %{{y:.4f}}<extra></extra>'),row=2, col=2)
-    avg_Sk = np.append(avg_Sk, np.mean(zoom['S/nk']))
-    SEM = np.append(SEM, np.std(zoom['S/nk']/math.sqrt(len(zoom['S/nk']))))
+    avg_Sk = np.append(avg_Sk, np.mean(average_df['S/nk']))
+    SEM = np.append(SEM, np.std(average_df['S/nk']/math.sqrt(len(average_df['S/nk']))))
     # fig.add_trace(go.Histogram(x=average_df['S/nk'], nbinsx=1),row=1, col=2)
 
 fig.update_xaxes(title_text="Sweeps", row=1, col=1)
