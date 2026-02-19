@@ -1,15 +1,28 @@
 #!/usr/bin/env venv/bin/python
 """Simple web interface to browse current and archived simulation runs."""
 
-from flask import Flask, render_template_string, send_file, request, jsonify
+from flask import Flask, render_template_string, send_file, request, jsonify, session
 from pathlib import Path
 from datetime import datetime
 import hashlib
 import zipfile
 import tempfile
 import shutil
+import secrets
 
 app = Flask(__name__)
+app.secret_key = secrets.token_hex(16)  # For session management
+
+# Add custom Jinja2 filter for formatting numbers with commas
+@app.template_filter('commafy')
+def commafy_filter(value):
+    """Format a number with comma separators."""
+    if value is None:
+        return 'N/A'
+    try:
+        return f"{int(value):,}"
+    except (ValueError, TypeError):
+        return value
 
 REPO_ROOT = Path(__file__).parent.parent
 DATA_DIR = REPO_ROOT / 'data'
@@ -22,6 +35,13 @@ HTML_TEMPLATE = """
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Simulation Browser</title>
+    <script>
+        // Set theme immediately to prevent flash
+        (function() {
+            const savedTheme = localStorage.getItem('theme') || 'dark';
+            document.documentElement.setAttribute('data-theme', savedTheme);
+        })();
+    </script>
     <style>
         :root {
             --bg-primary: #1e1e1e;
@@ -1226,7 +1246,7 @@ HTML_TEMPLATE = """
                             <div class="sim-option-title">{{ archive.display_time }}</div>
                             <div class="sim-option-details">
                                 {% if archive.params %}
-                                n={{ archive.params.n }}, s={{ archive.params.sweeps }}, r={{ archive.params.radius }}
+                                n={{ archive.params.n|commafy }}, s={{ archive.params.sweeps|commafy }}, r={{ archive.params.radius|commafy }}
                                 {% endif %}
                             </div>
                         </div>
@@ -1249,7 +1269,7 @@ HTML_TEMPLATE = """
                             <div class="sim-option-title">{{ archive.display_time }}</div>
                             <div class="sim-option-details">
                                 {% if archive.params %}
-                                n={{ archive.params.n }}, s={{ archive.params.sweeps }}, r={{ archive.params.radius }}
+                                n={{ archive.params.n|commafy }}, s={{ archive.params.sweeps|commafy }}, r={{ archive.params.radius|commafy }}
                                 {% endif %}
                             </div>
                         </div>
@@ -1299,30 +1319,30 @@ HTML_TEMPLATE = """
                     {% if archive.rev_params and archive.irr_params %}
                     <div class="details-grid">
                         <div><strong>Reversible:</strong></div>
-                        <div><span class="param">n={{ archive.rev_params.n }}, s={{ archive.rev_params.sweeps }}, r={{ archive.rev_params.radius }}, m={{ archive.rev_params.runs }}</span></div>
+                        <div><span class="param">n={{ archive.rev_params.n|commafy }}, s={{ archive.rev_params.sweeps|commafy }}, r={{ archive.rev_params.radius|commafy }}, m={{ archive.rev_params.runs|commafy }}</span></div>
                         <div><strong>Irreversible:</strong></div>
-                        <div><span class="param">n={{ archive.irr_params.n }}, s={{ archive.irr_params.sweeps }}, r={{ archive.irr_params.radius }}, m={{ archive.irr_params.runs }}</span></div>
+                        <div><span class="param">n={{ archive.irr_params.n|commafy }}, s={{ archive.irr_params.sweeps|commafy }}, r={{ archive.irr_params.radius|commafy }}, m={{ archive.irr_params.runs|commafy }}</span></div>
                     </div>
                     {% endif %}
                 </div>
                 {% else %}
                 {% if archive.rev_params %}
                 <div class="details-grid">
-                    <div><strong>Lattice:</strong> <span class="param">n={{ archive.rev_params.n }}</span></div>
-                    <div><strong>Sweeps:</strong> <span class="param">s={{ archive.rev_params.sweeps }}</span></div>
-                    <div><strong>Radius:</strong> <span class="param">r={{ archive.rev_params.radius }}</span></div>
-                    <div><strong>Runs:</strong> <span class="param">m={{ archive.rev_params.runs }}</span></div>
-                    <div><strong>Total sims:</strong> <span class="param">{{ archive.rev_params.total }}</span></div>
+                    <div><strong>Lattice:</strong> <span class="param">n={{ archive.rev_params.n|commafy }}</span></div>
+                    <div><strong>Sweeps:</strong> <span class="param">s={{ archive.rev_params.sweeps|commafy }}</span></div>
+                    <div><strong>Radius:</strong> <span class="param">r={{ archive.rev_params.radius|commafy }}</span></div>
+                    <div><strong>Runs:</strong> <span class="param">m={{ archive.rev_params.runs|commafy }}</span></div>
+                    <div><strong>Total sims:</strong> <span class="param">{{ archive.rev_params.total|commafy }}</span></div>
                 </div>
                 {% endif %}
                 {% endif %}
                 {% elif archive.params %}
                 <div class="details-grid">
-                    <div><strong>Lattice:</strong> <span class="param">n={{ archive.params.n }}</span></div>
-                    <div><strong>Sweeps:</strong> <span class="param">s={{ archive.params.sweeps }}</span></div>
-                    <div><strong>Radius:</strong> <span class="param">r={{ archive.params.radius }}</span></div>
-                    <div><strong>Runs:</strong> <span class="param">m={{ archive.params.runs }}</span></div>
-                    <div><strong>Total sims:</strong> <span class="param">{{ archive.params.total }}</span></div>
+                    <div><strong>Lattice:</strong> <span class="param">n={{ archive.params.n|commafy }}</span></div>
+                    <div><strong>Sweeps:</strong> <span class="param">s={{ archive.params.sweeps|commafy }}</span></div>
+                    <div><strong>Radius:</strong> <span class="param">r={{ archive.params.radius|commafy }}</span></div>
+                    <div><strong>Runs:</strong> <span class="param">m={{ archive.params.runs|commafy }}</span></div>
+                    <div><strong>Total sims:</strong> <span class="param">{{ archive.params.total|commafy }}</span></div>
                 </div>
                 {% endif %}
                 {% if archive.completion_info %}
@@ -1356,7 +1376,7 @@ HTML_TEMPLATE = """
                 </script>
                 {% endif %}
                 <div class="action-buttons" style="margin-top: 12px; display: flex; flex-wrap: wrap; align-items: center; gap: 10px;">
-                    <a href="/plot/{{ archive.dirname }}" class="plot-link" onclick="addThemeToUrl(event, this)" title="View interactive plots and analysis">Plot data</a>
+                    <a href="/plot-loading/{{ archive.dirname }}" class="plot-link" onclick="addThemeToUrl(event, this)" title="View interactive plots and analysis">Plot data</a>
                     <a href="/view/{{ archive.dirname }}" class="view-link" title="Browse all files in this archive">View files</a>
                     {% if not archive.notes %}
                     <a href="#" class="notes-link" data-dirname="{{ archive.dirname }}" data-notes="" onclick="openNotesModalFromLink(this); return false;" title="Add notes about this simulation">Add notes</a>
@@ -1385,6 +1405,13 @@ FILE_LIST_TEMPLATE = """
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Archive Files - {{ dirname }}</title>
+    <script>
+        // Set theme immediately to prevent flash
+        (function() {
+            const savedTheme = localStorage.getItem('theme') || 'dark';
+            document.documentElement.setAttribute('data-theme', savedTheme);
+        })();
+    </script>
     <style>
         :root[data-theme="light"] {
             --bg-primary: #ffffff;
@@ -2334,13 +2361,317 @@ def import_archive():
             if zip_path.exists():
                 zip_path.unlink()
 
+@app.route('/plot-loading/<dirname>')
+def plot_loading(dirname):
+    """Show loading page while plots are being generated."""
+    from flask import request
+    
+    # Set session flag to indicate we're coming from loading page
+    session['from_loading'] = True
+    session['loading_dirname'] = dirname
+    
+    # Get theme from query parameter, default to dark
+    theme = request.args.get('theme', 'dark')
+    
+    # Determine run type for spinner color
+    if dirname == 'current':
+        data_path = DATA_DIR
+        title = 'Current Run'
+    else:
+        data_path = ARCHIVE_DIR / dirname
+        try:
+            dt = datetime.strptime(dirname, '%Y%m%d_%H%M%S')
+            title = dt.strftime('%b %d, %Y %H:%M:%S')
+        except ValueError:
+            title = dirname
+    
+    # Determine spinner color based on run type
+    spinner_color = '#ab63fa'  # Default purple for reversible
+    is_combined = False
+    gradient_style = ""
+    
+    if data_path.exists():
+        # Check if this is a combined archive
+        is_combined = (data_path / 'rev').exists() and (data_path / 'irr').exists()
+        
+        if is_combined:
+            # Use gradient for combined - apply to atom spinner
+            spinner_color = '#ab63fa'
+            gradient_style = """
+            .nucleus {
+                background: linear-gradient(135deg, #ab63fa 0%, #00b8d4 100%);
+                box-shadow: 0 0 10px #ab63fa, 0 0 10px #00b8d4;
+            }
+            
+            .orbit-1 {
+                border-color: #ab63fa;
+            }
+            
+            .orbit-2 {
+                border-color: #8b7dd8;
+            }
+            
+            .orbit-3 {
+                border-color: #00b8d4;
+            }
+            
+            .orbit-1 .electron {
+                background: #ab63fa;
+                box-shadow: 0 0 5px #ab63fa;
+            }
+            
+            .orbit-2 .electron {
+                background: #8b7dd8;
+                box-shadow: 0 0 5px #8b7dd8;
+            }
+            
+            .orbit-3 .electron {
+                background: #00b8d4;
+                box-shadow: 0 0 5px #00b8d4;
+            }
+            """
+        else:
+            # Check if irreversible
+            params = parse_start_file(data_path)
+            if params and params.get('flag') == 'i':
+                spinner_color = '#00b8d4'  # Teal for irreversible
+            else:
+                spinner_color = '#ab63fa'  # Purple for reversible
+    
+    loading_html = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Generating Plots...</title>
+        <script>
+            // Set theme immediately to prevent flash
+            (function() {{
+                const urlParams = new URLSearchParams(window.location.search);
+                const urlTheme = urlParams.get('theme');
+                const savedTheme = urlTheme || localStorage.getItem('theme') || 'dark';
+                document.documentElement.setAttribute('data-theme', savedTheme);
+            }})();
+        </script>
+        <style>
+            :root {{
+                --bg-primary: #1e1e1e;
+                --bg-secondary: #2d2d2d;
+                --text-primary: #e0e0e0;
+                --text-secondary: #b0b0b0;
+                --border-color: #404040;
+            }}
+            
+            [data-theme="light"] {{
+                --bg-primary: #ffffff;
+                --bg-secondary: #f8f9fa;
+                --text-primary: #333333;
+                --text-secondary: #666666;
+                --border-color: #dddddd;
+            }}
+            
+            body {{
+                margin: 0;
+                padding: 20px;
+                font-family: Arial, sans-serif;
+                background: var(--bg-primary);
+                color: var(--text-primary);
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                min-height: 100vh;
+            }}
+            
+            .loading-container {{
+                text-align: center;
+                max-width: 600px;
+            }}
+            
+            h1 {{
+                margin-bottom: 30px;
+                color: var(--text-primary);
+            }}
+            
+            .atom-spinner {{
+                position: relative;
+                width: 80px;
+                height: 80px;
+                margin: 30px auto;
+            }}
+            
+            .nucleus {{
+                position: absolute;
+                top: 50%;
+                left: 50%;
+                width: 12px;
+                height: 12px;
+                background: {spinner_color};
+                border-radius: 50%;
+                transform: translate(-50%, -50%);
+                margin: 2px 0 0 2px;
+                box-shadow: 0 0 10px {spinner_color}, 0 0 20px {spinner_color};
+            }}
+            
+            .orbit {{
+                position: absolute;
+                top: 50%;
+                left: 50%;
+                border-radius: 50%;
+                opacity: 0.4;
+            }}
+            
+            .orbit-1 {{
+                width: 40px;
+                height: 40px;
+                margin: -20px 0 0 -20px;
+                border: 2px solid {spinner_color};
+                animation: rotate 1.5s linear infinite;
+                box-shadow: 0 0 8px {spinner_color};
+            }}
+            
+            .orbit-2 {{
+                width: 60px;
+                height: 60px;
+                margin: -30px 0 0 -30px;
+                border: 2px solid {spinner_color};
+                animation: rotate 2s linear infinite;
+                animation-delay: -0.66s;
+                box-shadow: 0 0 8px {spinner_color};
+            }}
+            
+            .orbit-3 {{
+                width: 80px;
+                height: 80px;
+                margin: -40px 0 0 -40px;
+                border: 2px solid {spinner_color};
+                animation: rotate 2.5s linear infinite;
+                box-shadow: 0 0 8px {spinner_color};
+            }}
+            
+            .electron {{
+                position: absolute;
+                width: 6px;
+                height: 6px;
+                background: {spinner_color};
+                border-radius: 50%;
+                box-shadow: 0 0 5px {spinner_color}, 0 0 10px {spinner_color};
+            }}
+            
+            .orbit-1 .electron {{
+                top: -4px;
+                left: 50%;
+                margin-left: -3px;
+            }}
+            
+            .orbit-2 .electron {{
+                top: -4px;
+                left: 50%;
+                margin-left: -3px;
+            }}
+            
+            .orbit-3 .electron {{
+                top: -4px;
+                left: 50%;
+                margin-left: -3px;
+            }}
+            
+            @keyframes rotate {{
+                0% {{ transform: rotate(0deg); }}
+                100% {{ transform: rotate(360deg); }}
+            }}
+            
+            {gradient_style}
+            
+            .status {{
+                font-size: 1.2em;
+                color: var(--text-secondary);
+                margin-top: 20px;
+            }}
+            
+            .back-link {{
+                position: absolute;
+                top: 20px;
+                left: 20px;
+            }}
+            
+            .back-link a {{
+                color: #007bff;
+                font-size: 34px;
+                font-weight: 800;
+                line-height: 1;
+                text-decoration: none;
+                padding: 0px 14px 4px 14px;
+                border-radius: 4px;
+                transition: all 0.2s;
+            }}
+            
+            .back-link a:hover {{
+                background: #007bff;
+                color: white;
+            }}
+        </style>
+        <script>
+            // Redirect to actual plot generation after a brief moment
+            // Use replace() to replace history entry so back button doesn't return to loading page
+            setTimeout(function() {{
+                const urlParams = new URLSearchParams(window.location.search);
+                const theme = urlParams.get('theme') || localStorage.getItem('theme') || 'dark';
+                window.location.replace('/plot/{dirname}?theme=' + theme);
+            }}, 100);
+        </script>
+    </head>
+    <body>
+        <div class="back-link"><a href="/" title="Back to simulation browser">‹</a></div>
+        <div class="loading-container">
+            <h1>Simulation Plots - {title}</h1>
+            <div class="atom-spinner">
+                <div class="nucleus"></div>
+                <div class="orbit orbit-1">
+                    <div class="electron"></div>
+                </div>
+                <div class="orbit orbit-2">
+                    <div class="electron"></div>
+                </div>
+                <div class="orbit orbit-3">
+                    <div class="electron"></div>
+                </div>
+            </div>
+            <div class="status">Plotting data...</div>
+            <p style="color: var(--text-secondary); margin-top: 30px;">This may take a moment for larger datasets.</p>
+        </div>
+    </body>
+    </html>
+    """
+    
+    return loading_html
+
 @app.route('/plot/<dirname>')
 def plot_data(dirname):
     """Generate plots for a simulation run."""
     import subprocess
     import tempfile
     import shutil
-    from flask import request
+    from flask import request, redirect, url_for, make_response
+    
+    # Check if this is a direct access (refresh) vs coming from loading page
+    # Check session flag instead of referer header
+    from_loading = session.pop('from_loading', False)
+    loading_dirname = session.get('loading_dirname', '')
+    
+    # If not from loading page or different dirname, redirect to loading page
+    if not from_loading or loading_dirname != dirname:
+        theme = request.args.get('theme', 'dark')
+        return redirect(url_for('plot_loading', dirname=dirname, theme=theme))
+    
+    # Helper function to format numbers with commas
+    def format_param(value):
+        """Format a parameter value with commas if it's a number, otherwise return as-is."""
+        if value is None or value == 'N/A':
+            return 'N/A'
+        try:
+            return f"{int(value):,}"
+        except (ValueError, TypeError):
+            return value
     
     # Get theme from query parameter, default to dark
     theme = request.args.get('theme', 'dark')
@@ -2491,10 +2822,10 @@ def plot_data(dirname):
                             params_html += f"""
                             <div style="margin-top: 10px; padding: 10px; background: var(--param-bg); border-radius: 4px;">
                                 <strong>Reversible:</strong>
-                                <strong>Lattice:</strong> n={rev_params.get('n', 'N/A')} | 
-                                <strong>Sweeps:</strong> s={rev_params.get('sweeps', 'N/A')} | 
-                                <strong>Radius:</strong> r={rev_params.get('radius', 'N/A')} | 
-                                <strong>Runs:</strong> m={rev_params.get('runs', 'N/A')}
+                                <strong>Lattice:</strong> n={format_param(rev_params.get('n', 'N/A'))} | 
+                                <strong>Sweeps:</strong> s={format_param(rev_params.get('sweeps', 'N/A'))} | 
+                                <strong>Radius:</strong> r={format_param(rev_params.get('radius', 'N/A'))} | 
+                                <strong>Runs:</strong> m={format_param(rev_params.get('runs', 'N/A'))}
                             </div>
                             """
                         
@@ -2502,10 +2833,10 @@ def plot_data(dirname):
                             params_html += f"""
                             <div style="margin-top: 10px; padding: 10px; background: var(--param-bg); border-radius: 4px;">
                                 <strong>Irreversible:</strong>
-                                <strong>Lattice:</strong> n={irr_params.get('n', 'N/A')} | 
-                                <strong>Sweeps:</strong> s={irr_params.get('sweeps', 'N/A')} | 
-                                <strong>Radius:</strong> r={irr_params.get('radius', 'N/A')} | 
-                                <strong>Runs:</strong> m={irr_params.get('runs', 'N/A')}
+                                <strong>Lattice:</strong> n={format_param(irr_params.get('n', 'N/A'))} | 
+                                <strong>Sweeps:</strong> s={format_param(irr_params.get('sweeps', 'N/A'))} | 
+                                <strong>Radius:</strong> r={format_param(irr_params.get('radius', 'N/A'))} | 
+                                <strong>Runs:</strong> m={format_param(irr_params.get('runs', 'N/A'))}
                             </div>
                             """
                     else:
@@ -2527,10 +2858,10 @@ def plot_data(dirname):
                                 <div style="padding: 4px 12px; border-radius: 12px; font-size: 0.85em; font-weight: bold; background: linear-gradient(90deg, #ab63fa 0%, #00b8d4 100%); color: white;">COMBINED</div>
                                 {status_chip_html}
                                 <div style="padding: 10px; background: var(--param-bg); border-radius: 4px;">
-                                    <strong>Lattice:</strong> n={rev_params.get('n', 'N/A')} | 
-                                    <strong>Sweeps:</strong> s={rev_params.get('sweeps', 'N/A')} | 
-                                    <strong>Radius:</strong> r={rev_params.get('radius', 'N/A')} | 
-                                    <strong>Runs:</strong> m={rev_params.get('runs', 'N/A')}
+                                    <strong>Lattice:</strong> n={format_param(rev_params.get('n', 'N/A'))} | 
+                                    <strong>Sweeps:</strong> s={format_param(rev_params.get('sweeps', 'N/A'))} | 
+                                    <strong>Radius:</strong> r={format_param(rev_params.get('radius', 'N/A'))} | 
+                                    <strong>Runs:</strong> m={format_param(rev_params.get('runs', 'N/A'))}
                                 </div>
                             </div>
                             """
@@ -2565,10 +2896,10 @@ def plot_data(dirname):
                             <div style="background: {chip_color}; color: {text_color}; padding: 4px 12px; border-radius: 12px; font-size: 0.85em; font-weight: bold;">{dynamics_label}</div>
                             {status_chip_html}
                             <div style="padding: 10px; background: var(--param-bg); border-radius: 4px;">
-                                <strong>Lattice:</strong> n={params.get('n', 'N/A')} | 
-                                <strong>Sweeps:</strong> s={params.get('sweeps', 'N/A')} | 
-                                <strong>Radius:</strong> r={params.get('radius', 'N/A')} | 
-                                <strong>Runs:</strong> m={params.get('runs', 'N/A')}
+                                <strong>Lattice:</strong> n={format_param(params.get('n', 'N/A'))} | 
+                                <strong>Sweeps:</strong> s={format_param(params.get('sweeps', 'N/A'))} | 
+                                <strong>Radius:</strong> r={format_param(params.get('radius', 'N/A'))} | 
+                                <strong>Runs:</strong> m={format_param(params.get('runs', 'N/A'))}
                             </div>
                         </div>
                     </div>
@@ -2599,6 +2930,15 @@ def plot_data(dirname):
             <html>
             <head>
                 <title>Simulation Plots</title>
+                <script>
+                    // Set theme immediately to prevent flash
+                    (function() {{
+                        const urlParams = new URLSearchParams(window.location.search);
+                        const urlTheme = urlParams.get('theme');
+                        const savedTheme = urlTheme || localStorage.getItem('theme') || 'dark';
+                        document.documentElement.setAttribute('data-theme', savedTheme);
+                    }})();
+                </script>
                 <style>
                     :root {{
                         --bg-primary: #1e1e1e;
@@ -2875,7 +3215,12 @@ def plot_data(dirname):
             </html>
             """
             
-            return html_content
+            # Add cache control headers to prevent browser caching
+            response = make_response(html_content)
+            response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+            response.headers['Pragma'] = 'no-cache'
+            response.headers['Expires'] = '0'
+            return response
                 
         except subprocess.TimeoutExpired:
             return "Plot generation timed out (>30s)", 500

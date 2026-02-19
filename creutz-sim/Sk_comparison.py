@@ -24,6 +24,8 @@ is_dark_mode = pio.templates.default == "plotly_dark"
 r = 11
 # window size for rolling average
 bin_size = 10
+# Start radius at 1 (skip R=0 since _0.csv files are excluded)
+start_r = 1
 
 fig = make_subplots(rows=2, cols=2, horizontal_spacing=0.2, vertical_spacing=0.02, row_heights=[0.8, 0.2])
 fig2 = make_subplots(rows=1, cols=2, horizontal_spacing=0.2)
@@ -81,12 +83,14 @@ end_index = 0
 n = 0
 
 ######### Plot irreversible data (if available)
-for R in range(r):
+for R in range(start_r, r):
     folder_path = filepath / 'irr' / f'r{R}'
     if not folder_path.exists():
         continue
     
     all_csv_files = glob.glob(str(folder_path / '*.csv'))
+    # Filter out _0.csv files as they have too much noise
+    all_csv_files = [f for f in all_csv_files if not f.endswith('_0.csv')]
     if not all_csv_files:
         continue
 
@@ -164,9 +168,11 @@ for R in range(r):
 # Check if data is in rev subdirectory (when run with -f 0)
 rev_filepath = filepath / 'rev' if (filepath / 'rev').exists() and any((filepath / 'rev').iterdir()) else filepath
 
-for R in range(r):
+for R in range(start_r, r):
     folder_path = rev_filepath / f'r{R}'
     all_csv_files = glob.glob(str(folder_path / '*.csv'))
+    # Filter out _0.csv files as they have too much noise
+    all_csv_files = [f for f in all_csv_files if not f.endswith('_0.csv')]
     
     if not all_csv_files:
         continue
@@ -363,9 +369,9 @@ fig.show()
 ####################################################################################
 
 ### Avg Entropy v Radius
-fig2.add_trace(go.Scatter(x=np.arange(r), y=avg_Sk, error_y=dict(type='data', array=SEM), name="Reversible", line=dict(color='purple'),
+fig2.add_trace(go.Scatter(x=np.arange(start_r, r), y=avg_Sk, error_y=dict(type='data', array=SEM), name="Reversible", line=dict(color='purple'),
                           hovertemplate='<b>Reversible</b><br>Radius: %{x}<br>Avg S/Nk: %{y:.4f}<extra></extra>'),row=1, col=1)
-fig2.add_trace(go.Scatter(x=np.arange(r), y=irr_avg_Sk, error_y=dict(type='data', array=irr_SEM), name="Irreversible", line=dict(color='#00C4C4'),
+fig2.add_trace(go.Scatter(x=np.arange(start_r, r), y=irr_avg_Sk, error_y=dict(type='data', array=irr_SEM), name="Irreversible", line=dict(color='#00C4C4'),
                           hovertemplate='<b>Irreversible</b><br>Radius: %{x}<br>Avg S/Nk: %{y:.4f}<extra></extra>'),row=1, col=1)
 
 fig2.update_xaxes(title_text="Radius", row=1, col=1)

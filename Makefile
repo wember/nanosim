@@ -7,6 +7,14 @@ VENV_BIN = $(VENV_NAME)/bin
 VENV_PIP = $(VENV_BIN)/pip
 VENV_PYTHON = $(VENV_BIN)/python
 
+# Check if caffeinate exists, use it if available, otherwise use empty command
+CAFFEINATE := $(shell command -v caffeinate 2>/dev/null)
+ifdef CAFFEINATE
+	PREVENT_SLEEP = caffeinate -i
+else
+	PREVENT_SLEEP = 
+endif
+
 help:
 	@echo "Environment:"
 	@echo "  make setup       - Create virtual environment and install dependencies"
@@ -61,11 +69,11 @@ setup-clean:
 
 sim:
 	@echo "Running simulation..."
-	@$(VENV_PYTHON) creutz-sim/sim.py $(ARGS)
+	@$(PREVENT_SLEEP) $(VENV_PYTHON) creutz-sim/sim.py $(ARGS)
 
 sim-i: sim-archive
 	@echo "Running simulation in interactive mode..."
-	@$(VENV_PYTHON) creutz-sim/sim.py -i $(ARGS)
+	@$(PREVENT_SLEEP) $(VENV_PYTHON) creutz-sim/sim.py -i $(ARGS)
 
 sim-repeat:
 	@LATEST_SIM=$$(ls -td data/*/sim_started.txt data/*/*/sim_started.txt 2>/dev/null | head -1); \
@@ -81,12 +89,12 @@ sim-repeat:
 		R=$$(echo "$$PARAMS" | grep -o "radius=[0-9]*" | cut -d= -f2); \
 		M=$$(echo "$$PARAMS" | grep -o "runs=[0-9]*" | cut -d= -f2); \
 		echo "Repeating simulation with: n=$$N, sweeps=$$S, flag=$$F, radius=$$R, runs=$$M"; \
-		$(VENV_PYTHON) creutz-sim/sim.py -n $$N -s $$S -f $$F -r $$R -m $$M $(ARGS); \
+		$(PREVENT_SLEEP) $(VENV_PYTHON) creutz-sim/sim.py -n $$N -s $$S -f $$F -r $$R -m $$M $(ARGS); \
 	fi
 
 sim-test: sim-test-clean
 	@echo "Running test simulation..."
-	@$(VENV_PYTHON) creutz-sim/sim.py -i --data-dir test_data
+	@$(PREVENT_SLEEP) $(VENV_PYTHON) creutz-sim/sim.py -i --data-dir test_data
 	@echo "Flattening test data structure..."
 	@if [ -d test_data ]; then \
 		TIMESTAMP_DIR=$$(ls -d test_data/*/ 2>/dev/null | head -1); \
