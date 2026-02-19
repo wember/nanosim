@@ -1,3 +1,14 @@
+# Force single-threaded BLAS/LAPACK on Linux HPC to prevent thread over-subscription
+# macOS/Apple Silicon has good thread management, so skip there
+import os
+import platform
+if platform.system() == 'Linux':
+    os.environ['OMP_NUM_THREADS'] = '1'
+    os.environ['OPENBLAS_NUM_THREADS'] = '1'
+    os.environ['MKL_NUM_THREADS'] = '1'
+    os.environ['VECLIB_MAXIMUM_THREADS'] = '1'
+    os.environ['NUMEXPR_NUM_THREADS'] = '1'
+
 import numpy as np
 import random
 import math
@@ -164,6 +175,8 @@ class Inferno:
         self.N = N
         self.order = a
         self.rev_order = np.flip(a)
+        self.order_idx = 0  # Index pointer for order array
+        self.rev_order_idx = 0  # Index pointer for rev_order array
         self.radius = R
         self.R_counter = 0
         # self.radius_spin = self.rev_radius_bond = np.random.randint(0, R, size=N)*np.random.choice([-1, 1], size=N)
@@ -224,7 +237,7 @@ class Inferno:
         """
             "Randomly" move the demon around and flip spins & change bonds
         """
-        a = self.order[0]
+        a = self.order[self.order_idx]
         radius_cycle = 2 * self.radius + 1
         R = (self.R_counter % radius_cycle) - self.radius
         self.R_counter += 1
@@ -249,15 +262,15 @@ class Inferno:
         # Update bond count
         self.count_bonds()
 
-        # Move first element in order to back
+        # Advance index pointer (replaces np.roll)
         if (flag == 0):
-            self.order = np.roll(self.order, -1)
+            self.order_idx = (self.order_idx + 1) % self.N
 
     def demon_reverse(self, flag, sweep_count):
         """
             In reverse order, flip spins & change bonds
         """
-        a = self.rev_order[0]
+        a = self.rev_order[self.rev_order_idx]
         radius_cycle = 2 * self.radius + 1 
         self.R_counter -= 1
         R = (self.R_counter % radius_cycle) - self.radius
@@ -281,6 +294,6 @@ class Inferno:
         # Update bond count
         self.count_bonds()
 
-        # Move first element in order to back
+        # Advance index pointer (replaces np.roll)
         if (flag == 0):
-            self.rev_order = np.roll(self.rev_order, -1)
+            self.rev_order_idx = (self.rev_order_idx + 1) % self.N

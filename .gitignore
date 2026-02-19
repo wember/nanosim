@@ -70,3 +70,6 @@ slurm-*.out
 # Simulation data and output
 data/
 test_data/
+
+# Benchmarking and profiling (development only)
+benchmark/

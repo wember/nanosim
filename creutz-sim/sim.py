@@ -1,3 +1,14 @@
+# Force single-threaded BLAS/LAPACK on Linux HPC to prevent thread over-subscription
+# macOS/Apple Silicon has good thread management, so skip there
+import os
+import platform
+if platform.system() == 'Linux':
+    os.environ['OMP_NUM_THREADS'] = '1'
+    os.environ['OPENBLAS_NUM_THREADS'] = '1'
+    os.environ['MKL_NUM_THREADS'] = '1'
+    os.environ['VECLIB_MAXIMUM_THREADS'] = '1'
+    os.environ['NUMEXPR_NUM_THREADS'] = '1'
+
 from inferno import Inferno
 import numpy as np
 import csv
@@ -180,18 +191,16 @@ def run_radius_simulations(R, n, s, flag, m, file_names, irr_files, init_files, 
             ### Forward simulation
             for i in range(s//2):
                 # flag = (i // (n//k)) % 2    # if 0, perform reversible dynamics
-                data = np.zeros(5)
-                # Attempt to flip each spin in lattice
+                # Attempt to flip each spin in lattice (full sweep)
                 for j in range(n):
                     x.demon_move(dynamics_flag, i)
-                    # Calculate total entropy
-                    N0e = int(x.bond_count[1])
-                    if N0e == 0:
-                        N0e = 1
-                    total_entropy = (Sk(n, sum(x.E_demon)) + Su(n, x.bond_count[1], x.bond_count[2], N0e))/n
-                    # Add results to totals
-                    data += [sum(x.E_demon), x.E_lattice, x.bond_count[1]/n, x.bond_count[2]/n, total_entropy]
-
+                
+                # Calculate entropy and data ONCE per sweep (after all N moves)
+                N0e = int(x.bond_count[1])
+                if N0e == 0:
+                    N0e = 1
+                total_entropy = (Sk(n, x.d_energy) + Su(n, x.bond_count[1], x.bond_count[2], N0e))/n
+                
                 # Increment appropriate counter
                 if dynamics_flag == 0:
                     t_counter += 1
@@ -201,7 +210,7 @@ def run_radius_simulations(R, n, s, flag, m, file_names, irr_files, init_files, 
                     t_value = t_irr_counter
 
                 # write avg sweep results to csv
-                new_row = np.array([t_value, data[0]/n, data[1]/n, data[2]/n, data[3]/n, data[4]/n, n])
+                new_row = np.array([t_value, x.d_energy/n, x.E_lattice/n, x.bond_count[1]/n, x.bond_count[2]/n, total_entropy, n])
 
                 # Save initial and final states to init_filename, all states to appropriate file
                 # if (i == 0):
@@ -220,20 +229,16 @@ def run_radius_simulations(R, n, s, flag, m, file_names, irr_files, init_files, 
             ### Reverse simulation
             for i in range(s//2):
                 # flag = (i // (n//k)) % 2    # if 0, perform reversible dynamics
-                data = np.zeros(5)
                 # Attempt to flip each spin in lattice (full sweep)
                 for j in range(n):
-                    total_forward_iterations = (s//2) * n
-                    reverse_iteration = total_forward_iterations - 1 - (i)
                     x.demon_reverse(dynamics_flag, (s//2) - 1 - i)
-                    # Calculate total entropy
-                    N0_exp = int(x.bond_count[1])
-                    if N0_exp == 0:
-                        N0_exp = 1
-                    total_entropy = (Sk(n, sum(x.E_demon)) + Su(n, x.bond_count[1], x.bond_count[2], N0_exp))/n
-                    # Add results to totals
-                    data += [sum(x.E_demon), x.E_lattice, x.bond_count[1]/n, x.bond_count[2]/n, total_entropy]
-
+                
+                # Calculate entropy and data ONCE per sweep (after all N moves)
+                N0_exp = int(x.bond_count[1])
+                if N0_exp == 0:
+                    N0_exp = 1
+                total_entropy = (Sk(n, x.d_energy) + Su(n, x.bond_count[1], x.bond_count[2], N0_exp))/n
+                
                 # Increment appropriate counter
                 if dynamics_flag == 0:
                     t_counter += 1
@@ -243,7 +248,7 @@ def run_radius_simulations(R, n, s, flag, m, file_names, irr_files, init_files, 
                     t_value = t_irr_counter
 
                 # write avg sweep results to csv
-                new_row = np.array([t_value, data[0]/n, data[1]/n, data[2]/n, data[3]/n, data[4]/n, n])
+                new_row = np.array([t_value, x.d_energy/n, x.E_lattice/n, x.bond_count[1]/n, x.bond_count[2]/n, total_entropy, n])
 
                 # Save initial and final states to init_filename, all states to appropriate file
                 # if (i == (s//2-1)):
