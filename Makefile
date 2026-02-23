@@ -24,6 +24,7 @@ help:
 	@echo "Simulation:"
 	@echo "  make sim            - Run simulation (archives existing data/ first)"
 	@echo "                        With args: make sim ARGS=\"-n 500\""
+	@echo "                        Disable progress bar: make sim ARGS=\"--no-pbar\""
 	@echo "  make sim-i          - Run simulation in interactive mode"
 	@echo "  make sim-repeat     - Repeat last simulation with same parameters"
 	@echo "  make sim-test       - Run test simulation (cleans test_data/ first)"

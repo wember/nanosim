@@ -45,6 +45,7 @@ def get_params():
     parser.add_argument('-m', '--runs', type=int, help='Number of simulation runs (default: 5)')
     parser.add_argument('-d', '--data-dir', type=str, default='data', help='Data output directory (default: data)')
     parser.add_argument('-i', '--interactive', action='store_true', help='Interactive mode')
+    parser.add_argument('-np', '--no-pbar', action='store_true', help='Disable progress bar display')
     
     args = parser.parse_args()
     
@@ -100,7 +101,7 @@ def get_params():
     print(f"Running simulation: n={defaults['n']}, sweeps={defaults['s']}, flag={defaults['flag']}, radius={defaults['r']}, runs={defaults['m']}")
     print()
     
-    return defaults['n'], defaults['s'], defaults['flag'], defaults['r'], defaults['m'], args.data_dir
+    return defaults['n'], defaults['s'], defaults['flag'], defaults['r'], defaults['m'], args.data_dir, not args.no_pbar
 
 
 def format_time(seconds):
@@ -277,7 +278,7 @@ if __name__ == '__main__':
     # causing duplicate output, incorrect state, and resource conflicts.
     
     # Get parameters
-    n, s, flag, r, m, data_dir = get_params()
+    n, s, flag, r, m, data_dir, show_pbar = get_params()
 
     # Calculate total iterations for progress tracking
     # Note: r is the max radius, but loop goes from 0 to r inclusive, so (r+1) radii total
@@ -338,30 +339,35 @@ if __name__ == '__main__':
     # Progress tracking
     start_time = time.time()
 
-    def update_progress_time():
-        """Update progress bar with elapsed/remaining time"""
-        elapsed = time.time() - pbar_start_time
-        rate = pbar.n / elapsed if elapsed > 0 else 0
-        remaining = (total_sweeps - pbar.n) / rate if rate > 0 else 0
-        pbar.set_postfix_str(f"[elapsed {format_time(elapsed)}|remaining {format_time(remaining)}|{rate:.2f}sweep/s]", refresh=True)
+    pbar = None
+    manager = None
+    pbar_queue = None
 
-    # Create progress bar with custom format and dynamic width
-    pbar = tqdm(total=total_sweeps, desc="Progress", unit="sweep",
-                bar_format='{desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt} {postfix}',
-                dynamic_ncols=True,  # Dynamically adjust to terminal width
-                mininterval=0.1,  # Update every 0.1 seconds
-                maxinterval=1.0,  # Force update at least every second
-                leave=True)  # Keep the bar visible after completion
+    if show_pbar:
+        def update_progress_time():
+            """Update progress bar with elapsed/remaining time"""
+            elapsed = time.time() - pbar_start_time
+            rate = pbar.n / elapsed if elapsed > 0 else 0
+            remaining = (total_sweeps - pbar.n) / rate if rate > 0 else 0
+            pbar.set_postfix_str(f"[elapsed {format_time(elapsed)}|remaining {format_time(remaining)}|{rate:.2f}sweep/s]", refresh=True)
 
-    # Track for custom time display
-    pbar_start_time = time.time()
-    
-    # Create a manager and queue for inter-process communication
-    # Workers send progress updates (1 per sweep) through this queue.
-    # Main process consumes updates and increments progress bar in real-time.
-    # Queue is thread-safe and works across process boundaries.
-    manager = mp.Manager()
-    pbar_queue = manager.Queue()
+        # Create progress bar with custom format and dynamic width
+        pbar = tqdm(total=total_sweeps, desc="Progress", unit="sweep",
+                    bar_format='{desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt} {postfix}',
+                    dynamic_ncols=True,  # Dynamically adjust to terminal width
+                    mininterval=0.1,  # Update every 0.1 seconds
+                    maxinterval=1.0,  # Force update at least every second
+                    leave=True)  # Keep the bar visible after completion
+
+        # Track for custom time display
+        pbar_start_time = time.time()
+
+        # Create a manager and queue for inter-process communication
+        # Workers send progress updates (1 per sweep) through this queue.
+        # Main process consumes updates and increments progress bar in real-time.
+        # Queue is thread-safe and works across process boundaries.
+        manager = mp.Manager()
+        pbar_queue = manager.Queue()
     
     # Create worker function with fixed parameters using partial application
     worker_func = partial(run_radius_simulations, 
@@ -379,34 +385,38 @@ if __name__ == '__main__':
         # map_async returns immediately - workers run in background.
         results = pool.map_async(worker_func, range(r+1))
         
-        # Monitor progress while workers run
-        # Each worker puts '1' in queue after completing a sweep.
-        # We consume the queue and update the progress bar in real-time.
-        completed_sweeps = 0
-        while not results.ready():  # Loop until all workers finish
-            try:
-                # Wait 0.1s for progress update from any worker
-                pbar_queue.get(timeout=0.1)
-                completed_sweeps += 1
-                pbar.update(1)
-                update_progress_time()
-            except Exception:  # Must be Exception, not bare except:!
-                # Queue empty or timeout - KeyboardInterrupt must propagate up!
-                pass
-        
-        # Get any remaining progress updates
-        while not pbar_queue.empty():
-            try:
-                pbar_queue.get_nowait()
-                completed_sweeps += 1
-                pbar.update(1)
-                update_progress_time()
-            except Exception:
-                break
-        
-        # Ensure progress bar is at 100%
-        if pbar.n < total_sweeps:
-            pbar.update(total_sweeps - pbar.n)
+        if show_pbar:
+            # Monitor progress while workers run
+            # Each worker puts '1' in queue after completing a sweep.
+            # We consume the queue and update the progress bar in real-time.
+            completed_sweeps = 0
+            while not results.ready():  # Loop until all workers finish
+                try:
+                    # Wait 0.1s for progress update from any worker
+                    pbar_queue.get(timeout=0.1)
+                    completed_sweeps += 1
+                    pbar.update(1)
+                    update_progress_time()
+                except Exception:  # Must be Exception, not bare except:!
+                    # Queue empty or timeout - KeyboardInterrupt must propagate up!
+                    pass
+
+            # Get any remaining progress updates
+            while not pbar_queue.empty():
+                try:
+                    pbar_queue.get_nowait()
+                    completed_sweeps += 1
+                    pbar.update(1)
+                    update_progress_time()
+                except Exception:
+                    break
+
+            # Ensure progress bar is at 100%
+            if pbar.n < total_sweeps:
+                pbar.update(total_sweeps - pbar.n)
+        else:
+            # Wait for all workers to complete without rendering progress output
+            results.wait()
         
         # Get results (blocks until all complete)
         sweep_counts = results.get()
@@ -421,7 +431,8 @@ if __name__ == '__main__':
         # terminate() sends SIGTERM to all workers for immediate forced shutdown.
         # join() waits for workers to clean up before exiting.
         print("\n\nInterrupted! Terminating...")
-        pbar.close()       # Close progress bar first to clear terminal
+        if pbar is not None:
+            pbar.close()       # Close progress bar first to clear terminal
         pool.terminate()   # Force kill all worker processes
         pool.join()        # Wait for cleanup
         
@@ -433,7 +444,8 @@ if __name__ == '__main__':
         sys.exit(1)
 
     # Close progress bar
-    pbar.close()
+    if pbar is not None:
+        pbar.close()
 
     # Print summary
     total_time = time.time() - start_time
