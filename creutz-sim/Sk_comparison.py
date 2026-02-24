@@ -20,12 +20,8 @@ pio.templates.default = "plotly_white"
 # Detect theme from template
 is_dark_mode = pio.templates.default == "plotly_dark"
 
-# Max radius
-r = 11
 # window size for rolling average
 bin_size = 10
-# Start radius at 1 (skip R=0 since _0.csv files are excluded)
-start_r = 1
 
 fig = make_subplots(rows=2, cols=2, horizontal_spacing=0.2, vertical_spacing=0.02, row_heights=[0.8, 0.2])
 fig2 = make_subplots(rows=1, cols=2, horizontal_spacing=0.2)
@@ -64,6 +60,48 @@ if not filepath.exists():
     print("Please run 'make sim' first to generate simulation data.")
     exit(1)
 
+
+def get_available_radii(base_path):
+    # Dynamic radius discovery: read existing r* folders instead of hard-coding max R.
+    if not base_path.exists():
+        return []
+    radii = []
+    for radius_dir in base_path.glob('r*'):
+        if radius_dir.is_dir():
+            suffix = radius_dir.name[1:]
+            if suffix.isdigit():
+                radii.append(int(suffix))
+    return sorted(radii)
+
+
+def is_run_directory(path):
+    # A valid run can be either combined layout (rev/irr) or flat r* folders.
+    if (path / 'rev').exists() or (path / 'irr').exists():
+        return True
+    return len(get_available_radii(path)) > 0
+
+
+def resolve_data_directory(path):
+    # If caller passes data/ (archive root), auto-select the newest valid run folder.
+    # If caller passes a specific run folder, use it directly.
+    if is_run_directory(path):
+        return path
+
+    candidate_runs = []
+    for subdir in path.iterdir():
+        if subdir.is_dir() and is_run_directory(subdir):
+            candidate_runs.append(subdir)
+
+    if not candidate_runs:
+        return path
+
+    latest_run = max(candidate_runs, key=lambda p: p.stat().st_mtime)
+    print(f"Using latest run directory: {latest_run}")
+    return latest_run
+
+
+filepath = resolve_data_directory(filepath)
+
 avg_Sk = np.array([])
 irr_avg_Sk = np.array([])
 SEM = np.array([])
@@ -71,6 +109,10 @@ irr_SEM = np.array([])
 
 # Detect if this is a combined run (has both rev and irr data)
 is_combined = (filepath / 'irr').exists() and (filepath / 'rev').exists()
+
+irr_basepath = filepath / 'irr'
+# Dynamic: plot whatever radii are actually present under irr/r*.
+irr_radii = get_available_radii(irr_basepath)
 
 # Track which radii already have legend entries
 rev_legend_shown = set()
@@ -81,12 +123,17 @@ average_df = None
 start_index = 0
 end_index = 0
 n = 0
+rev_plotted_radii = []
+irr_plotted_radii = []
 
 ######### Plot irreversible data (if available)
-for R in range(start_r, r):
-    folder_path = filepath / 'irr' / f'r{R}'
+for R in irr_radii:
+    folder_path = irr_basepath / f'r{R}'
     if not folder_path.exists():
         continue
+
+    # Use modulo for safety when available radii exceed palette length.
+    irr_color = irr_colors[R % len(irr_colors)]
     
     all_csv_files = glob.glob(str(folder_path / '*.csv'))
     # Filter out _0.csv files as they have too much noise
@@ -116,21 +163,21 @@ for R in range(start_r, r):
     if is_combined:
         trace_name = ""
         fig.add_trace(go.Scatter(x=average_df['t'], y=average_df['S/nk'], name=trace_name, 
-                                 line=dict(color=irr_colors[R]), legendgroup=f"r{R}", legendgrouptitle_text=f"Radius {R}", 
+                                 line=dict(color=irr_color), legendgroup=f"r{R}", legendgrouptitle_text=f"Radius {R}", 
                                  legendrank=R*2+1, showlegend=show_legend,
                                  hovertemplate=f'<b>Radius {R} (Irreversible)</b><br>Sweep: %{{x}}<br>S/Nk: %{{y:.4f}}<extra></extra>'),row=1, col=1)
     else:
         fig.add_trace(go.Scatter(x=average_df['t'], y=average_df['S/nk'], name=f"Radius {R}", 
-                                 line=dict(color=irr_colors[R]), legendgroup=f"r{R}", showlegend=show_legend,
+                                 line=dict(color=irr_color), legendgroup=f"r{R}", showlegend=show_legend,
                                  hovertemplate=f'<b>Radius {R} (Irreversible)</b><br>Sweep: %{{x}}<br>S/Nk: %{{y:.4f}}<extra></extra>'),row=1, col=1)
     if is_combined:
         fig.add_trace(go.Scatter(x=average_df['t'].rolling(window=bin_size).mean(), y=average_df['S/nk'].rolling(window=bin_size).mean(), 
-                                 name=trace_name, line=dict(color=irr_colors[R]), legendgroup=f"r{R}", 
+                                 name=trace_name, line=dict(color=irr_color), legendgroup=f"r{R}", 
                                  legendrank=R*2+1, showlegend=False,
                                  hovertemplate=f'<b>Radius {R} (Irreversible)</b><br>Sweep: %{{x:.1f}}<br>S/Nk: %{{y:.4f}}<extra></extra>'),row=1, col=2)
     else:
         fig.add_trace(go.Scatter(x=average_df['t'].rolling(window=bin_size).mean(), y=average_df['S/nk'].rolling(window=bin_size).mean(), 
-                                 name=f"Radius {R}", line=dict(color=irr_colors[R]), legendgroup=f"r{R}", showlegend=False,
+                                 name=f"Radius {R}", line=dict(color=irr_color), legendgroup=f"r{R}", showlegend=False,
                                  hovertemplate=f'<b>Radius {R} (Irreversible)</b><br>Sweep: %{{x:.1f}}<br>S/Nk: %{{y:.4f}}<extra></extra>'),row=1, col=2)
 
     # Zoomed in portion about center of dataframe
@@ -147,29 +194,40 @@ for R in range(start_r, r):
     zoom = average_df.iloc[start_index:end_index]
     if is_combined:
         fig.add_trace(go.Scatter(x=zoom['t'], y=zoom['S/nk'], name="", 
-                                 line=dict(color=irr_colors[R]), legendgroup=f"r{R}", 
+                                 line=dict(color=irr_color), legendgroup=f"r{R}", 
                                  legendrank=R*2+1, showlegend=False,
                                  hovertemplate=f'<b>Radius {R} (Irreversible)</b><br>Sweep: %{{x}}<br>S/Nk: %{{y:.4f}}<extra></extra>'),row=2, col=1)
         fig.add_trace(go.Scatter(x=zoom['t'].rolling(window=bin_size).mean(), y=zoom['S/nk'].rolling(window=bin_size).mean(), 
-                                 name="", line=dict(color=irr_colors[R]), legendgroup=f"r{R}", 
+                                 name="", line=dict(color=irr_color), legendgroup=f"r{R}", 
                                  legendrank=R*2+1, showlegend=False,
                                  hovertemplate=f'<b>Radius {R} (Irreversible)</b><br>Sweep: %{{x:.1f}}<br>S/Nk: %{{y:.4f}}<extra></extra>'),row=2, col=2)
     else:
         fig.add_trace(go.Scatter(x=zoom['t'], y=zoom['S/nk'], name=f"Radius {R}", 
-                                 line=dict(color=irr_colors[R]), legendgroup=f"r{R}", showlegend=False,
+                                 line=dict(color=irr_color), legendgroup=f"r{R}", showlegend=False,
                                  hovertemplate=f'<b>Radius {R} (Irreversible)</b><br>Sweep: %{{x}}<br>S/Nk: %{{y:.4f}}<extra></extra>'),row=2, col=1)
         fig.add_trace(go.Scatter(x=zoom['t'].rolling(window=bin_size).mean(), y=zoom['S/nk'].rolling(window=bin_size).mean(), 
-                                 name=f"Radius {R}", line=dict(color=irr_colors[R]), legendgroup=f"r{R}", showlegend=False,
+                                 name=f"Radius {R}", line=dict(color=irr_color), legendgroup=f"r{R}", showlegend=False,
                                  hovertemplate=f'<b>Radius {R} (Irreversible)</b><br>Sweep: %{{x:.1f}}<br>S/Nk: %{{y:.4f}}<extra></extra>'),row=2, col=2)
     irr_avg_Sk = np.append(irr_avg_Sk, np.mean(average_df['S/nk']))
     irr_SEM = np.append(irr_SEM, np.std(average_df['S/nk']/math.sqrt(len(average_df['S/nk']))))
+    # Track exact radii that produced points (after file filtering) for fig2 x-axis alignment.
+    irr_plotted_radii.append(R)
 
 ######### Plot reversible data
 # Check if data is in rev subdirectory (when run with -f 0)
 rev_filepath = filepath / 'rev' if (filepath / 'rev').exists() and any((filepath / 'rev').iterdir()) else filepath
+# Dynamic: supports both rev/r* subfolders and flat r* folder layout.
+rev_radii = get_available_radii(rev_filepath)
 
-for R in range(start_r, r):
+if not irr_radii and not rev_radii:
+    print(f"Error: No simulation radius folders found under {filepath}")
+    print("If your data is in a specific run folder, use: --data-dir data/<timestamp>")
+    exit(1)
+
+for R in rev_radii:
     folder_path = rev_filepath / f'r{R}'
+    # Use modulo for safety when available radii exceed palette length.
+    rev_color = colors[R % len(colors)]
     all_csv_files = glob.glob(str(folder_path / '*.csv'))
     # Filter out _0.csv files as they have too much noise
     all_csv_files = [f for f in all_csv_files if not f.endswith('_0.csv')]
@@ -199,21 +257,21 @@ for R in range(start_r, r):
     if is_combined:
         trace_name = ""
         fig.add_trace(go.Scatter(x=average_df['t'], y=average_df['S/nk'], name=trace_name, 
-                                 line=dict(color=colors[R]), legendgroup=f"r{R}", legendgrouptitle_text=f"Radius {R}", 
+                                 line=dict(color=rev_color), legendgroup=f"r{R}", legendgrouptitle_text=f"Radius {R}", 
                                  legendrank=R*2, showlegend=show_legend,
                                  hovertemplate=f'<b>Radius {R} (Reversible)</b><br>Sweep: %{{x}}<br>S/Nk: %{{y:.4f}}<extra></extra>'),row=1, col=1)
     else:
         fig.add_trace(go.Scatter(x=average_df['t'], y=average_df['S/nk'], name=f"Radius {R}", 
-                                 line=dict(color=colors[R]), legendgroup=f"r{R}", showlegend=show_legend,
+                                 line=dict(color=rev_color), legendgroup=f"r{R}", showlegend=show_legend,
                                  hovertemplate=f'<b>Radius {R} (Reversible)</b><br>Sweep: %{{x}}<br>S/Nk: %{{y:.4f}}<extra></extra>'),row=1, col=1)
     if is_combined:
         fig.add_trace(go.Scatter(x=average_df['t'].rolling(window=bin_size).mean(), y=average_df['S/nk'].rolling(window=bin_size).mean(), 
-                                 name=trace_name, line=dict(color=colors[R]), legendgroup=f"r{R}", 
+                                 name=trace_name, line=dict(color=rev_color), legendgroup=f"r{R}", 
                                  legendrank=R*2, showlegend=False,
                                  hovertemplate=f'<b>Radius {R} (Reversible)</b><br>Sweep: %{{x:.1f}}<br>S/Nk: %{{y:.4f}}<extra></extra>'),row=1, col=2)
     else:
         fig.add_trace(go.Scatter(x=average_df['t'].rolling(window=bin_size).mean(), y=average_df['S/nk'].rolling(window=bin_size).mean(), 
-                                 name=f"Radius {R}", line=dict(color=colors[R]), legendgroup=f"r{R}", showlegend=False,
+                                 name=f"Radius {R}", line=dict(color=rev_color), legendgroup=f"r{R}", showlegend=False,
                                  hovertemplate=f'<b>Radius {R} (Reversible)</b><br>Sweep: %{{x:.1f}}<br>S/Nk: %{{y:.4f}}<extra></extra>'),row=1, col=2)
 
     # Zoomed in portion about center of dataframe
@@ -230,22 +288,24 @@ for R in range(start_r, r):
     zoom = average_df.iloc[start_index:end_index]
     if is_combined:
         fig.add_trace(go.Scatter(x=zoom['t'], y=zoom['S/nk'], name="", 
-                                 line=dict(color=colors[R]), legendgroup=f"r{R}", 
+                                 line=dict(color=rev_color), legendgroup=f"r{R}", 
                                  legendrank=R*2, showlegend=False,
                                  hovertemplate=f'<b>Radius {R} (Reversible)</b><br>Sweep: %{{x}}<br>S/Nk: %{{y:.4f}}<extra></extra>'),row=2, col=1)
         fig.add_trace(go.Scatter(x=zoom['t'].rolling(window=bin_size).mean(), y=zoom['S/nk'].rolling(window=bin_size).mean(), 
-                                 name="", line=dict(color=colors[R]), legendgroup=f"r{R}", 
+                                 name="", line=dict(color=rev_color), legendgroup=f"r{R}", 
                                  legendrank=R*2, showlegend=False,
                                  hovertemplate=f'<b>Radius {R} (Reversible)</b><br>Sweep: %{{x:.1f}}<br>S/Nk: %{{y:.4f}}<extra></extra>'),row=2, col=2)
     else:
         fig.add_trace(go.Scatter(x=zoom['t'], y=zoom['S/nk'], name=f"Radius {R}", 
-                                 line=dict(color=colors[R]), legendgroup=f"r{R}", showlegend=False,
+                                 line=dict(color=rev_color), legendgroup=f"r{R}", showlegend=False,
                                  hovertemplate=f'<b>Radius {R} (Reversible)</b><br>Sweep: %{{x}}<br>S/Nk: %{{y:.4f}}<extra></extra>'),row=2, col=1)
         fig.add_trace(go.Scatter(x=zoom['t'].rolling(window=bin_size).mean(), y=zoom['S/nk'].rolling(window=bin_size).mean(), 
-                                 name=f"Radius {R}", line=dict(color=colors[R]), legendgroup=f"r{R}", showlegend=False,
+                                 name=f"Radius {R}", line=dict(color=rev_color), legendgroup=f"r{R}", showlegend=False,
                                  hovertemplate=f'<b>Radius {R} (Reversible)</b><br>Sweep: %{{x:.1f}}<br>S/Nk: %{{y:.4f}}<extra></extra>'),row=2, col=2)
     avg_Sk = np.append(avg_Sk, np.mean(average_df['S/nk']))
     SEM = np.append(SEM, np.std(average_df['S/nk']/math.sqrt(len(average_df['S/nk']))))
+    # Track exact radii that produced points (after file filtering) for fig2 x-axis alignment.
+    rev_plotted_radii.append(R)
     # fig.add_trace(go.Histogram(x=average_df['S/nk'], nbinsx=1),row=1, col=2)
 
 fig.update_xaxes(title_text="Sweeps", row=1, col=1)
@@ -369,9 +429,9 @@ fig.show()
 ####################################################################################
 
 ### Avg Entropy v Radius
-fig2.add_trace(go.Scatter(x=np.arange(start_r, r), y=avg_Sk, error_y=dict(type='data', array=SEM), name="Reversible", line=dict(color='purple'),
+fig2.add_trace(go.Scatter(x=rev_plotted_radii, y=avg_Sk, error_y=dict(type='data', array=SEM), name="Reversible", line=dict(color='purple'),
                           hovertemplate='<b>Reversible</b><br>Radius: %{x}<br>Avg S/Nk: %{y:.4f}<extra></extra>'),row=1, col=1)
-fig2.add_trace(go.Scatter(x=np.arange(start_r, r), y=irr_avg_Sk, error_y=dict(type='data', array=irr_SEM), name="Irreversible", line=dict(color='#00C4C4'),
+fig2.add_trace(go.Scatter(x=irr_plotted_radii, y=irr_avg_Sk, error_y=dict(type='data', array=irr_SEM), name="Irreversible", line=dict(color='#00C4C4'),
                           hovertemplate='<b>Irreversible</b><br>Radius: %{x}<br>Avg S/Nk: %{y:.4f}<extra></extra>'),row=1, col=1)
 
 fig2.update_xaxes(title_text="Radius", row=1, col=1)
