@@ -69,15 +69,26 @@ deactivate
 
 ### Running Simulations
 
+<!-- Latest update: sim.py now supports --no-pbar to disable tqdm output during runs. -->
+
 ```bash
 # Run the Monte Carlo simulation
 make sim
+
+# Run without progress bar output
+make sim ARGS="--no-pbar"
 
 # Or manually:
 source venv/bin/activate
 cd creutz-sim
 python sim.py
 ```
+
+Notes:
+
+<!-- Latest update context: this flag affects display only; simulation logic/output is unchanged. -->
+
+- `--no-pbar` disables the terminal progress bar (`tqdm`) while keeping simulation behavior unchanged.
 
 ### Viewing Results
 
@@ -106,6 +117,8 @@ The browser automatically discovers all simulations in the `data/` directory and
 
 #### Direct Plot Generation
 
+<!-- Latest update: Sk_comparison.py now resolves parent data dirs (e.g., data/) to the newest valid run folder. -->
+
 For quick single-run visualization or automated workflows:
 
 ```bash
@@ -116,9 +129,20 @@ make plot
 source venv/bin/activate
 cd creutz-sim
 python Sk_comparison.py
+
+# Optional: target a specific run folder
+python Sk_comparison.py --data-dir data/20260224_075035
 ```
 
 This creates a standalone HTML file with Plotly plots comparing reversible and irreversible dynamics.
+
+Plot behavior updates:
+
+<!-- Latest update summary: dynamic radius discovery replaced fixed radius ranges. -->
+
+- `make plot` now auto-selects the latest valid timestamped run when `--data-dir` points to a parent folder like `data/`.
+- Radius handling is dynamic (discovered from available `r*` directories), rather than fixed to a hardcoded range.
+- Radius `r0` is included again; only noisy run-index files ending in `_0.csv` are filtered out.
 
 ### Cleaning Data
 
