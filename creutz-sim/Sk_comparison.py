@@ -141,13 +141,17 @@ for R in irr_radii:
     if not all_csv_files:
         continue
 
+    print(f"[irr] R={R}: reading {len(all_csv_files)} CSV file(s)...", flush=True)
+
     # Create an empty list to store individual DataFrames
     list_of_dfs = []
 
     # Loop through each CSV file, read it into a DataFrame, and append to the list
-    for file_path in all_csv_files:
+    for idx, file_path in enumerate(all_csv_files):
         df = pd.read_csv(file_path)
         list_of_dfs.append(df)
+        pct = int((idx + 1) / len(all_csv_files) * 100)
+        print(f"[irr] R={R}: {idx+1}/{len(all_csv_files)} ({pct}%) — {Path(file_path).name} ({len(df):,} rows)", flush=True)
 
     # Concatenate all DataFrames in the list into a single DataFrame
     # ignore_index=True resets the index of the combined DataFrame
@@ -212,6 +216,7 @@ for R in irr_radii:
     irr_SEM = np.append(irr_SEM, np.std(average_df['S/nk']/math.sqrt(len(average_df['S/nk']))))
     # Track exact radii that produced points (after file filtering) for fig2 x-axis alignment.
     irr_plotted_radii.append(R)
+    print(f"[irr] R={R}: done ({len(average_df):,} rows)", flush=True)
 
 ######### Plot reversible data
 # Check if data is in rev subdirectory (when run with -f 0)
@@ -235,13 +240,17 @@ for R in rev_radii:
     if not all_csv_files:
         continue
 
+    print(f"[rev] R={R}: reading {len(all_csv_files)} CSV file(s)...", flush=True)
+
     # Create an empty list to store individual DataFrames
     list_of_dfs = []
 
     # Loop through each CSV file, read it into a DataFrame, and append to the list
-    for file_path in all_csv_files:
+    for idx, file_path in enumerate(all_csv_files):
         df = pd.read_csv(file_path)
         list_of_dfs.append(df)
+        pct = int((idx + 1) / len(all_csv_files) * 100)
+        print(f"[rev] R={R}: {idx+1}/{len(all_csv_files)} ({pct}%) — {Path(file_path).name} ({len(df):,} rows)", flush=True)
 
     # Concatenate all DataFrames in the list into a single DataFrame
     # ignore_index=True resets the index of the combined DataFrame
@@ -306,11 +315,13 @@ for R in rev_radii:
     SEM = np.append(SEM, np.std(average_df['S/nk']/math.sqrt(len(average_df['S/nk']))))
     # Track exact radii that produced points (after file filtering) for fig2 x-axis alignment.
     rev_plotted_radii.append(R)
+    print(f"[rev] R={R}: done ({len(average_df):,} rows)", flush=True)
     # fig.add_trace(go.Histogram(x=average_df['S/nk'], nbinsx=1),row=1, col=2)
 
 fig.update_xaxes(title_text="Sweeps", row=1, col=1)
 fig.update_yaxes(title_text="S/Nk", row=1, col=1)
 fig.update_yaxes(title_text="S/Nk", row=1, col=2)
+print("Serializing fig1 to HTML...", flush=True)
 
 # Only add vlines and vrects if we have data
 if average_df is not None:
@@ -443,4 +454,5 @@ fig2.update_xaxes(title_text="Sweeps", row=1, col=2)
 fig2.update_yaxes(title_text="(S<sub>irr</sub>-S<sub>rev</sub>)/Nk", row=1, col=2)
 
 fig2.update_layout(title_text=f"Lattice Size: {n}")
+print("Serializing fig2 to HTML...", flush=True)
 fig2.show()

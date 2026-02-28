@@ -22,6 +22,8 @@ import time
 import sys
 import multiprocessing as mp
 from functools import partial
+import errno
+import shutil
 
 def add_row(filename, row_data):    # appends a new row to csv file
     try:
@@ -98,7 +100,7 @@ def get_params():
         if args.runs is not None:
             defaults['m'] = args.runs
     
-    print(f"Running simulation: n={defaults['n']}, sweeps={defaults['s']}, flag={defaults['flag']}, radius={defaults['r']}, runs={defaults['m']}")
+    print(f"Running simulation: n={defaults['n']:,}, sweeps={defaults['s']:,}, flag={defaults['flag']}, radius={defaults['r']:,}, runs={defaults['m']:,}")
     print()
     
     return defaults['n'], defaults['s'], defaults['flag'], defaults['r'], defaults['m'], args.data_dir, not args.no_pbar
@@ -114,6 +116,41 @@ def format_time(seconds):
         return f"{seconds / 60:.0f}m"
     else:
         return f"{seconds:.1f}s"
+
+
+def format_bytes(num_bytes):
+    """Format bytes as human-readable size."""
+    value = float(num_bytes)
+    for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
+        if value < 1024 or unit == 'TB':
+            if unit == 'B':
+                return f"{int(value)} {unit}"
+            return f"{value:.1f} {unit}"
+        value /= 1024.0
+
+
+def estimate_output_bytes(sweeps, flag, max_radius, runs):
+    """Estimate simulation output size on disk for this run.
+
+    The CSV rows contain 7 numeric columns and are written once per sweep.
+    Use conservative sizing with a safety multiplier and fixed overhead.
+    """
+    dynamics_multiplier = 2 if flag == 'c' else 1
+    total_rows = (max_radius + 1) * runs * sweeps * dynamics_multiplier
+
+    # Conservative average CSV row size: numeric text + commas + newline
+    bytes_per_row = 180
+    csv_payload = total_rows * bytes_per_row
+
+    # Per-file overhead (headers, metadata, tiny status files)
+    file_count = (max_radius + 1) * runs * dynamics_multiplier
+    overhead = file_count * 256 + 5 * 1024 * 1024
+
+    # Safety margin for filesystem overhead and estimate variance.
+    required = int((csv_payload + overhead) * 1.30)
+
+    # Ensure a practical floor so small runs still require some headroom.
+    return max(required, 250 * 1024 * 1024)
 
 
 ######################################################################################
@@ -189,81 +226,94 @@ def run_radius_simulations(R, n, s, flag, m, file_names, irr_files, init_files, 
             t_counter = 0
             t_irr_counter = 0
 
-            ### Forward simulation
-            for i in range(s//2):
-                # flag = (i // (n//k)) % 2    # if 0, perform reversible dynamics
-                # Attempt to flip each spin in lattice (full sweep)
-                for j in range(n):
-                    x.demon_move(dynamics_flag, i)
-                
-                # Calculate entropy and data ONCE per sweep (after all N moves)
-                N0e = int(x.bond_count[1])
-                if N0e == 0:
-                    N0e = 1
-                total_entropy = (Sk(n, x.d_energy) + Su(n, x.bond_count[1], x.bond_count[2], N0e))/n
-                
-                # Increment appropriate counter
-                if dynamics_flag == 0:
-                    t_counter += 1
-                    t_value = t_counter
-                else:
-                    t_irr_counter += 1
-                    t_value = t_irr_counter
+            # Select the active output file for this dynamics type
+            active_file = filename if dynamics_flag == 0 else irr_filename
 
-                # write avg sweep results to csv
-                new_row = np.array([t_value, x.d_energy/n, x.E_lattice/n, x.bond_count[1]/n, x.bond_count[2]/n, total_entropy, n])
+            # Batch size for progress-queue IPC: mp.Manager().Queue().put() is a
+            # socket round-trip (~0.5-2 ms).  The JIT kernel finishes N moves in
+            # microseconds; for small N (e.g. n=8) even PBAR_BATCH=50 sweeps is
+            # only ~400 moves (~40 µs), so workers still spend >90% of their time
+            # blocked on IPC.  Scale batch size ∝ 1/n so each batch represents
+            # roughly the same wall-clock compute time regardless of lattice size:
+            #   n=8   → 62,500   n=100  → 5,000
+            #   n=1000 → 500    n=10000 → 50
+            PBAR_BATCH = max(50, 500_000 // max(n, 1))
 
-                # Save initial and final states to init_filename, all states to appropriate file
-                # if (i == 0):
-                #     add_row(init_filename, new_row)
+            ### Forward simulation — keep file open for all sweeps
+            with open(active_file, 'a', newline='') as fwd_file:
+                fwd_writer = csv.writer(fwd_file)
+                pbar_accum = 0
 
-                if (dynamics_flag == 0):
-                    add_row(filename, new_row)
-                else:
-                    add_row(irr_filename, new_row)
-                
-                # Signal progress to main process
-                if pbar_queue:
-                    pbar_queue.put(1)
-                completed_count += 1
+                for i in range(s//2):
+                    # Full sweep of N demon moves — single JIT call (hot loop)
+                    x.forward_sweep(dynamics_flag)
 
-            ### Reverse simulation
-            for i in range(s//2):
-                # flag = (i // (n//k)) % 2    # if 0, perform reversible dynamics
-                # Attempt to flip each spin in lattice (full sweep)
-                for j in range(n):
-                    x.demon_reverse(dynamics_flag, (s//2) - 1 - i)
-                
-                # Calculate entropy and data ONCE per sweep (after all N moves)
-                N0_exp = int(x.bond_count[1])
-                if N0_exp == 0:
-                    N0_exp = 1
-                total_entropy = (Sk(n, x.d_energy) + Su(n, x.bond_count[1], x.bond_count[2], N0_exp))/n
-                
-                # Increment appropriate counter
-                if dynamics_flag == 0:
-                    t_counter += 1
-                    t_value = t_counter
-                else:
-                    t_irr_counter += 1
-                    t_value = t_irr_counter
+                    # Calculate entropy and data ONCE per sweep (after all N moves)
+                    N0e = int(x.bond_count[1])
+                    if N0e == 0:
+                        N0e = 1
+                    total_entropy = (Sk(n, x.d_energy) + Su(n, x.bond_count[1], x.bond_count[2], N0e))/n
 
-                # write avg sweep results to csv
-                new_row = np.array([t_value, x.d_energy/n, x.E_lattice/n, x.bond_count[1]/n, x.bond_count[2]/n, total_entropy, n])
+                    # Increment appropriate counter
+                    if dynamics_flag == 0:
+                        t_counter += 1
+                        t_value = t_counter
+                    else:
+                        t_irr_counter += 1
+                        t_value = t_irr_counter
 
-                # Save initial and final states to init_filename, all states to appropriate file
-                # if (i == (s//2-1)):
-                #     add_row(init_filename, new_row)
+                    fwd_writer.writerow([t_value, x.d_energy/n, x.E_lattice/n,
+                                         x.bond_count[1]/n, x.bond_count[2]/n,
+                                         total_entropy, n])
 
-                if (dynamics_flag == 0):
-                    add_row(filename, new_row)
-                else:
-                    add_row(irr_filename, new_row)
-                
-                # Signal progress to main process
-                if pbar_queue:
-                    pbar_queue.put(1)
-                completed_count += 1
+                    # Batch progress updates to avoid IPC bottleneck
+                    completed_count += 1
+                    if pbar_queue:
+                        pbar_accum += 1
+                        if pbar_accum >= PBAR_BATCH:
+                            pbar_queue.put(pbar_accum)
+                            pbar_accum = 0
+
+                if pbar_queue and pbar_accum:
+                    pbar_queue.put(pbar_accum)
+
+            ### Reverse simulation — keep file open for all sweeps
+            with open(active_file, 'a', newline='') as rev_file:
+                rev_writer = csv.writer(rev_file)
+                pbar_accum = 0
+
+                for i in range(s//2):
+                    # Full reverse sweep of N demon moves — single JIT call (hot loop)
+                    x.reverse_sweep(dynamics_flag)
+
+                    # Calculate entropy and data ONCE per sweep (after all N moves)
+                    N0_exp = int(x.bond_count[1])
+                    if N0_exp == 0:
+                        N0_exp = 1
+                    total_entropy = (Sk(n, x.d_energy) + Su(n, x.bond_count[1], x.bond_count[2], N0_exp))/n
+
+                    # Increment appropriate counter
+                    if dynamics_flag == 0:
+                        t_counter += 1
+                        t_value = t_counter
+                    else:
+                        t_irr_counter += 1
+                        t_value = t_irr_counter
+
+                    rev_writer.writerow([t_value, x.d_energy/n, x.E_lattice/n,
+                                         x.bond_count[1]/n, x.bond_count[2]/n,
+                                         total_entropy, n])
+
+                    # Batch progress updates to avoid IPC bottleneck
+                    completed_count += 1
+                    if pbar_queue:
+                        pbar_accum += 1
+                        if pbar_accum >= PBAR_BATCH:
+                            pbar_queue.put(pbar_accum)
+                            pbar_accum = 0
+
+                if pbar_queue and pbar_accum:
+                    pbar_queue.put(pbar_accum)
 
             # Reset "random" order for next simulation
             x.reset()
@@ -297,7 +347,7 @@ if __name__ == '__main__':
     # Example: 8 cores, 11 radii → 8 run immediately, 3 queued, grabbed as workers finish.
     num_cores = min(mp.cpu_count(), r + 1)  # Don't create more workers than jobs
     
-    print(f"Starting {total_sims} simulations ({r+1} radii × {m} runs)")
+    print(f"Starting {total_sims:,} simulations ({r+1:,} radii × {m:,} runs)")
     print(f"Using {num_cores} CPU cores for parallel processing")
     print()
 
@@ -306,9 +356,26 @@ if __name__ == '__main__':
     data_root = repo_root / data_dir
     init_folder = data_root / 'init_fin'
 
+    # Preflight disk-space check to fail fast before launching workers.
+    # Avoid expensive long runs that eventually crash with ENOSPC.
+    try:
+        data_root.mkdir(parents=True, exist_ok=True)
+        required_bytes = estimate_output_bytes(s, flag, r, m)
+        free_bytes = shutil.disk_usage(data_root).free
+
+        print(f"Estimated output size: ~{format_bytes(required_bytes)}")
+        print(f"Free disk space:       {format_bytes(free_bytes)}")
+
+        if free_bytes < required_bytes:
+            print("\nERROR: Not enough free disk space for this simulation.")
+            print("Please free up space or reduce sweeps/radius/runs and try again.")
+            sys.exit(1)
+    except OSError as e:
+        print(f"\nERROR: Unable to determine free disk space: {e}")
+        sys.exit(1)
+
     # Create timestamped folder for this run directly in data directory
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    data_root.mkdir(parents=True, exist_ok=True)
     data_folder = data_root / timestamp
     data_folder.mkdir(parents=True, exist_ok=True)
 
@@ -339,6 +406,13 @@ if __name__ == '__main__':
     # Progress tracking
     start_time = time.time()
 
+    def write_error_status(error_message):
+        with open(status_file, 'w') as f:
+            f.write("Status: ERROR\n")
+            f.write(f"Time: {datetime.now().isoformat()}\n")
+            f.write(f"Error: {error_message}\n")
+            f.write(f"Completed sweeps: {pbar.n if pbar is not None else 0}/{total_sweeps}\n")
+
     pbar = None
     manager = None
     pbar_queue = None
@@ -349,7 +423,7 @@ if __name__ == '__main__':
             elapsed = time.time() - pbar_start_time
             rate = pbar.n / elapsed if elapsed > 0 else 0
             remaining = (total_sweeps - pbar.n) / rate if rate > 0 else 0
-            pbar.set_postfix_str(f"[elapsed {format_time(elapsed)}|remaining {format_time(remaining)}|{rate:.2f}sweep/s]", refresh=True)
+            pbar.set_postfix_str(f"[elapsed {format_time(elapsed)}|remaining {format_time(remaining)}|{rate:,.0f}sweep/s]", refresh=True)
 
         # Create progress bar with custom format and dynamic width
         pbar = tqdm(total=total_sweeps, desc="Progress", unit="sweep",
@@ -386,16 +460,16 @@ if __name__ == '__main__':
         results = pool.map_async(worker_func, range(r+1))
         
         if show_pbar:
-            # Monitor progress while workers run
-            # Each worker puts '1' in queue after completing a sweep.
-            # We consume the queue and update the progress bar in real-time.
+            # Monitor progress while workers run.
+            # Workers now put batched counts (up to PBAR_BATCH sweeps per put)
+            # to avoid mp.Manager().Queue() IPC becoming the bottleneck.
             completed_sweeps = 0
             while not results.ready():  # Loop until all workers finish
                 try:
                     # Wait 0.1s for progress update from any worker
-                    pbar_queue.get(timeout=0.1)
-                    completed_sweeps += 1
-                    pbar.update(1)
+                    n_done = pbar_queue.get(timeout=0.1)
+                    completed_sweeps += n_done
+                    pbar.update(n_done)
                     update_progress_time()
                 except Exception:  # Must be Exception, not bare except:!
                     # Queue empty or timeout - KeyboardInterrupt must propagate up!
@@ -404,9 +478,9 @@ if __name__ == '__main__':
             # Get any remaining progress updates
             while not pbar_queue.empty():
                 try:
-                    pbar_queue.get_nowait()
-                    completed_sweeps += 1
-                    pbar.update(1)
+                    n_done = pbar_queue.get_nowait()
+                    completed_sweeps += n_done
+                    pbar.update(n_done)
                     update_progress_time()
                 except Exception:
                     break
@@ -442,6 +516,38 @@ if __name__ == '__main__':
             f.write(f"Time: {datetime.now().isoformat()}\n")
         print(f"Status written to {status_file}")
         sys.exit(1)
+    except OSError as e:
+        # Typical case: ENOSPC from worker CSV writes propagates here via results.get().
+        if pbar is not None:
+            pbar.close()
+        pool.terminate()
+        pool.join()
+
+        if e.errno == errno.ENOSPC:
+            msg = "No space left on device while writing simulation output"
+            print(f"\n\nERROR: {msg}")
+            print("Free disk space and re-run the simulation.")
+        else:
+            msg = f"OS error during simulation: {e}"
+            print(f"\n\nERROR: {msg}")
+
+        write_error_status(msg)
+        print(f"Status written to {status_file}")
+        sys.exit(1)
+    except Exception as e:
+        if pbar is not None:
+            pbar.close()
+        pool.terminate()
+        pool.join()
+
+        msg = f"Simulation failed: {e}"
+        print(f"\n\nERROR: {msg}")
+        write_error_status(msg)
+        print(f"Status written to {status_file}")
+        sys.exit(1)
+    finally:
+        if manager is not None:
+            manager.shutdown()
 
     # Close progress bar
     if pbar is not None:
@@ -460,14 +566,14 @@ if __name__ == '__main__':
     print(f"\nSimulation complete!")
     print(f"  Total time: {time_str}")
     print(f"  Average: {avg_time_per_sim:.2f}s per simulation")
-    print(f"  Throughput: {total_sweeps/total_time:.0f} sweeps/sec")
+    print(f"  Throughput: {total_sweeps/total_time:,.0f} sweeps/sec")
 
     # Write completion status
     with open(completion_marker, 'w') as f:
         f.write(f"Simulation completed: {datetime.now().isoformat()}\n")
         f.write(f"Total time: {time_str}\n")
         f.write(f"Average: {avg_time_per_sim:.2f}s per simulation\n")
-        f.write(f"Throughput: {total_sweeps/total_time:.0f} sweeps/sec\n")
+        f.write(f"Throughput: {total_sweeps/total_time:,.0f} sweeps/sec\n")
 
     with open(status_file, 'w') as f:
         f.write(f"Status: COMPLETED\n")

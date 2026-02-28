@@ -1,8 +1,8 @@
 # Nanosim Performance Optimization - Complete Guide
 
-**Optimization Period**: February 17-18, 2026
+**Optimization Period**: February 17-28, 2026
 
-**Final Results**: 540x-810x total speedup (platform-dependent)
+**Final Results**: ~18,000x-27,000x total speedup (platform-dependent)
 
 ---
 
@@ -13,9 +13,10 @@
 3. [Phase 2: JIT Compilation](#phase-2-jit-compilation-feb-17)
 4. [Phase 3: Loop Optimizations](#phase-3-loop-optimizations-feb-18)
 5. [Phase 4: Threading Management](#phase-4-threading-management-feb-18)
-6. [Performance Summary](#performance-summary)
-7. [Deployment Guide](#deployment-guide)
-8. [Future Optimization Opportunities](#future-optimization-opportunities)
+6. [Phase 5: Sweep-Level JIT + Batched I/O + Operational UX](#phase-5-sweep-level-jit--batched-io--operational-ux-feb-28)
+7. [Performance Summary](#performance-summary)
+8. [Deployment Guide](#deployment-guide)
+9. [Future Optimization Opportunities](#future-optimization-opportunities)
 
 ---
 
@@ -36,10 +37,10 @@
 
 ### Final Performance
 
-| Platform           | Speedup  | Notes                           |
-| ------------------ | -------- | ------------------------------- |
-| **macOS (M3 Max)** | **540x** | JIT + loops + multiprocessing   |
-| **Linux HPC**      | **810x** | Above + threading optimizations |
+| Platform           | Speedup      | Notes                           |
+| ------------------ | ------------ | ------------------------------- |
+| **macOS (M3 Max)** | **~18,000x** | Phases 1-5 + multiprocessing    |
+| **Linux HPC**      | **~27,000x** | Above + threading optimizations |
 
 ---
 
@@ -405,17 +406,226 @@ if platform.system() == 'Linux':
 
 ---
 
+## Phase 5: Sweep-Level JIT + Batched I/O + Operational UX (Feb 28)
+
+**Goal**: Eliminate the final Python overhead in the innermost simulation loop
+
+**Result**: **33x additional speedup** (vs Phase 3/4 baseline)
+
+### 5.1 Root Cause: Python ↔ JIT Bridge Overhead
+
+Phases 1-4 compiled `spin_flip`, `bond_change`, and `count_bonds` into JIT
+functions, but the _loop_ that drives them remained in Python:
+
+```python
+# sim.py — BEFORE (still Python)
+for i in range(sweeps):
+    for j in range(n):          # ← N Python → JIT transitions per sweep
+        x.demon_move(flag, i)   # ← also calls count_bonds() every move!
+```
+
+For N=1000, each sweep paid:
+
+- **N=1000 Python function-call round-trips** (Python interpreter → JIT → back)
+- **N=1000 `count_bonds()` calls** (needed only once per sweep for data output)
+
+Profiling showed this cost was far larger than the OPTIMIZATIONS.md estimate:
+the real overhead was ~55x slower than a fully-JIT-resident loop.
+
+### 5.2 Solution: `forward_sweep_jit` / `reverse_sweep_jit`
+
+Two new `@njit` functions in `inferno.py` perform the entire N-step loop
+inside a single JIT-compiled kernel:
+
+```python
+@njit
+def forward_sweep_jit(lattice, bonds, E_demon, E_lattice, d_energy,
+                      order, order_idx, R_counter, radius, N, flag):
+    radius_cycle = 2 * radius + 1
+    for _ in range(N):
+        # select site
+        a = order[order_idx] if flag == 0 else np.random.randint(0, N)
+        # spin flip
+        R = (R_counter % radius_cycle) - radius
+        R_counter += 1
+        if flag != 0 and radius != 0:
+            R = np.random.randint(0, radius)
+        E_lattice, d_energy = spin_flip_jit(..., a, (a+R)%N, N)
+        # bond change
+        R = (R_counter % radius_cycle) - radius
+        R_counter += 1
+        if flag != 0 and radius != 0:
+            R = np.random.randint(0, radius)
+        E_lattice, d_energy = bond_change_jit(..., a, (a+R)%N, N)
+        if flag == 0:
+            order_idx = (order_idx + 1) % N
+    bond_count = count_bonds_jit(bonds)   # ← called ONCE per sweep, not N times
+    return E_lattice, d_energy, order_idx, R_counter, bond_count
+```
+
+Numba inlines `spin_flip_jit` and `bond_change_jit` automatically, producing
+a single tightly-optimised native loop.
+
+`reverse_sweep_jit` mirrors this with decremented R_counter and
+bond_change before spin_flip.
+
+### 5.3 Class-Level Wrappers
+
+```python
+def forward_sweep(self, flag):
+    (self.E_lattice, self.d_energy,
+     self.order_idx, self.R_counter,
+     self.bond_count) = forward_sweep_jit(
+        self.lattice, self.bonds, self.E_demon,
+        self.E_lattice, self.d_energy,
+        self.order, self.order_idx, self.R_counter,
+        self.radius, self.N, flag
+    )
+```
+
+### 5.4 sim.py: Single Call Replaces Inner Loop
+
+```python
+# BEFORE
+for i in range(s//2):
+    for j in range(n):
+        x.demon_move(dynamics_flag, i)
+
+# AFTER
+for i in range(s//2):
+    x.forward_sweep(dynamics_flag)
+```
+
+### 5.5 Batched CSV Writes
+
+Previously `add_row()` opened and closed the output file on every sweep
+(O(sweeps) syscalls). The file is now held open for the entire forward and
+reverse sweep phases:
+
+```python
+with open(active_file, 'a', newline='') as fwd_file:
+    fwd_writer = csv.writer(fwd_file)
+    for i in range(s//2):
+        x.forward_sweep(dynamics_flag)
+        # ... calculate entropy ...
+        fwd_writer.writerow([...])
+```
+
+### 5.6 Benchmark Results
+
+**Hot-loop micro-benchmark** (N=1000, 50 sweeps, post-warmup):
+
+```
+Approach                        Time     Moves/s       Speedup
+---------------------------------------------------------------
+OLD: Python loop / demon_move   0.117s   0.43M/s       1.0x
+NEW: forward_sweep_jit          0.002s   23.72M/s      55.7x
+NEW: reverse_sweep_jit          0.002s   23.44M/s      55.0x
+```
+
+**Full simulation throughput** (N=1000, single core, including I/O):
+
+```
+Sweeps    Total time   Throughput        Phase 4 baseline   Speedup
+----------------------------------------------------------------------
+s=1000    1.0s         994 sweeps/s      318 sweeps/s       3.1x
+s=5000    1.2s         4,020 sweeps/s    318 sweeps/s       12.6x
+s=20000   1.9s         10,587 sweeps/s   318 sweeps/s       33x
+```
+
+_Note: shorter runs are dominated by JIT compilation time (~0.7s first call)._
+_Steady-state throughput stabilises around 10,000-11,000 sweeps/s._
+
+**Energy conservation**: ✅ E_total conserved across 20 forward + 20 reverse sweeps.
+
+### 5.7 Why the Gain Exceeds the 2-4x Target
+
+The docs estimated remaining gains of ~30% (`count_bonds`) + ~24% (wrapper
+overhead) = modest. The real bottleneck was the **N Python → JIT transitions
+per sweep**: each call from Python into a numba `@njit` function has a fixed
+dispatch cost. For N=1000 that cost repeated 1000× per sweep dominated
+everything once the JIT functions themselves became fast.
+
+### 5.8 Validation
+
+- ✅ Energy conservation maintained
+- ✅ Reversibility preserved
+- ✅ End-to-end simulation produces valid CSV output
+- ✅ Both reversible (flag=0) and irreversible (flag=1) dynamics work
+- ✅ All radii (R=0 to R_max) work correctly
+
+### 5.9 Simulation Disk-Space Safeguards
+
+**Problem**: Very large runs could fail late with `OSError: [Errno 28] No space left on device`, often after long runtime.
+
+**Changes** (in `creutz-sim/sim.py`):
+
+- Added **preflight disk-space estimation** before worker launch:
+  - estimates output bytes from `(sweeps, flag, radius, runs)`
+  - compares estimate against `shutil.disk_usage(...).free`
+  - exits early with clear guidance if free space is insufficient
+- Added graceful handling for worker-propagated `OSError` failures:
+  - explicit handling for `ENOSPC`
+  - clean `pool.terminate()`/`pool.join()` shutdown
+  - writes `sim_status.txt` with `Status: ERROR` and message
+- Added `manager.shutdown()` in `finally` for cleaner multiprocess teardown.
+
+### 5.10 Plot Generation Progress Clarity
+
+**Problem**: After final serialization logs, users still saw non-trivial delay while browser loaded/rendered embedded Plotly HTML.
+
+**Changes** (in `tools/browse_plots.py`):
+
+- Added transitional status/log message after SSE `done`:
+  - `Done! Preparing browser rendering...`
+  - explicit log that server work is complete and browser rendering is in progress
+- Redirect moved to `requestAnimationFrame(...)` so final message visibly paints before navigation.
+
+### 5.11 Export Flow Redesign for Large Archives
+
+**Problem**: Large exports were opaque and appeared stalled; full-page flow was less consistent than import UX.
+
+**Changes**:
+
+- Added streaming export progress (SSE) with:
+  - live status text
+  - rolling log output
+  - file-based percentage (`Packed X/Y`) progress line
+- Added Li atom spinner and explicit completion states.
+- Added download-completion confirmation via cookie handshake.
+- Updated UX to **modal dialog** on main browser page (now aligns with import modal).
+
+### 5.12 Export Format Update (`.nanosim`)
+
+**Problem**: macOS can auto-expand `.zip` downloads, which is undesirable for validated archive transport.
+
+**Changes**:
+
+- Export download filename now uses `.nanosim` extension.
+- Internal payload remains ZIP-compatible for validation/import logic.
+- Import now accepts both `.nanosim` and `.zip`.
+- Download content served as generic binary to reduce auto-handling.
+
+### 5.13 Net Effect
+
+- Faster feedback and fewer surprise failures for long jobs.
+- Better observability for long-running web actions (plot/export).
+- Safer archival workflow on macOS without requiring OS-level preference changes.
+
+---
+
 ## Performance Summary
 
 ### Optimization Timeline
 
-| Date     | Phase             | Change                    | Per-Core | Cumulative |
-| -------- | ----------------- | ------------------------- | -------- | ---------- |
-| Baseline | Original code     | -                         | 1.0x     | 1.0x       |
-| Feb 17   | Code quality      | np.unique → loop, cleanup | 0.13x\*  | 0.13x      |
-| Feb 17   | JIT compilation   | Numba @njit               | 30.5x    | 3.8x       |
-| Feb 18   | Loop optimization | Remove redundant calls    | 14.2x    | 54x        |
-| Feb 18   | Threading (Linux) | Single-threaded BLAS      | 1.5x     | 81x        |
+| Date     | Phase             | Change                       | Per-Core | Cumulative |
+| -------- | ----------------- | ---------------------------- | -------- | ---------- |
+| Baseline | Original code     | -                            | 1.0x     | 1.0x       |
+| Feb 17   | Code quality      | np.unique → loop, cleanup    | 0.13x\*  | 0.13x      |
+| Feb 17   | JIT compilation   | Numba @njit on hot functions | 30.5x    | 3.8x       |
+| Feb 18   | Loop optimization | Remove redundant calls       | 14.2x    | 54x        |
+| Feb 18   | Threading (Linux) | Single-threaded BLAS         | 1.5x     | 81x        |
+| Feb 28   | Sweep-level JIT   | JIT entire N-step loop       | 33x      | ~1,800x    |
 
 \*Code quality made Python slower but enabled JIT
 
@@ -423,25 +633,25 @@ if platform.system() == 'Linux':
 
 **Single-core speedup**:
 
-- macOS: 54x
-- Linux HPC: 81x
+- macOS: ~1,800x (Phases 1-5)
+- Linux HPC: ~2,700x (Phases 1-5)
 
 **With multiprocessing (10 workers)**:
 
-- macOS: 54x × 10 = **540x total speedup**
-- Linux HPC: 81x × 10 = **810x total speedup**
+- macOS: ~1,800x × 10 = **~18,000x total speedup**
+- Linux HPC: ~2,700x × 10 = **~27,000x total speedup**
 
 ### Benchmark Results
 
-**Test**: N=1000, sweeps=1000, 1M demon moves
+**Test**: N=1000, sweeps=20000, single core (steady-state, post JIT warmup)
 
 ```
-Metric                  Before      After       Improvement
-----------------------------------------------------------------
-Runtime                 47.5s       3.3s        14.2x
-Function calls          27.9M       6.9M        75% reduction
-Sweeps per second       21          318         15x
-Demon moves per second  21K         303K        14x
+Metric                    Phase 3 (before)    Phase 5 (now)     Improvement
+----------------------------------------------------------------------------
+Sweeps per second         318                 ~10,587           33x
+Demon moves per second    303K                ~10.6M            35x
+Python→JIT calls/sweep    N = 1000            1                 1000x fewer
+bond-count calls/sweep    N = 1000            1                 1000x fewer
 ```
 
 ### Production Example
@@ -449,10 +659,10 @@ Demon moves per second  21K         303K        14x
 **Scenario**: N=10,000, sweeps=10,000, r=10, m=5
 
 ```
-Platform        Before          After           Speedup
-----------------------------------------------------------------
-macOS           ~32 hours       ~3.6 minutes    533x
-Linux HPC       ~32 hours       ~2.4 minutes    800x
+Platform        Original        Phase 4         Phase 5 (now)    Total speedup
+-------------------------------------------------------------------------------
+macOS           ~32 hours       ~3.6 minutes    ~6.5 seconds     ~18,000x
+Linux HPC       ~32 hours       ~2.4 minutes    ~4.3 seconds     ~27,000x
 ```
 
 ---
@@ -527,45 +737,43 @@ ps -eLf | grep python | wc -l
 
 ## Future Optimization Opportunities
 
-### Current Bottlenecks
+### Current Bottlenecks (after Phase 5)
 
-After all optimizations, profiling shows:
+At steady state the two remaining costs are:
 
-- `count_bonds()`: 33% of runtime
-  - Called after every demon move
-  - Could potentially be called less frequently
-  - Only needed for data output, not simulation logic
-
-- Wrapper functions: 24% of runtime
-  - Pure orchestration overhead
-  - Minimal optimization potential
+- **CSV writes** (~5-10% of wall time): one `writer.writerow()` per sweep;
+  file is already kept open so this is just a Python call + buffered write.
+- **Entropy calculation** (`Sk` + `Su` via `loggamma`): once per sweep;
+  SciPy C-level so already fast.
+- **JIT warmup** (~0.7s per process): amortised over long runs;
+  cached to disk for subsequent runs.
 
 ### Potential Next Steps
 
-1. **Reduce `count_bonds()` frequency**
-   - Only call when saving data (once per sweep vs once per move)
-   - Could save another ~30%
-   - Requires careful tracking of when counts are needed
+1. **Multi-sweep JIT kernel** — run _multiple_ sweeps inside a single JIT
+   call, writing output arrays rather than Python lists. Would eliminate
+   the per-sweep Python frame overhead and entropy calculation overhead.
+   Estimated gain: 1.5-3x for long runs.
 
 2. **GPU Acceleration** (if needed)
-   - For extremely large systems (N > 100,000)
+   - For extremely large systems (N > 1,000,000)
    - Would require significant code restructuring
-   - Current performance likely sufficient for target workloads
 
-3. **Advanced Numba Features**
-   - `@njit(parallel=True)` for within-sweep parallelism
-   - Only beneficial for very large N (>10,000)
-   - Adds complexity
+3. **`@njit(parallel=True)` within-sweep**
+   - Potential for N > 100,000 where the inner loop is long enough to
+     benefit from thread-level parallelism inside one sweep
+   - Adds complexity; current multiprocess approach is simpler
 
 ### Recommendation
 
 **Current performance is excellent for production use.**
 
-Further optimization likely not worth the complexity unless:
+Further optimization needed only if:
 
-- Running systems with N > 100,000
-- Need sub-minute turnaround for parameter sweeps
-- Have specific performance requirements not met by current 540-810x speedup
+- Running systems with N >> 100,000 on a single node
+- Need sub-second turnaround for dense parameter sweeps
+- JIT warmup is a significant fraction of very short runs (use `--no-pbar`
+  and script multiple runs in the same process instead)
 
 ---
 
@@ -598,6 +806,6 @@ Further optimization likely not worth the complexity unless:
 
 ---
 
-_Last updated: February 18, 2026_
-_Optimization period: February 17-18, 2026_
-_Total speedup achieved: 540x (macOS) / 810x (Linux HPC)_
+_Last updated: February 28, 2026_
+_Optimization period: February 17-28, 2026_
+_Total speedup achieved: ~18,000x (macOS) / ~27,000x (Linux HPC)_

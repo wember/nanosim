@@ -1,7 +1,7 @@
 #!/usr/bin/env venv/bin/python
 """Simple web interface to browse current and archived simulation runs."""
 
-from flask import Flask, render_template_string, send_file, request, jsonify, session
+from flask import Flask, render_template_string, send_file, request, jsonify, session, Response, stream_with_context
 from pathlib import Path
 from datetime import datetime
 import hashlib
@@ -27,6 +27,15 @@ def commafy_filter(value):
 REPO_ROOT = Path(__file__).parent.parent
 DATA_DIR = REPO_ROOT / 'data'
 ARCHIVE_DIR = DATA_DIR  # Runs stored directly in data directory
+EXPORT_EXTENSION = '.nanosim'
+
+# Cache for completed plot HTML, keyed by (dirname, theme).
+# Populated by /plot-stream; consumed by /plot.
+_plot_cache: dict = {}
+
+# Cache for completed exports, keyed by token.
+# Populated by /export-stream; consumed by /export-download.
+_export_cache: dict = {}
 
 HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -52,6 +61,10 @@ HTML_TEMPLATE = """
             --border-color: #404040;
             --shadow: rgba(0,0,0,0.3);
             --param-bg: #383838;
+            --msg-info: #5dade2;
+            --msg-success: #28a745;
+            --msg-error: #dc3545;
+            --msg-muted: #9aa0a6;
         }
         
         [data-theme="light"] {
@@ -63,6 +76,10 @@ HTML_TEMPLATE = """
             --border-color: #eeeeee;
             --shadow: rgba(0,0,0,0.1);
             --param-bg: #f8f9fa;
+            --msg-info: #0056b3;
+            --msg-success: #1e7e34;
+            --msg-error: #b02a37;
+            --msg-muted: #6c757d;
         }
         
         body { 
@@ -338,6 +355,21 @@ HTML_TEMPLATE = """
             font-size: 14px;
             text-align: center;
         }
+        .import-status .msg {
+            display: inline-block;
+        }
+        .import-status .msg-info {
+            color: var(--msg-info);
+        }
+        .import-status .msg-success {
+            color: var(--msg-success);
+        }
+        .import-status .msg-error {
+            color: var(--msg-error);
+        }
+        .import-status .msg-muted {
+            color: var(--msg-muted);
+        }
         
         .drop-zone {
             border: 2px dashed var(--border-color);
@@ -380,6 +412,9 @@ HTML_TEMPLATE = """
             color: #28a745;
             font-weight: 600;
             margin-top: 10px;
+        }
+        .hidden {
+            display: none;
         }
         
         /* Toast notification */
@@ -582,6 +617,166 @@ HTML_TEMPLATE = """
         .sim-option.selected .sim-option-details {
             opacity: 0.9;
         }
+        .modal-content-wide {
+            max-width: 800px;
+        }
+        .section-pad {
+            padding: 20px;
+        }
+        .helper-text {
+            color: var(--text-secondary);
+            margin-bottom: 15px;
+        }
+        .center-row {
+            text-align: center;
+        }
+        .empty-sim-msg {
+            padding: 20px;
+            text-align: center;
+            color: var(--text-secondary);
+        }
+        .archive-chip-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-bottom: 8px;
+        }
+        .mismatch-panel {
+            margin-bottom: 12px;
+            padding: 10px;
+            background: var(--param-bg);
+            border-radius: 4px;
+        }
+        .warning-banner {
+            background: #ff9800;
+            color: white;
+            padding: 8px 12px;
+            border-radius: 4px;
+            margin-bottom: 8px;
+            font-size: 0.9em;
+        }
+        .meta-block {
+            margin-top: 8px;
+        }
+        .notes-preview {
+            font-style: italic;
+            white-space: pre-wrap;
+            margin-top: 4px;
+            overflow: hidden;
+            line-height: 1.5;
+            max-height: 4.5em;
+            transition: max-height 0.3s ease;
+        }
+        .notes-toggle {
+            font-size: 0.9em;
+            display: none;
+        }
+        .action-buttons {
+            margin-top: 12px;
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 10px;
+        }
+        .export-status {
+            font-size: 1.05em;
+            color: var(--text-secondary);
+            margin-top: 6px;
+            text-align: center;
+        }
+        .export-substatus {
+            font-size: 0.9em;
+            color: var(--text-secondary);
+            margin-top: 6px;
+            text-align: center;
+            min-height: 1.2em;
+        }
+        .export-help {
+            color: var(--text-secondary);
+            margin-top: 12px;
+            font-size: 0.85em;
+            text-align: center;
+        }
+        .export-close-btn {
+            display: none;
+            margin-top: 12px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+        .export-log-box {
+            margin-top: 14px;
+            max-height: 220px;
+            overflow-y: auto;
+            background: var(--bg-primary);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 10px 12px;
+            font-family: 'Menlo', 'Consolas', monospace;
+            font-size: 12px;
+            line-height: 1.6;
+            text-align: left;
+            color: var(--text-primary);
+        }
+        .export-log-box .log-line { margin: 0; white-space: pre-wrap; word-break: break-word; }
+        .export-log-box .log-error { color: var(--msg-error); }
+        .atom-spinner.export-spinner {
+            width: 64px;
+            height: 64px;
+            margin: 12px auto;
+            position: relative;
+        }
+        .atom-spinner.export-spinner .nucleus {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 10px;
+            height: 10px;
+            background: #28a745;
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            box-shadow: 0 0 10px #28a745;
+        }
+        .atom-spinner.export-spinner .orbit {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            border-radius: 50%;
+            opacity: 0.4;
+        }
+        .atom-spinner.export-spinner .orbit-1 {
+            width: 32px;
+            height: 32px;
+            margin: -16px 0 0 -16px;
+            border: 2px solid #28a745;
+            animation: rotate 1.5s linear infinite;
+        }
+        .atom-spinner.export-spinner .orbit-2 {
+            width: 48px;
+            height: 48px;
+            margin: -24px 0 0 -24px;
+            border: 2px solid #3ecf5e;
+            animation: rotate 2s linear infinite;
+            animation-delay: -0.66s;
+        }
+        .atom-spinner.export-spinner .orbit-3 {
+            width: 64px;
+            height: 64px;
+            margin: -32px 0 0 -32px;
+            border: 2px solid #66e08a;
+            animation: rotate 2.5s linear infinite;
+        }
+        .atom-spinner.export-spinner .electron {
+            position: absolute;
+            top: -4px;
+            left: 50%;
+            margin-left: -3px;
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: #28a745;
+            box-shadow: 0 0 8px #28a745;
+        }
         
         /* Responsive styles for mobile */
         @media (max-width: 768px) {
@@ -683,6 +878,8 @@ HTML_TEMPLATE = """
     </style>
     <script>
         let currentDirname = null;
+        let currentExportDirname = null;
+        let exportEventSource = null;
         
         // Theme management
         function initTheme() {
@@ -730,6 +927,127 @@ HTML_TEMPLATE = """
         function closeNotesModal() {
             document.getElementById('notesModal').style.display = 'none';
         }
+
+        function openExportModal(dirname) {
+            currentExportDirname = dirname;
+            const modal = document.getElementById('exportModal');
+            document.getElementById('exportStatus').textContent = 'Preparing export...';
+            document.getElementById('exportProgress').textContent = '';
+            document.getElementById('exportLog').innerHTML = '';
+            document.getElementById('exportHelp').style.display = 'block';
+            document.getElementById('exportCloseBtn').style.display = 'none';
+            document.getElementById('exportSpinner').style.display = 'block';
+            modal.style.display = 'block';
+            startExportStream(dirname);
+        }
+
+        function closeExportModal() {
+            if (exportEventSource) {
+                exportEventSource.close();
+                exportEventSource = null;
+            }
+            document.getElementById('exportModal').style.display = 'none';
+        }
+
+        function appendExportLog(text, isError) {
+            const logBox = document.getElementById('exportLog');
+            const p = document.createElement('p');
+            p.className = 'log-line' + (isError ? ' log-error' : '');
+            p.textContent = text;
+            logBox.appendChild(p);
+            logBox.scrollTop = logBox.scrollHeight;
+            while (logBox.children.length > 300) logBox.removeChild(logBox.firstChild);
+        }
+
+        function startExportStream(dirname) {
+            if (exportEventSource) {
+                exportEventSource.close();
+            }
+
+            const statusEl = document.getElementById('exportStatus');
+            const progressEl = document.getElementById('exportProgress');
+            const helpTextEl = document.getElementById('exportHelp');
+            const closeBtnEl = document.getElementById('exportCloseBtn');
+            const spinnerEl = document.getElementById('exportSpinner');
+
+            const theme = document.documentElement.getAttribute('data-theme') || localStorage.getItem('theme') || 'dark';
+            const streamUrl = '/export-stream/' + dirname + '?theme=' + theme;
+            exportEventSource = new EventSource(streamUrl);
+
+            exportEventSource.onopen = function() {
+                statusEl.textContent = 'Preparing export...';
+                progressEl.textContent = '';
+            };
+
+            exportEventSource.onmessage = function(e) {
+                const line = e.data;
+                appendExportLog(line, false);
+                if (line.includes('Found')) statusEl.textContent = 'Scanning files...';
+                else if (line.includes('Packed')) statusEl.textContent = 'Hashing and packaging files...';
+                else if (line.includes('Writing MANIFEST')) statusEl.textContent = 'Writing manifest...';
+                else if (line.includes('Writing SIGNATURE')) statusEl.textContent = 'Signing export...';
+
+                const packedMatch = line.match(/Packed\s+([\d,]+)\/([\d,]+)/);
+                if (packedMatch) {
+                    const done = parseInt(packedMatch[1].replace(/,/g, ''), 10);
+                    const total = parseInt(packedMatch[2].replace(/,/g, ''), 10);
+                    if (total > 0) {
+                        const pct = Math.min(100, Math.round((done / total) * 100));
+                        progressEl.textContent = `${pct}% complete (${done.toLocaleString()}/${total.toLocaleString()} files)`;
+                    }
+                }
+            };
+
+            exportEventSource.addEventListener('done', function(e) {
+                exportEventSource.close();
+                exportEventSource = null;
+
+                const token = (e.data || '').trim();
+                const downloadId = 'dl_' + Math.random().toString(36).slice(2);
+                statusEl.textContent = 'Done! Starting download...';
+                progressEl.textContent = '100% complete';
+                appendExportLog('Export complete. Starting download now...', false);
+
+                const iframe = document.createElement('iframe');
+                iframe.style.display = 'none';
+                iframe.src = '/export-download/' + encodeURIComponent(token) + '?download_id=' + encodeURIComponent(downloadId);
+                document.body.appendChild(iframe);
+
+                const cookieName = 'download_complete_' + downloadId + '=1';
+                const startedAt = Date.now();
+                const poll = setInterval(() => {
+                    if (document.cookie.includes(cookieName)) {
+                        clearInterval(poll);
+                        statusEl.textContent = 'Download complete.';
+                        appendExportLog('Download complete. You can close this dialog.', false);
+                        helpTextEl.style.display = 'none';
+                        closeBtnEl.style.display = 'inline-block';
+                        spinnerEl.style.display = 'none';
+                        document.cookie = 'download_complete_' + downloadId + '=; Max-Age=0; path=/';
+                        return;
+                    }
+                    if (Date.now() - startedAt > 120000) {
+                        clearInterval(poll);
+                        statusEl.textContent = 'Download started (completion confirmation timed out).';
+                        appendExportLog('Download likely started, but completion confirmation timed out.', false);
+                        closeBtnEl.style.display = 'inline-block';
+                    }
+                }, 250);
+            });
+
+            exportEventSource.addEventListener('error', function(e) {
+                exportEventSource.close();
+                exportEventSource = null;
+                statusEl.textContent = 'Export failed.';
+                progressEl.textContent = '';
+                appendExportLog('ERROR: ' + (e.data || 'export error'), true);
+                closeBtnEl.style.display = 'inline-block';
+            });
+
+            exportEventSource.onerror = function() {
+                statusEl.textContent = 'Connection lost. Check server logs.';
+            };
+        }
         
         // Import dialog functions
         function openImportModal() {
@@ -769,11 +1087,12 @@ HTML_TEMPLATE = """
                 const files = e.dataTransfer.files;
                 if (files.length > 0) {
                     const file = files[0];
-                    if (file.name.endsWith('.zip')) {
+                    const lower = file.name.toLowerCase();
+                    if (lower.endsWith('.zip') || lower.endsWith('.nanosim')) {
                         document.getElementById('importFile').files = files;
                         handleFileSelect({ target: { files: files } });
                     } else {
-                        document.getElementById('importStatus').innerHTML = '<span style="color: #dc3545;">Please drop a .zip file or use the browse button to select a directory</span>';
+                        document.getElementById('importStatus').innerHTML = '<span class="msg msg-error">Please drop a .nanosim/.zip file or use the browse button to select a directory</span>';
                     }
                 }
             });
@@ -1047,10 +1366,14 @@ HTML_TEMPLATE = """
         
         // Close modal when clicking outside
         window.onclick = function(event) {
-            const modal = document.getElementById('notesModal');
-            if (event.target == modal) {
-                closeNotesModal();
-            }
+            const notesModal = document.getElementById('notesModal');
+            const importModal = document.getElementById('importModal');
+            const combineModal = document.getElementById('combineModal');
+            const exportModal = document.getElementById('exportModal');
+            if (event.target == notesModal) closeNotesModal();
+            if (event.target == importModal) closeImportModal();
+            if (event.target == combineModal) closeCombineModal();
+            if (event.target == exportModal) closeExportModal();
         }
         
         function showToast(message) {
@@ -1108,8 +1431,7 @@ HTML_TEMPLATE = """
         }
         
         function exportArchive(dirname) {
-            // Create download link
-            window.location.href = '/export/' + dirname;
+            openExportModal(dirname);
         }
         
         function importArchive(overwrite = false) {
@@ -1117,7 +1439,7 @@ HTML_TEMPLATE = """
             const statusDiv = document.getElementById('importStatus');
             
             if (!fileInput.files || fileInput.files.length === 0) {
-                statusDiv.innerHTML = '<span style="color: #dc3545;">Please select a file or directory</span>';
+                statusDiv.innerHTML = '<span class="msg msg-error">Please select a file or directory</span>';
                 return;
             }
             
@@ -1143,7 +1465,7 @@ HTML_TEMPLATE = """
             
             formData.append('overwrite', overwrite.toString());
             
-            statusDiv.innerHTML = '<span style="color: #007bff;">Importing and validating...</span>';
+            statusDiv.innerHTML = '<span class="msg msg-info">Importing and validating...</span>';
             
             fetch('/import', {
                 method: 'POST',
@@ -1157,7 +1479,7 @@ HTML_TEMPLATE = """
                             // Retry with overwrite flag
                             importArchive(true);
                         } else {
-                            statusDiv.innerHTML = '<span style="color: #666;">Import cancelled</span>';
+                            statusDiv.innerHTML = '<span class="msg msg-muted">Import cancelled</span>';
                         }
                         return null; // Don't continue to .then
                     });
@@ -1168,7 +1490,7 @@ HTML_TEMPLATE = """
                 if (!data) return; // Cancelled or handled above
                 
                 if (data.success) {
-                    statusDiv.innerHTML = '<span style="color: #28a745;">✓ ' + data.message + '</span>';
+                    statusDiv.innerHTML = '<span class="msg msg-success">✓ ' + data.message + '</span>';
                     setTimeout(() => {
                         closeImportModal();
                         window.location.reload();
@@ -1178,11 +1500,11 @@ HTML_TEMPLATE = """
                     if (data.details) {
                         errorMsg += '<br>' + data.details.join('<br>');
                     }
-                    statusDiv.innerHTML = '<span style="color: #dc3545;">✗ ' + errorMsg + '</span>';
+                    statusDiv.innerHTML = '<span class="msg msg-error">✗ ' + errorMsg + '</span>';
                 }
             })
             .catch(error => {
-                statusDiv.innerHTML = '<span style="color: #dc3545;">✗ Import failed: ' + error + '</span>';
+                statusDiv.innerHTML = '<span class="msg msg-error">✗ Import failed: ' + error + '</span>';
             });
         }
     </script>
@@ -1209,15 +1531,15 @@ HTML_TEMPLATE = """
                 <h2>Import Simulation</h2>
                 <button class="close-btn" onclick="closeImportModal()">&times;</button>
             </div>
-            <div style="padding: 20px;">
-                <p style="color: var(--text-secondary); margin-bottom: 15px;">Import a previously exported simulation archive (.zip or directory)</p>
+            <div class="section-pad">
+                <p class="helper-text">Import a previously exported simulation archive (.nanosim, .zip, or directory)</p>
                 <div class="drop-zone" id="dropZone" onclick="document.getElementById('importFile').click()">
-                    <input type="file" id="importFile" accept=".zip" onchange="handleFileSelect(event)" webkitdirectory directory multiple>
-                    <div class="drop-zone-text">📦 Drop .zip here or click to browse</div>
-                    <div class="drop-zone-hint">Drop: .zip files only • Browse: .zip or directory</div>
-                    <div id="fileSelected" class="file-selected" style="display: none;"></div>
+                    <input type="file" id="importFile" accept=".nanosim,.zip" onchange="handleFileSelect(event)" webkitdirectory directory multiple>
+                    <div class="drop-zone-text">📦 Drop .nanosim/.zip here or click to browse</div>
+                    <div class="drop-zone-hint">Drop: .nanosim or .zip • Browse: .nanosim, .zip, or directory</div>
+                    <div id="fileSelected" class="file-selected hidden"></div>
                 </div>
-                <div style="text-align: center;">
+                <div class="center-row">
                     <button onclick="importArchive()" class="btn btn-primary">Import & Validate</button>
                 </div>
                 <div id="importStatus" class="import-status"></div>
@@ -1226,12 +1548,12 @@ HTML_TEMPLATE = """
     </div>
     
     <div id="combineModal" class="modal">
-        <div class="modal-content" style="max-width: 800px;">
+        <div class="modal-content modal-content-wide">
             <div class="modal-header">
                 <h2>Combine Simulations</h2>
                 <button class="close-btn" onclick="closeCombineModal()">&times;</button>
             </div>
-            <p style="margin-bottom: 15px; color: var(--text-secondary);">Select one reversible and one irreversible simulation to combine into a new archive.</p>
+            <p class="helper-text">Select one reversible and one irreversible simulation to combine into a new archive.</p>
             <div class="combine-grid">
                 <div class="sim-column">
                     <h3>Reversible Simulations</h3>
@@ -1252,7 +1574,7 @@ HTML_TEMPLATE = """
                         </div>
                         {% endfor %}
                         {% if not rev_archives %}
-                        <div style="padding: 20px; text-align: center; color: var(--text-secondary);">No completed reversible simulations found</div>
+                        <div class="empty-sim-msg">No completed reversible simulations found</div>
                         {% endif %}
                     </div>
                 </div>
@@ -1275,7 +1597,7 @@ HTML_TEMPLATE = """
                         </div>
                         {% endfor %}
                         {% if not irr_archives %}
-                        <div style="padding: 20px; text-align: center; color: var(--text-secondary);">No completed irreversible simulations found</div>
+                        <div class="empty-sim-msg">No completed irreversible simulations found</div>
                         {% endif %}
                     </div>
                 </div>
@@ -1283,6 +1605,28 @@ HTML_TEMPLATE = """
             <div class="modal-footer">
                 <button class="btn btn-secondary" onclick="closeCombineModal()">Cancel</button>
                 <button id="doCombineBtn" class="btn btn-success" onclick="doCombine()" disabled>Combine</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="exportModal" class="modal">
+        <div class="modal-content modal-content-wide">
+            <div class="modal-header">
+                <h2>Export Simulation</h2>
+                <button class="close-btn" onclick="closeExportModal()">&times;</button>
+            </div>
+            <div class="section-pad">
+                <div class="atom-spinner export-spinner" id="exportSpinner">
+                    <div class="nucleus"></div>
+                    <div class="orbit orbit-1"><div class="electron"></div></div>
+                    <div class="orbit orbit-2"><div class="electron"></div></div>
+                    <div class="orbit orbit-3"><div class="electron"></div></div>
+                </div>
+                <div id="exportStatus" class="export-status">Preparing export...</div>
+                <div id="exportProgress" class="export-substatus"></div>
+                <div id="exportLog" class="export-log-box"></div>
+                <p id="exportHelp" class="export-help">Large datasets can take time to hash and package.</p>
+                <button id="exportCloseBtn" class="btn btn-secondary export-close-btn" onclick="closeExportModal()">Close</button>
             </div>
         </div>
     </div>
@@ -1301,7 +1645,7 @@ HTML_TEMPLATE = """
     <div class="archive-list">\n        {% for archive in archives %}
         <div class="archive-item">
             <div class="timestamp">{{ archive.display_time }}</div>
-            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px;">
+            <div class="archive-chip-row">
                 {% if archive.is_combined %}
                 <span class="combined-chip">COMBINED</span>
                 {% elif archive.params %}
@@ -1312,8 +1656,8 @@ HTML_TEMPLATE = """
             <div class="details">
                 {% if archive.is_combined %}
                 {% if archive.params_mismatch %}
-                <div style="margin-bottom: 12px; padding: 10px; background: var(--param-bg); border-radius: 4px;">
-                    <div style="background: #ff9800; color: white; padding: 8px 12px; border-radius: 4px; margin-bottom: 8px; font-size: 0.9em;">
+                <div class="mismatch-panel">
+                    <div class="warning-banner">
                         ⚠️ Warning: Reversible and irreversible parameters don't match
                     </div>
                     {% if archive.rev_params and archive.irr_params %}
@@ -1346,22 +1690,22 @@ HTML_TEMPLATE = """
                 </div>
                 {% endif %}
                 {% if archive.completion_info %}
-                <div style="margin-top: 8px;">
+                <div class="meta-block">
                     <strong>Runtime:</strong> {{ archive.completion_info.total_time }}<br>
                     <strong>Throughput:</strong> {{ archive.completion_info.throughput }}
                 </div>
                 {% endif %}
                 {% if archive.progress %}
-                <div style="margin-top: 8px;">
+                <div class="meta-block">
                     <strong>Progress:</strong> {{ archive.progress }}
                 </div>
                 {% endif %}
                 {% if archive.notes %}
-                <div style="margin-top: 8px;">
+                <div class="meta-block">
                     <strong>Notes:</strong> 
                     <a href="#" class="edit-link" data-dirname="{{ archive.dirname }}" data-notes="{{ archive.notes|escape }}" onclick="openNotesModalFromLink(this); return false;">Edit</a>
-                    <div id="notesContent_{{ archive.dirname }}" style="font-style: italic; white-space: pre-wrap; margin-top: 4px; overflow: hidden; line-height: 1.5; max-height: 4.5em; transition: max-height 0.3s ease;">{{ archive.notes }}</div>
-                    <a href="#" id="toggleNotes_{{ archive.dirname }}" onclick="toggleNotesExpand('{{ archive.dirname }}'); return false;" style="font-size: 0.9em; display: none;">▼ Show more</a>
+                    <div id="notesContent_{{ archive.dirname }}" class="notes-preview">{{ archive.notes }}</div>
+                    <a href="#" id="toggleNotes_{{ archive.dirname }}" class="notes-toggle" onclick="toggleNotesExpand('{{ archive.dirname }}'); return false;">▼ Show more</a>
                 </div>
                 <script>
                     (function() {
@@ -1375,7 +1719,7 @@ HTML_TEMPLATE = """
                     })();
                 </script>
                 {% endif %}
-                <div class="action-buttons" style="margin-top: 12px; display: flex; flex-wrap: wrap; align-items: center; gap: 10px;">
+                <div class="action-buttons">
                     <a href="/plot-loading/{{ archive.dirname }}" class="plot-link" onclick="addThemeToUrl(event, this)" title="View interactive plots and analysis">Plot data</a>
                     <a href="/view/{{ archive.dirname }}" class="view-link" title="Browse all files in this archive">View files</a>
                     {% if not archive.notes %}
@@ -2029,6 +2373,492 @@ def view_files(dirname):
     
     return render_template_string(FILE_LIST_TEMPLATE, dirname=dirname, files=files)
 
+@app.route('/export-loading/<dirname>')
+def export_loading(dirname):
+    """Show loading page while an export zip is prepared."""
+    from flask import request
+
+    theme = request.args.get('theme', 'dark')
+
+    if dirname == 'current':
+        title = 'Current Run'
+    else:
+        try:
+            dt = datetime.strptime(dirname, '%Y%m%d_%H%M%S')
+            title = dt.strftime('%b %d, %Y %H:%M:%S')
+        except ValueError:
+            title = dirname
+
+    loading_html = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Preparing Export...</title>
+        <script>
+            (function() {{
+                const urlParams = new URLSearchParams(window.location.search);
+                const urlTheme = urlParams.get('theme');
+                const savedTheme = urlTheme || localStorage.getItem('theme') || 'dark';
+                document.documentElement.setAttribute('data-theme', savedTheme);
+            }})();
+        </script>
+        <style>
+            :root {{
+                --bg-primary: #1e1e1e;
+                --bg-secondary: #2d2d2d;
+                --text-primary: #e0e0e0;
+                --text-secondary: #b0b0b0;
+                --border-color: #404040;
+                --log-bg: rgba(0,0,0,0.35);
+                --log-border: rgba(255,255,255,0.12);
+                --log-text: #c8e6c9;
+                --log-error: #ff8a80;
+            }}
+
+            [data-theme="light"] {{
+                --bg-primary: #ffffff;
+                --bg-secondary: #f8f9fa;
+                --text-primary: #333333;
+                --text-secondary: #666666;
+                --border-color: #dddddd;
+                --log-bg: #f8f9fa;
+                --log-border: #d8dee4;
+                --log-text: #1f2937;
+                --log-error: #b42318;
+            }}
+
+            body {{
+                margin: 0;
+                padding: 20px;
+                font-family: Arial, sans-serif;
+                background: var(--bg-primary);
+                color: var(--text-primary);
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                min-height: 100vh;
+            }}
+
+            .loading-container {{
+                text-align: center;
+                max-width: 700px;
+            }}
+
+            .atom-spinner {{
+                position: relative;
+                width: 80px;
+                height: 80px;
+                margin: 30px auto;
+            }}
+
+            .nucleus {{
+                position: absolute;
+                top: 50%;
+                left: 50%;
+                width: 12px;
+                height: 12px;
+                background: #28a745;
+                border-radius: 50%;
+                transform: translate(-50%, -50%);
+                margin: 2px 0 0 2px;
+                box-shadow: 0 0 10px #28a745, 0 0 20px #28a745;
+            }}
+
+            .orbit {{
+                position: absolute;
+                top: 50%;
+                left: 50%;
+                border-radius: 50%;
+                opacity: 0.4;
+            }}
+
+            .orbit-1 {{
+                width: 40px;
+                height: 40px;
+                margin: -20px 0 0 -20px;
+                border: 2px solid #28a745;
+                animation: rotate 1.5s linear infinite;
+                box-shadow: 0 0 8px #28a745;
+            }}
+
+            .orbit-2 {{
+                width: 60px;
+                height: 60px;
+                margin: -30px 0 0 -30px;
+                border: 2px solid #3ecf5e;
+                animation: rotate 2s linear infinite;
+                animation-delay: -0.66s;
+                box-shadow: 0 0 8px #3ecf5e;
+            }}
+
+            .orbit-3 {{
+                width: 80px;
+                height: 80px;
+                margin: -40px 0 0 -40px;
+                border: 2px solid #66e08a;
+                animation: rotate 2.5s linear infinite;
+                box-shadow: 0 0 8px #66e08a;
+            }}
+
+            .electron {{
+                position: absolute;
+                width: 6px;
+                height: 6px;
+                border-radius: 50%;
+            }}
+
+            .orbit-1 .electron {{
+                top: -4px;
+                left: 50%;
+                margin-left: -3px;
+                background: #28a745;
+                box-shadow: 0 0 5px #28a745, 0 0 10px #28a745;
+            }}
+
+            .orbit-2 .electron {{
+                top: -4px;
+                left: 50%;
+                margin-left: -3px;
+                background: #3ecf5e;
+                box-shadow: 0 0 5px #3ecf5e, 0 0 10px #3ecf5e;
+            }}
+
+            .orbit-3 .electron {{
+                top: -4px;
+                left: 50%;
+                margin-left: -3px;
+                background: #66e08a;
+                box-shadow: 0 0 5px #66e08a, 0 0 10px #66e08a;
+            }}
+
+            @keyframes rotate {{
+                0% {{ transform: rotate(0deg); }}
+                100% {{ transform: rotate(360deg); }}
+            }}
+
+            .status {{
+                font-size: 1.2em;
+                color: var(--text-secondary);
+                margin-top: 20px;
+            }}
+
+            .sub-status {{
+                font-size: 0.95em;
+                color: var(--text-secondary);
+                margin-top: 8px;
+                min-height: 1.2em;
+            }}
+
+            .back-link {{
+                position: absolute;
+                top: 20px;
+                left: 20px;
+            }}
+
+            .back-link a {{
+                color: #007bff;
+                font-size: 34px;
+                font-weight: 800;
+                line-height: 1;
+                text-decoration: none;
+                padding: 0px 14px 4px 14px;
+                border-radius: 4px;
+                transition: all 0.2s;
+            }}
+
+            .back-link a:hover {{
+                background: #007bff;
+                color: white;
+            }}
+
+            #log-box {{
+                margin-top: 24px;
+                width: 700px;
+                max-width: 92vw;
+                max-height: 260px;
+                overflow-y: auto;
+                background: var(--log-bg);
+                border: 1px solid var(--log-border);
+                border-radius: 6px;
+                padding: 10px 14px;
+                font-family: 'Menlo', 'Consolas', monospace;
+                font-size: 12px;
+                line-height: 1.6;
+                color: var(--log-text);
+                text-align: left;
+            }}
+            #log-box .log-line {{ margin: 0; white-space: pre-wrap; word-break: break-word; }}
+            #log-box .log-error {{ color: var(--log-error); }}
+
+            .help-text {{
+                color: var(--text-secondary);
+                margin-top: 16px;
+                font-size: 0.85em;
+            }}
+
+            .done-close-btn {{
+                display: none;
+                margin-top: 16px;
+                padding: 8px 16px;
+                border-radius: 4px;
+                border: 1px solid var(--border-color);
+                background: var(--bg-secondary);
+                color: var(--text-primary);
+                cursor: pointer;
+                font-size: 14px;
+                font-weight: 600;
+            }}
+
+            .done-close-btn:hover {{
+                opacity: 0.9;
+            }}
+        </style>
+    </head>
+    <body>
+        <div class="back-link"><a href="/" title="Back to simulation browser">‹</a></div>
+        <div class="loading-container">
+            <h1>Exporting Archive - {title}</h1>
+            <div class="atom-spinner" id="atom-spinner">
+                <div class="nucleus"></div>
+                <div class="orbit orbit-1"><div class="electron"></div></div>
+                <div class="orbit orbit-2"><div class="electron"></div></div>
+                <div class="orbit orbit-3"><div class="electron"></div></div>
+            </div>
+            <div class="status" id="status-text">Connecting...</div>
+            <div class="sub-status" id="progress-text"></div>
+            <div id="log-box"></div>
+            <p class="help-text" id="help-text">Large datasets can take time to hash and package.</p>
+            <button id="done-close-btn" class="done-close-btn" onclick="window.location.href='/'">Close</button>
+        </div>
+        <script>
+            (function() {{
+                const urlParams = new URLSearchParams(window.location.search);
+                const theme = urlParams.get('theme') || localStorage.getItem('theme') || 'dark';
+                const streamUrl = '/export-stream/{dirname}?theme=' + theme;
+
+                const statusEl = document.getElementById('status-text');
+                const progressEl = document.getElementById('progress-text');
+                const logBox   = document.getElementById('log-box');
+                const helpTextEl = document.getElementById('help-text');
+                const doneCloseBtn = document.getElementById('done-close-btn');
+                const atomSpinnerEl = document.getElementById('atom-spinner');
+
+                function appendLog(text, isError) {{
+                    const p = document.createElement('p');
+                    p.className = 'log-line' + (isError ? ' log-error' : '');
+                    p.textContent = text;
+                    logBox.appendChild(p);
+                    logBox.scrollTop = logBox.scrollHeight;
+                    while (logBox.children.length > 300) logBox.removeChild(logBox.firstChild);
+                }}
+
+                const es = new EventSource(streamUrl);
+
+                es.onopen = function() {{
+                    statusEl.textContent = 'Preparing export...';
+                    progressEl.textContent = '';
+                }};
+
+                es.onmessage = function(e) {{
+                    const line = e.data;
+                    appendLog(line, false);
+                    if (line.includes('Found')) statusEl.textContent = 'Scanning files...';
+                    else if (line.includes('Packed')) statusEl.textContent = 'Hashing and packaging files...';
+                    else if (line.includes('Writing MANIFEST')) statusEl.textContent = 'Writing manifest...';
+                    else if (line.includes('Writing SIGNATURE')) statusEl.textContent = 'Signing export...';
+
+                    const packedMatch = line.match(/Packed\s+([\d,]+)\/([\d,]+)/);
+                    if (packedMatch) {{
+                        const done = parseInt(packedMatch[1].replace(/,/g, ''), 10);
+                        const total = parseInt(packedMatch[2].replace(/,/g, ''), 10);
+                        if (total > 0) {{
+                            const pct = Math.min(100, Math.round((done / total) * 100));
+                            progressEl.textContent = `${{pct}}% complete (${{done.toLocaleString()}}/${{total.toLocaleString()}} files)`;
+                        }}
+                    }}
+                }};
+
+                es.addEventListener('done', function(e) {{
+                    es.close();
+                    const token = (e.data || '').trim();
+                    const downloadId = 'dl_' + Math.random().toString(36).slice(2);
+                    statusEl.textContent = 'Done! Starting download...';
+                    progressEl.textContent = '100% complete';
+                    appendLog('Export complete. Starting download now...', false);
+
+                    const iframe = document.createElement('iframe');
+                    iframe.style.display = 'none';
+                    iframe.src = '/export-download/' + encodeURIComponent(token) + '?download_id=' + encodeURIComponent(downloadId);
+                    document.body.appendChild(iframe);
+
+                    const cookieName = 'download_complete_' + downloadId + '=1';
+                    const startedAt = Date.now();
+                    const poll = setInterval(() => {{
+                        if (document.cookie.includes(cookieName)) {{
+                            clearInterval(poll);
+                            statusEl.textContent = 'Download complete.';
+                            appendLog('Download complete. You can return to the simulation browser.', false);
+                            helpTextEl.style.display = 'none';
+                            doneCloseBtn.style.display = 'inline-block';
+                            atomSpinnerEl.style.display = 'none';
+                            document.cookie = 'download_complete_' + downloadId + '=; Max-Age=0; path=/';
+                            return;
+                        }}
+                        if (Date.now() - startedAt > 120000) {{
+                            clearInterval(poll);
+                            statusEl.textContent = 'Download started (completion confirmation timed out).';
+                            appendLog('Download likely started, but completion confirmation timed out.', false);
+                        }}
+                    }}, 250);
+                }});
+
+                es.addEventListener('error', function(e) {{
+                    es.close();
+                    statusEl.textContent = 'Export failed.';
+                    progressEl.textContent = '';
+                    appendLog('ERROR: ' + (e.data || 'export error'), true);
+                }});
+
+                es.onerror = function() {{
+                    statusEl.textContent = 'Connection lost. Check server logs.';
+                    progressEl.textContent = '';
+                }};
+            }})();
+        </script>
+    </body>
+    </html>
+    """
+
+    return loading_html
+
+
+@app.route('/export-stream/<dirname>')
+def export_stream(dirname):
+    """SSE endpoint: builds export zip with progress updates and returns a download token."""
+
+    if dirname == 'current':
+        def current_not_allowed():
+            yield "event: error\ndata: Cannot export current run\n\n"
+        return Response(stream_with_context(current_not_allowed()),
+                        mimetype='text/event-stream',
+                        headers={'X-Accel-Buffering': 'no', 'Cache-Control': 'no-cache'})
+
+    archive_path = ARCHIVE_DIR / dirname
+
+    @stream_with_context
+    def generate():
+        if not archive_path.exists():
+            yield "event: error\ndata: Archive not found\n\n"
+            return
+
+        token = secrets.token_urlsafe(24)
+        with tempfile.NamedTemporaryFile(mode='w+b', suffix='.zip', delete=False) as tmp_zip:
+            zip_path = Path(tmp_zip.name)
+
+        try:
+            yield "data: Starting export build...\n\n"
+
+            file_list = sorted([p for p in archive_path.rglob('*') if p.is_file()])
+            total_files = len(file_list)
+            yield f"data: Found {total_files:,} files to export\n\n"
+
+            manifest = {
+                'export_version': '1.0',
+                'archive_name': dirname,
+                'export_date': datetime.now().isoformat(),
+                'files': {}
+            }
+
+            with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                for index, file_path in enumerate(file_list, start=1):
+                    rel_path = file_path.relative_to(archive_path)
+
+                    sha256_hash = hashlib.sha256()
+                    with open(file_path, 'rb') as f:
+                        for chunk in iter(lambda: f.read(4096), b''):
+                            sha256_hash.update(chunk)
+
+                    manifest['files'][str(rel_path)] = {
+                        'sha256': sha256_hash.hexdigest(),
+                        'size': file_path.stat().st_size
+                    }
+
+                    zipf.write(file_path, arcname=str(rel_path))
+
+                    if index == 1 or index == total_files or index % 25 == 0:
+                        yield f"data: Packed {index:,}/{total_files:,}: {rel_path}\n\n"
+
+                yield "data: Writing MANIFEST.json...\n\n"
+                import json
+                manifest_json = json.dumps(manifest, indent=2)
+                zipf.writestr('MANIFEST.json', manifest_json)
+
+                yield "data: Writing SIGNATURE...\n\n"
+                manifest_hash = hashlib.sha256(manifest_json.encode()).hexdigest()
+                zipf.writestr('SIGNATURE', manifest_hash)
+
+            _export_cache[token] = {
+                'path': zip_path,
+                'filename': f'ember_nanosim_{dirname}{EXPORT_EXTENSION}'
+            }
+
+            yield "data: Export package complete\n\n"
+            yield f"event: done\ndata: {token}\n\n"
+
+        except Exception as e:
+            if zip_path.exists():
+                zip_path.unlink()
+            yield f"event: error\ndata: Export failed: {str(e)}\n\n"
+
+    return Response(generate(),
+                    mimetype='text/event-stream',
+                    headers={'X-Accel-Buffering': 'no', 'Cache-Control': 'no-cache'})
+
+
+@app.route('/export-download/<token>')
+def export_download(token):
+    """Download a previously prepared export file and clean it up afterwards."""
+    from flask import send_file, after_this_request, request
+
+    entry = _export_cache.pop(token, None)
+    if not entry:
+        return "Export token expired or invalid", 404
+
+    zip_path = entry['path']
+    filename = entry['filename']
+
+    if not zip_path.exists():
+        return "Export file no longer available", 404
+
+    @after_this_request
+    def cleanup(response):
+        try:
+            if zip_path.exists():
+                zip_path.unlink()
+        except Exception:
+            pass
+        return response
+
+    response = send_file(
+        zip_path,
+        as_attachment=True,
+        download_name=filename,
+        mimetype='application/octet-stream'
+    )
+
+    download_id = request.args.get('download_id')
+    if download_id:
+        response.set_cookie(
+            f'download_complete_{download_id}',
+            '1',
+            max_age=120,
+            path='/',
+            samesite='Lax'
+        )
+
+    return response
+
 @app.route('/export/<dirname>')
 def export_archive(dirname):
     """Export an archive as a validated zip file."""
@@ -2088,8 +2918,8 @@ def export_archive(dirname):
         return send_file(
             zip_path,
             as_attachment=True,
-            download_name=f'ember_nanosim_{dirname}.zip',
-            mimetype='application/zip'
+            download_name=f'ember_nanosim_{dirname}{EXPORT_EXTENSION}',
+            mimetype='application/octet-stream'
         )
     except Exception as e:
         if zip_path.exists():
@@ -2239,8 +3069,9 @@ def import_archive():
         if file.filename == '':
             return jsonify({'success': False, 'error': 'No file selected'}), 400
         
-        if not file.filename.endswith('.zip'):
-            return jsonify({'success': False, 'error': 'File must be a .zip'}), 400
+        lower_name = file.filename.lower()
+        if not (lower_name.endswith('.zip') or lower_name.endswith(EXPORT_EXTENSION)):
+            return jsonify({'success': False, 'error': 'File must be a .nanosim or .zip'}), 400
         
         # Save uploaded file temporarily
         with tempfile.NamedTemporaryFile(mode='w+b', suffix='.zip', delete=False) as tmp_file:
@@ -2361,15 +3192,114 @@ def import_archive():
             if zip_path.exists():
                 zip_path.unlink()
 
+@app.route('/plot-stream/<dirname>')
+def plot_stream(dirname):
+    """SSE endpoint: runs Sk_comparison.py, streams each stdout line to the browser,
+    caches the finished plot HTML, then fires event: done so the loading page redirects."""
+    import subprocess
+    import tempfile
+    import shutil
+
+    theme = request.args.get('theme', 'dark')
+
+    # If already cached (e.g. EventSource reconnect), immediately signal done.
+    if (dirname, theme) in _plot_cache:
+        def already_done():
+            yield "event: done\ndata: ok\n\n"
+        return Response(stream_with_context(already_done()),
+                        mimetype='text/event-stream',
+                        headers={'X-Accel-Buffering': 'no', 'Cache-Control': 'no-cache'})
+
+    if dirname == 'current':
+        data_path = DATA_DIR
+    else:
+        data_path = ARCHIVE_DIR / dirname
+
+    plotly_template = 'plotly_dark' if theme == 'dark' else 'plotly_white'
+    plot_script = REPO_ROOT / 'creutz-sim' / 'Sk_comparison.py'
+
+    @stream_with_context
+    def generate():
+        if not data_path.exists():
+            yield "data: ERROR: data path not found\n\n"
+            yield "event: error\ndata: data path not found\n\n"
+            return
+        if not plot_script.exists():
+            yield "data: ERROR: plotting script not found\n\n"
+            yield "event: error\ndata: plotting script not found\n\n"
+            return
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir_path = Path(tmpdir)
+
+            with open(plot_script, 'r') as f:
+                script_content = f.read()
+
+            # Inject the actual data path via args so no copytree is needed.
+            # Pass an absolute path so Path(repo_root) / abs_path resolves to abs_path.
+            modified_script = script_content.replace(
+                "args = parser.parse_args()",
+                f"args = parser.parse_args(['--data-dir', r'{data_path}'])"
+            ).replace(
+                'pio.templates.default = "plotly_white"',
+                f'pio.templates.default = "{plotly_template}"'
+            ).replace(
+                "fig.show()",
+                f"fig.write_html(r'{tmpdir_path}/plot1.html')"
+            ).replace(
+                "fig2.show()",
+                f"fig2.write_html(r'{tmpdir_path}/plot2.html')"
+            )
+
+            temp_script = tmpdir_path / 'plot_script.py'
+            with open(temp_script, 'w') as f:
+                f.write(modified_script)
+
+            python_bin = REPO_ROOT / 'venv' / 'bin' / 'python'
+            proc = subprocess.Popen(
+                [python_bin, str(temp_script)],
+                cwd=tmpdir_path,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+            )
+
+            for line in proc.stdout:
+                line = line.rstrip()
+                if line:
+                    yield f"data: {line}\n\n"
+
+            proc.wait()
+
+            if proc.returncode != 0:
+                yield "event: error\ndata: Script exited with non-zero status\n\n"
+                return
+
+            plot1 = tmpdir_path / 'plot1.html'
+            plot2 = tmpdir_path / 'plot2.html'
+
+            if not plot1.exists() and not plot2.exists():
+                yield "event: error\ndata: No plot HTML files generated\n\n"
+                return
+
+            _plot_cache[(dirname, theme)] = {
+                'plot1': plot1.read_text() if plot1.exists() else None,
+                'plot2': plot2.read_text() if plot2.exists() else None,
+            }
+
+        yield "event: done\ndata: ok\n\n"
+
+    return Response(generate(),
+                    mimetype='text/event-stream',
+                    headers={'X-Accel-Buffering': 'no', 'Cache-Control': 'no-cache'})
+
+
 @app.route('/plot-loading/<dirname>')
 def plot_loading(dirname):
     """Show loading page while plots are being generated."""
     from flask import request
-    
-    # Set session flag to indicate we're coming from loading page
-    session['from_loading'] = True
-    session['loading_dirname'] = dirname
-    
+
     # Get theme from query parameter, default to dark
     theme = request.args.get('theme', 'dark')
     
@@ -2459,6 +3389,10 @@ def plot_loading(dirname):
                 --text-primary: #e0e0e0;
                 --text-secondary: #b0b0b0;
                 --border-color: #404040;
+                --log-bg: rgba(0,0,0,0.35);
+                --log-border: rgba(255,255,255,0.12);
+                --log-text: #c8e6c9;
+                --log-error: #ff8a80;
             }}
             
             [data-theme="light"] {{
@@ -2467,6 +3401,10 @@ def plot_loading(dirname):
                 --text-primary: #333333;
                 --text-secondary: #666666;
                 --border-color: #dddddd;
+                --log-bg: #f8f9fa;
+                --log-border: #d8dee4;
+                --log-text: #1f2937;
+                --log-error: #b42318;
             }}
             
             body {{
@@ -2610,15 +3548,31 @@ def plot_loading(dirname):
                 color: white;
             }}
         </style>
-        <script>
-            // Redirect to actual plot generation after a brief moment
-            // Use replace() to replace history entry so back button doesn't return to loading page
-            setTimeout(function() {{
-                const urlParams = new URLSearchParams(window.location.search);
-                const theme = urlParams.get('theme') || localStorage.getItem('theme') || 'dark';
-                window.location.replace('/plot/{dirname}?theme=' + theme);
-            }}, 100);
-        </script>
+        <style>
+            #log-box {{
+                margin-top: 24px;
+                width: 640px;
+                max-width: 92vw;
+                max-height: 220px;
+                overflow-y: auto;
+                background: var(--log-bg);
+                border: 1px solid var(--log-border);
+                border-radius: 6px;
+                padding: 10px 14px;
+                font-family: 'Menlo', 'Consolas', monospace;
+                font-size: 12px;
+                line-height: 1.6;
+                color: var(--log-text);
+                text-align: left;
+            }}
+            #log-box .log-line {{ margin: 0; white-space: pre-wrap; word-break: break-all; }}
+            #log-box .log-error {{ color: var(--log-error); }}
+            .loading-help {{
+                color: var(--text-secondary);
+                margin-top: 16px;
+                font-size: 0.85em;
+            }}
+        </style>
     </head>
     <body>
         <div class="back-link"><a href="/" title="Back to simulation browser">‹</a></div>
@@ -2636,9 +3590,66 @@ def plot_loading(dirname):
                     <div class="electron"></div>
                 </div>
             </div>
-            <div class="status">Plotting data...</div>
-            <p style="color: var(--text-secondary); margin-top: 30px;">This may take a moment for larger datasets.</p>
+            <div class="status" id="status-text">Connecting...</div>
+            <div id="log-box"></div>
+            <p class="loading-help">This may take a moment for larger datasets.</p>
         </div>
+        <script>
+            (function() {{
+                const urlParams = new URLSearchParams(window.location.search);
+                const theme = urlParams.get('theme') || localStorage.getItem('theme') || 'dark';
+                const streamUrl = '/plot-stream/{dirname}?theme=' + theme;
+                const destUrl   = '/plot/{dirname}?theme=' + theme;
+
+                const statusEl = document.getElementById('status-text');
+                const logBox   = document.getElementById('log-box');
+
+                function appendLog(text, isError) {{
+                    const p = document.createElement('p');
+                    p.className = 'log-line' + (isError ? ' log-error' : '');
+                    p.textContent = text;
+                    logBox.appendChild(p);
+                    logBox.scrollTop = logBox.scrollHeight;
+                    // Keep last 200 lines to avoid DOM bloat
+                    while (logBox.children.length > 200) logBox.removeChild(logBox.firstChild);
+                }}
+
+                const es = new EventSource(streamUrl);
+
+                es.onopen = function() {{
+                    statusEl.textContent = 'Reading CSV data...';
+                }};
+
+                es.onmessage = function(e) {{
+                    const line = e.data;
+                    appendLog(line, false);
+                    // Update the headline status from key phrases in the output
+                    if      (line.includes('Serializing fig2')) statusEl.textContent = 'Serializing summary plot...';
+                    else if (line.includes('Serializing fig1')) statusEl.textContent = 'Serializing main plot...';
+                    else if (line.includes('[rev]'))            statusEl.textContent = 'Processing reversible data...';
+                    else if (line.includes('[irr]'))            statusEl.textContent = 'Processing irreversible data...';
+                }};
+
+                es.addEventListener('done', function() {{
+                    es.close();
+                    statusEl.textContent = 'Done! Preparing browser rendering...';
+                    appendLog('Server finished. Browser is now loading and rendering plots...', false);
+                    // Let the status/log paint before navigating to the heavy plot page.
+                    requestAnimationFrame(() => window.location.replace(destUrl));
+                }});
+
+                es.addEventListener('error', function(e) {{
+                    es.close();
+                    statusEl.textContent = 'Error generating plots.';
+                    appendLog('ERROR: ' + (e.data || 'stream error'), true);
+                }});
+
+                es.onerror = function() {{
+                    // Connection dropped mid-stream — surface a message but don't redirect
+                    statusEl.textContent = 'Connection lost. Check server logs.';
+                }};
+            }})();
+        </script>
     </body>
     </html>
     """
@@ -2647,20 +3658,15 @@ def plot_loading(dirname):
 
 @app.route('/plot/<dirname>')
 def plot_data(dirname):
-    """Generate plots for a simulation run."""
-    import subprocess
-    import tempfile
-    import shutil
+    """Assemble and return the full plot page from the SSE-populated cache.
+    If the cache is empty (direct navigation / refresh), redirect to the loading page
+    which will re-run the stream."""
     from flask import request, redirect, url_for, make_response
-    
-    # Check if this is a direct access (refresh) vs coming from loading page
-    # Check session flag instead of referer header
-    from_loading = session.pop('from_loading', False)
-    loading_dirname = session.get('loading_dirname', '')
-    
-    # If not from loading page or different dirname, redirect to loading page
-    if not from_loading or loading_dirname != dirname:
-        theme = request.args.get('theme', 'dark')
+
+    theme = request.args.get('theme', 'dark')
+    cached = _plot_cache.get((dirname, theme))
+    if not cached:
+        # Not yet generated — send to loading page which drives /plot-stream
         return redirect(url_for('plot_loading', dirname=dirname, theme=theme))
     
     # Helper function to format numbers with commas
@@ -2672,10 +3678,21 @@ def plot_data(dirname):
             return f"{int(value):,}"
         except (ValueError, TypeError):
             return value
+
+    def status_chip_class(status_value):
+        status_classes = {
+            'COMPLETED': 'status-completed',
+            'RUNNING': 'status-running',
+            'INTERRUPTED': 'status-interrupted',
+            'ERROR': 'status-error',
+            'UNKNOWN': 'status-unknown'
+        }
+        return status_classes.get(status_value, 'status-unknown')
     
-    # Get theme from query parameter, default to dark
-    theme = request.args.get('theme', 'dark')
-    
+    # Pull cached plot HTML produced by /plot-stream
+    plot1_html = cached.get('plot1')
+    plot2_html = cached.get('plot2')
+
     if dirname == 'current':
         data_path = DATA_DIR
         if not data_path.exists():
@@ -2684,70 +3701,8 @@ def plot_data(dirname):
         data_path = ARCHIVE_DIR / dirname
         if not data_path.exists():
             return "Archive not found", 404
-    
-    # Create a temporary directory to work in
-    with tempfile.TemporaryDirectory() as tmpdir:
-        tmpdir_path = Path(tmpdir)
-        
-        # Copy data to temp location
-        temp_data = tmpdir_path / 'data'
-        shutil.copytree(data_path, temp_data)
-        
-        # Copy the plotting script
-        plot_script = REPO_ROOT / 'creutz-sim' / 'Sk_comparison.py'
-        if not plot_script.exists():
-            return "Plotting script not found", 404
-        
-        temp_script = tmpdir_path / 'plot_script.py'
-        
-        # Read the original script and modify it to save HTML instead of showing
-        with open(plot_script, 'r') as f:
-            script_content = f.read()
-        
-        # Set the appropriate plotly template based on theme
-        plotly_template = 'plotly_dark' if theme == 'dark' else 'plotly_white'
-        
-        # Replace the data path references and change .show() to .write_html()
-        modified_script = script_content.replace(
-            "repo_root = Path(__file__).parent.parent",
-            f"repo_root = Path('{tmpdir_path}')"
-        ).replace(
-            "filepath = repo_root / 'data'",
-            f"filepath = Path('{temp_data}')"
-        ).replace(
-            'pio.templates.default = "plotly_white"',
-            f'pio.templates.default = "{plotly_template}"'
-        ).replace(
-            "fig.show()",
-            f"fig.write_html('{tmpdir_path}/plot1.html')"
-        ).replace(
-            "fig2.show()",
-            f"fig2.write_html('{tmpdir_path}/plot2.html')"
-        )
-        
-        with open(temp_script, 'w') as f:
-            f.write(modified_script)
-        
-        # Run the plotting script
-        try:
-            result = subprocess.run(
-                [REPO_ROOT / 'venv' / 'bin' / 'python', str(temp_script)],
-                cwd=tmpdir_path,
-                capture_output=True,
-                text=True,
-                timeout=30
-            )
-            
-            if result.returncode != 0:
-                return f"<h1>Plot Generation Failed</h1><pre>stdout:\n{result.stdout}\n\nstderr:\n{result.stderr}</pre>", 500
-            
-            # Find the generated HTML files
-            plot1 = tmpdir_path / 'plot1.html'
-            plot2 = tmpdir_path / 'plot2.html'
-            
-            if not plot1.exists() and not plot2.exists():
-                return f"<h1>No plots generated</h1><pre>stdout:\n{result.stdout}\n\nstderr:\n{result.stderr}</pre>", 500
-            
+
+    try:
             # Combine plots into a single page
             if dirname == 'current':
                 title = 'Current Run'
@@ -2801,26 +3756,19 @@ def plot_data(dirname):
                 
                 # Only show params section if we actually have parameters
                 if rev_params or irr_params:
-                    params_html = '<div style="text-align: center; margin: 20px 0; padding: 15px; background: var(--bg-secondary); color: var(--text-primary); border-radius: 5px;">'
+                    params_html = '<div class="params-panel">'
                     
                     if params_mismatch:
-                        params_html += '<div style="display: inline-block; padding: 4px 12px; border-radius: 12px; font-size: 0.85em; font-weight: bold; margin-bottom: 12px; background: linear-gradient(90deg, #ab63fa 0%, #00b8d4 100%); color: white;">COMBINED</div>'
+                        params_html += '<div class="chip-combined">COMBINED</div>'
                         # Add status chip
-                        status_colors = {
-                            'COMPLETED': 'background: #28a745; color: white;',
-                            'RUNNING': 'background: #ff9800; color: white;',
-                            'INTERRUPTED': 'background: #ffc107; color: black;',
-                            'ERROR': 'background: #dc3545; color: white;',
-                            'UNKNOWN': 'background: #e2e3e5; color: #383d41;'
-                        }
-                        status_style = status_colors.get(status, 'background: #6c757d; color: white;')
-                        params_html += f'<div style="display: inline-block; padding: 4px 12px; border-radius: 12px; font-size: 0.85em; font-weight: bold; margin-bottom: 12px; margin-left: 8px; {status_style}">{status}</div>'
-                        params_html += '<div style="background: #ff9800; color: white; padding: 8px 12px; border-radius: 4px; margin-top: 8px; font-size: 0.9em;">⚠️ Warning: Reversible and irreversible parameters don\'t match</div>'
+                        status_class = status_chip_class(status)
+                        params_html += f'<div class="chip chip-status chip-spaced {status_class}">{status}</div>'
+                        params_html += '<div class="param-warning">⚠️ Warning: Reversible and irreversible parameters don\'t match</div>'
                         
                         # Show separate parameters when they don't match
                         if rev_params:
                             params_html += f"""
-                            <div style="margin-top: 10px; padding: 10px; background: var(--param-bg); border-radius: 4px;">
+                            <div class="params-subpanel">
                                 <strong>Reversible:</strong>
                                 <strong>Lattice:</strong> n={format_param(rev_params.get('n', 'N/A'))} | 
                                 <strong>Sweeps:</strong> s={format_param(rev_params.get('sweeps', 'N/A'))} | 
@@ -2831,7 +3779,7 @@ def plot_data(dirname):
                         
                         if irr_params:
                             params_html += f"""
-                            <div style="margin-top: 10px; padding: 10px; background: var(--param-bg); border-radius: 4px;">
+                            <div class="params-subpanel">
                                 <strong>Irreversible:</strong>
                                 <strong>Lattice:</strong> n={format_param(irr_params.get('n', 'N/A'))} | 
                                 <strong>Sweeps:</strong> s={format_param(irr_params.get('sweeps', 'N/A'))} | 
@@ -2843,21 +3791,14 @@ def plot_data(dirname):
                         # Parameters match - show chip and params on same row
                         if rev_params:
                             # Build status chip HTML
-                            status_colors = {
-                                'COMPLETED': 'background: #28a745; color: white;',
-                                'RUNNING': 'background: #ff9800; color: white;',
-                                'INTERRUPTED': 'background: #ffc107; color: black;',
-                                'ERROR': 'background: #dc3545; color: white;',
-                                'UNKNOWN': 'background: #e2e3e5; color: #383d41;'
-                            }
-                            status_style = status_colors.get(status, 'background: #6c757d; color: white;')
-                            status_chip_html = f'<div style="padding: 4px 12px; border-radius: 12px; font-size: 0.85em; font-weight: bold; {status_style}">{status}</div>'
+                            status_class = status_chip_class(status)
+                            status_chip_html = f'<div class="chip chip-status {status_class}">{status}</div>'
                             
                             params_html += f"""
-                            <div style="display: flex; align-items: center; justify-content: center; gap: 15px; flex-wrap: wrap;">
-                                <div style="padding: 4px 12px; border-radius: 12px; font-size: 0.85em; font-weight: bold; background: linear-gradient(90deg, #ab63fa 0%, #00b8d4 100%); color: white;">COMBINED</div>
+                            <div class="params-row">
+                                <div class="chip-combined">COMBINED</div>
                                 {status_chip_html}
-                                <div style="padding: 10px; background: var(--param-bg); border-radius: 4px;">
+                                <div class="params-values">
                                     <strong>Lattice:</strong> n={format_param(rev_params.get('n', 'N/A'))} | 
                                     <strong>Sweeps:</strong> s={format_param(rev_params.get('sweeps', 'N/A'))} | 
                                     <strong>Radius:</strong> r={format_param(rev_params.get('radius', 'N/A'))} | 
@@ -2867,7 +3808,7 @@ def plot_data(dirname):
                             """
                         else:
                             # No parameters available
-                            params_html += '<div style="color: var(--text-secondary);">Parameters not available</div>'
+                            params_html += '<div class="inline-muted">Parameters not available</div>'
                     
                     params_html += '</div>'
             else:
@@ -2876,26 +3817,18 @@ def plot_data(dirname):
                 if params:
                     is_irreversible = params.get('flag') == 'i'
                     dynamics_label = "IRREVERSIBLE" if is_irreversible else "REVERSIBLE"
-                    chip_color = "#00b8d4" if is_irreversible else "#ab63fa"
-                    text_color = "#000000" if is_irreversible else "#ffffff"
+                    dynamics_class = "chip-dynamics-irr" if is_irreversible else "chip-dynamics-rev"
                     
                     # Build status chip HTML
-                    status_colors = {
-                        'COMPLETED': 'background: #28a745; color: white;',
-                        'RUNNING': 'background: #ff9800; color: white;',
-                        'INTERRUPTED': 'background: #ffc107; color: black;',
-                        'ERROR': 'background: #dc3545; color: white;',
-                        'UNKNOWN': 'background: #e2e3e5; color: #383d41;'
-                    }
-                    status_style = status_colors.get(status, 'background: #6c757d; color: white;')
-                    status_chip_html = f'<div style="padding: 4px 12px; border-radius: 12px; font-size: 0.85em; font-weight: bold; {status_style}">{status}</div>'
+                    status_class = status_chip_class(status)
+                    status_chip_html = f'<div class="chip chip-status {status_class}">{status}</div>'
                     
                     params_html = f"""
-                    <div style="text-align: center; margin: 20px 0; padding: 15px; background: var(--bg-secondary); color: var(--text-primary); border-radius: 5px;">
-                        <div style="display: flex; align-items: center; justify-content: center; gap: 15px; flex-wrap: wrap;">
-                            <div style="background: {chip_color}; color: {text_color}; padding: 4px 12px; border-radius: 12px; font-size: 0.85em; font-weight: bold;">{dynamics_label}</div>
+                    <div class="params-panel">
+                        <div class="params-row">
+                            <div class="chip {dynamics_class}">{dynamics_label}</div>
                             {status_chip_html}
-                            <div style="padding: 10px; background: var(--param-bg); border-radius: 4px;">
+                            <div class="params-values">
                                 <strong>Lattice:</strong> n={format_param(params.get('n', 'N/A'))} | 
                                 <strong>Sweeps:</strong> s={format_param(params.get('sweeps', 'N/A'))} | 
                                 <strong>Radius:</strong> r={format_param(params.get('radius', 'N/A'))} | 
@@ -2911,17 +3844,17 @@ def plot_data(dirname):
             notes_escaped = html.escape(notes) if notes else ""
             
             notes_html = f"""
-            <div style="margin: 20px 0; padding: 15px; background: var(--bg-secondary); border-radius: 5px;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+            <div class="notes-panel">
+                <div class="notes-header">
                     <strong>Notes:</strong>
-                    <div>
-                        <button id="editNotesBtn" onclick="toggleEditMode()" style="padding: 4px 10px; background: transparent; color: #007bff; border: 2px solid #007bff; border-radius: 3px; cursor: pointer; font-size: 0.85em; font-weight: bold; transition: all 0.2s;">Edit</button>
-                        <span id="saveStatus" style="display: none; margin-left: 8px; font-size: 14px;"></span>
-                        <button id="saveNotesBtn" onclick="saveNotes()" style="padding: 6px 12px; background: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; display: none; margin-left: 8px;">Save</button>
+                    <div class="notes-actions">
+                        <button id="editNotesBtn" class="notes-edit-btn" onclick="toggleEditMode()">Edit</button>
+                        <span id="saveStatus" class="save-status"></span>
+                        <button id="saveNotesBtn" class="notes-save-btn" onclick="saveNotes()">Save</button>
                     </div>
                 </div>
-                <div id="notesDisplay" onclick="if(!isEditMode) toggleEditMode()" style="white-space: pre-wrap; min-height: 50px; padding: 10px; background: var(--bg-primary); color: var(--text-primary); border-radius: 4px; font-size: 11pt; cursor: pointer;">{notes_escaped if notes else '<span style="color: var(--text-secondary);">No notes yet. Click to add notes.</span>'}</div>
-                <textarea id="notesTextarea" data-dirname="{dirname}" placeholder="Add notes about this simulation run..." rows="10" style="display: none; width: 100%; padding: 10px; border: 1px solid var(--border-color); border-radius: 4px; font-family: inherit; font-size: 14px; resize: vertical; box-sizing: border-box; background: var(--bg-primary); color: var(--text-primary);">{notes_escaped}</textarea>
+                <div id="notesDisplay" class="notes-display" onclick="if(!isEditMode) toggleEditMode()">{notes_escaped if notes else '<span class="inline-muted">No notes yet. Click to add notes.</span>'}</div>
+                <textarea id="notesTextarea" class="notes-textarea" data-dirname="{dirname}" placeholder="Add notes about this simulation run..." rows="10">{notes_escaped}</textarea>
             </div>
             """
             
@@ -2947,6 +3880,8 @@ def plot_data(dirname):
                         --text-secondary: #b0b0b0;
                         --border-color: #404040;
                         --param-bg: #383838;
+                        --msg-muted: #9aa0a6;
+                        --msg-success: #28a745;
                     }}
                     
                     [data-theme="light"] {{
@@ -2956,6 +3891,8 @@ def plot_data(dirname):
                         --text-secondary: #666666;
                         --border-color: #dddddd;
                         --param-bg: #f0f0f0;
+                        --msg-muted: #6c757d;
+                        --msg-success: #1e7e34;
                     }}
                     
                     body {{ 
@@ -3050,6 +3987,150 @@ def plot_data(dirname):
                         background: #218838;
                         transform: scale(1.05);
                     }}
+                    .params-panel {{
+                        text-align: center;
+                        margin: 20px 0;
+                        padding: 15px;
+                        background: var(--bg-secondary);
+                        color: var(--text-primary);
+                        border-radius: 5px;
+                    }}
+                    .params-row {{
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        gap: 15px;
+                        flex-wrap: wrap;
+                    }}
+                    .params-values {{
+                        padding: 10px;
+                        background: var(--param-bg);
+                        border-radius: 4px;
+                    }}
+                    .params-subpanel {{
+                        margin-top: 10px;
+                        padding: 10px;
+                        background: var(--param-bg);
+                        border-radius: 4px;
+                    }}
+                    .chip-combined {{
+                        display: inline-block;
+                        padding: 4px 12px;
+                        border-radius: 12px;
+                        font-size: 0.85em;
+                        font-weight: bold;
+                        background: linear-gradient(90deg, #ab63fa 0%, #00b8d4 100%);
+                        color: white;
+                    }}
+                    .chip {{
+                        display: inline-block;
+                        padding: 4px 12px;
+                        border-radius: 12px;
+                        font-size: 0.85em;
+                        font-weight: bold;
+                    }}
+                    .chip-status.status-completed {{ background: #28a745; color: white; }}
+                    .chip-status.status-running {{ background: #ff9800; color: white; }}
+                    .chip-status.status-interrupted {{ background: #ffc107; color: black; }}
+                    .chip-status.status-error {{ background: #dc3545; color: white; }}
+                    .chip-status.status-unknown {{ background: #e2e3e5; color: #383d41; }}
+                    .chip-dynamics-rev {{ background: #ab63fa; color: #ffffff; }}
+                    .chip-dynamics-irr {{ background: #00b8d4; color: #000000; }}
+                    .chip-spaced {{
+                        margin-left: 8px;
+                    }}
+                    .inline-muted {{
+                        color: var(--text-secondary);
+                    }}
+                    .param-warning {{
+                        background: #ff9800;
+                        color: white;
+                        padding: 8px 12px;
+                        border-radius: 4px;
+                        margin-top: 8px;
+                        font-size: 0.9em;
+                    }}
+                    .save-status {{
+                        display: none;
+                        margin-left: 8px;
+                        font-size: 14px;
+                    }}
+                    .save-status-muted {{
+                        color: var(--msg-muted);
+                    }}
+                    .save-status-success {{
+                        color: var(--msg-success);
+                    }}
+                    .notes-panel {{
+                        margin: 20px 0;
+                        padding: 15px;
+                        background: var(--bg-secondary);
+                        border-radius: 5px;
+                    }}
+                    .notes-header {{
+                        display: flex;
+                        justify-content: space-between;
+                        align-items: center;
+                        margin-bottom: 10px;
+                    }}
+                    .notes-actions {{
+                        display: flex;
+                        align-items: center;
+                    }}
+                    .top-controls {{
+                        display: flex;
+                        gap: 8px;
+                        align-items: center;
+                    }}
+                    .notes-edit-btn {{
+                        padding: 4px 10px;
+                        background: transparent;
+                        color: #007bff;
+                        border: 2px solid #007bff;
+                        border-radius: 3px;
+                        cursor: pointer;
+                        font-size: 0.85em;
+                        font-weight: bold;
+                        transition: all 0.2s;
+                    }}
+                    .notes-edit-btn:hover {{
+                        background: #007bff;
+                        color: white;
+                    }}
+                    .notes-save-btn {{
+                        padding: 6px 12px;
+                        background: #28a745;
+                        color: white;
+                        border: none;
+                        border-radius: 4px;
+                        cursor: pointer;
+                        font-size: 14px;
+                        display: none;
+                        margin-left: 8px;
+                    }}
+                    .notes-display {{
+                        white-space: pre-wrap;
+                        min-height: 50px;
+                        padding: 10px;
+                        background: var(--bg-primary);
+                        color: var(--text-primary);
+                        border-radius: 4px;
+                        font-size: 11pt;
+                        cursor: pointer;
+                    }}
+                    .notes-textarea {{
+                        display: none;
+                        width: 100%;
+                        padding: 10px;
+                        border: 1px solid var(--border-color);
+                        border-radius: 4px;
+                        font-family: inherit;
+                        font-size: 14px;
+                        resize: vertical;
+                        box-sizing: border-box;
+                        background: var(--bg-primary);
+                        color: var(--text-primary);
+                    }}
                 </style>
                 <script>
                     // Theme management
@@ -3088,21 +4169,9 @@ def plot_data(dirname):
                     document.addEventListener('DOMContentLoaded', function() {{
                         initTheme();  // Initialize theme on page load
                         
-                        // Add hover effect to Edit button
-                        const editBtn = document.getElementById('editNotesBtn');
-                        if (editBtn) {{
-                            editBtn.addEventListener('mouseenter', function() {{
-                                this.style.background = '#007bff';
-                                this.style.color = 'white';
-                            }});
-                            editBtn.addEventListener('mouseleave', function() {{
-                                this.style.background = 'transparent';
-                                this.style.color = '#007bff';
-                            }});
-                        }}
-                        
                         const textarea = document.getElementById('notesTextarea');
                         const saveBtn = document.getElementById('saveNotesBtn');
+                        const saveStatus = document.getElementById('saveStatus');
                         originalNotes = textarea.value;
                         
                         // Show save button when content changes
@@ -3135,9 +4204,12 @@ def plot_data(dirname):
                     
                     function toggleEditMode() {{
                         isEditMode = true;
+                        const saveStatus = document.getElementById('saveStatus');
                         document.getElementById('notesDisplay').style.display = 'none';
                         document.getElementById('notesTextarea').style.display = 'block';
                         document.getElementById('editNotesBtn').style.display = 'none';
+                        saveStatus.style.display = 'none';
+                        saveStatus.className = 'save-status';
                         document.getElementById('notesTextarea').focus();
                     }}
                     
@@ -3152,7 +4224,7 @@ def plot_data(dirname):
                         saveBtn.style.display = 'none';
                         saveStatus.style.display = 'inline-block';
                         saveStatus.textContent = 'Saving...';
-                        saveStatus.style.color = '#666';
+                        saveStatus.className = 'save-status save-status-muted';
                         
                         fetch(window.location.origin + '/notes/' + dirname, {{
                             method: 'POST',
@@ -3167,10 +4239,11 @@ def plot_data(dirname):
                                 originalNotes = notes;
                                 saveBtn.disabled = false;
                                 saveStatus.textContent = '✓ Saved';
-                                saveStatus.style.color = '#28a745';
+                                saveStatus.className = 'save-status save-status-success';
                                 
                                 setTimeout(() => {{
                                     saveStatus.style.display = 'none';
+                                    saveStatus.className = 'save-status';
                                 }}, 2000);
                             }} else {{
                                 saveBtn.disabled = false;
@@ -3191,8 +4264,8 @@ def plot_data(dirname):
             <body>
                 <div class="back-link">
                     <a href="/" title="Back to simulation browser">‹</a>
-                    <div style="display: flex; gap: 8px;">
-                        <button class="export-btn" onclick="window.location.href='/export/{dirname}'" title="Export this simulation archive">Export</button>
+                    <div class="top-controls">
+                        <button class="export-btn" onclick="window.location.href='/export-loading/{dirname}?theme=' + (document.documentElement.getAttribute('data-theme') || localStorage.getItem('theme') || 'dark')" title="Export this simulation archive">Export</button>
                         <button class="refresh-btn" onclick="location.reload()" title="Refresh the page to see latest data">🔄</button>
                         <button id="themeToggle" class="theme-toggle" onclick="toggleTheme()" title="Switch between dark and light themes">🌙</button>
                     </div>
@@ -3202,13 +4275,11 @@ def plot_data(dirname):
                 {notes_html}
             """
             
-            if plot1.exists():
-                with open(plot1, 'r') as f:
-                    html_content += f'<div class="plot-container">{f.read()}</div>'
+            if plot1_html:
+                html_content += f'<div class="plot-container">{plot1_html}</div>'
             
-            if plot2.exists():
-                with open(plot2, 'r') as f:
-                    html_content += f'<div class="plot-container">{f.read()}</div>'
+            if plot2_html:
+                html_content += f'<div class="plot-container">{plot2_html}</div>'
             
             html_content += """
             </body>
@@ -3221,12 +4292,10 @@ def plot_data(dirname):
             response.headers['Pragma'] = 'no-cache'
             response.headers['Expires'] = '0'
             return response
-                
-        except subprocess.TimeoutExpired:
-            return "Plot generation timed out (>30s)", 500
-        except Exception as e:
-            import traceback
-            return f"<h1>Error generating plots</h1><pre>{traceback.format_exc()}</pre>", 500
+
+    except Exception as e:
+        import traceback
+        return f"<h1>Error generating plots</h1><pre>{traceback.format_exc()}</pre>", 500
 
 if __name__ == '__main__':
     print("\n" + "="*60)
