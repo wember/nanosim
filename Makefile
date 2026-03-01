@@ -77,12 +77,7 @@ sim-i: sim-archive
 	@$(PREVENT_SLEEP) $(VENV_PYTHON) creutz-sim/sim.py -i $(ARGS)
 
 sim-repeat:
-	@SIM_INFO=$$($(VENV_PYTHON) -c "from pathlib import Path; import re, sys; files=list(Path('data').resolve().rglob('sim_started.txt')); cands=[]; \
-	[(cands.append((ts.group(0), f)) if (ts:=next((re.fullmatch(r'\\d{8}_\\d{6}', part) for part in reversed(f.parts) if re.fullmatch(r'\\d{8}_\\d{6}', part)), None)) else None) for f in files]; \
-	sys.exit(0) if not cands else None; latest=max(cands, key=lambda t: t[0])[1]; text=latest.read_text(); m=re.search(r'Parameters:\\s*(.*)', text); \
-sys.exit(2) if m is None else None; params=dict(part.strip().split('=', 1) for part in m.group(1).split(',') if '=' in part); \
-sys.exit(3) if any(k not in params for k in ('n','sweeps','flag','radius','runs')) else None; \
-print(str(latest)+'|-n '+params['n']+' -s '+params['sweeps']+' -f '+params['flag']+' -r '+params['radius']+' -m '+params['runs'])" 2>/dev/null); \
+	@SIM_INFO=$$($(VENV_PYTHON) tools/sim_repeat_info.py 2>/dev/null); \
 	if [ -z "$$SIM_INFO" ]; then \
 		echo "No previous simulation found. Running in interactive mode..."; \
 		$(MAKE) sim-i; \

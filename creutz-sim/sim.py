@@ -23,7 +23,6 @@ import sys
 import multiprocessing as mp
 from functools import partial
 import errno
-import shutil
 
 def add_row(filename, row_data):    # appends a new row to csv file
     try:
@@ -119,41 +118,6 @@ def format_time(seconds):
         return f"{seconds / 60:.0f}m"
     else:
         return f"{seconds:.1f}s"
-
-
-def format_bytes(num_bytes):
-    """Format bytes as human-readable size."""
-    value = float(num_bytes)
-    for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
-        if value < 1024 or unit == 'TB':
-            if unit == 'B':
-                return f"{int(value)} {unit}"
-            return f"{value:.1f} {unit}"
-        value /= 1024.0
-
-
-def estimate_output_bytes(sweeps, flag, max_radius, runs):
-    """Estimate simulation output size on disk for this run.
-
-    The CSV rows contain 7 numeric columns and are written once per sweep.
-    Use conservative sizing with a safety multiplier and fixed overhead.
-    """
-    dynamics_multiplier = 2 if flag == 'c' else 1
-    total_rows = (max_radius + 1) * runs * sweeps * dynamics_multiplier
-
-    # Conservative average CSV row size: numeric text + commas + newline
-    bytes_per_row = 180
-    csv_payload = total_rows * bytes_per_row
-
-    # Per-file overhead (headers, metadata, tiny status files)
-    file_count = (max_radius + 1) * runs * dynamics_multiplier
-    overhead = file_count * 256 + 5 * 1024 * 1024
-
-    # Safety margin for filesystem overhead and estimate variance.
-    required = int((csv_payload + overhead) * 1.30)
-
-    # Ensure a practical floor so small runs still require some headroom.
-    return max(required, 250 * 1024 * 1024)
 
 
 ######################################################################################
@@ -361,23 +325,8 @@ if __name__ == '__main__':
     data_root = repo_root / data_dir
     init_folder = data_root / 'init_fin'
 
-    # Preflight disk-space check to fail fast before launching workers.
-    # Avoid expensive long runs that eventually crash with ENOSPC.
-    try:
-        data_root.mkdir(parents=True, exist_ok=True)
-        required_bytes = estimate_output_bytes(s, flag, r, m)
-        free_bytes = shutil.disk_usage(data_root).free
-
-        print(f"Estimated output size: ~{format_bytes(required_bytes)}")
-        print(f"Free disk space:       {format_bytes(free_bytes)}")
-
-        if free_bytes < required_bytes:
-            print("\nERROR: Not enough free disk space for this simulation.")
-            print("Please free up space or reduce sweeps/radius/runs and try again.")
-            sys.exit(1)
-    except OSError as e:
-        print(f"\nERROR: Unable to determine free disk space: {e}")
-        sys.exit(1)
+    # Ensure data root exists before writing run outputs.
+    data_root.mkdir(parents=True, exist_ok=True)
 
     # Create timestamped folder for this run directly in data directory
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')

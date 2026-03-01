@@ -473,21 +473,16 @@ Not retained in the final code path:
 - ✅ Combined/reversible/irreversible modes run correctly
 - ✅ Multi-radius multiprocessing path remains stable
 
-### 5.6 Simulation Disk-Space Safeguards
+### 5.6 Disk-Handling Approach (Current)
 
-**Problem**: Very large runs could fail late with `OSError: [Errno 28] No space left on device`, often after long runtime.
+The simulation no longer performs preflight output-size estimation.
 
-**Changes** (in `creutz-sim/sim.py`):
+Current behavior in `creutz-sim/sim.py` is intentionally simple:
 
-- Added **preflight disk-space estimation** before worker launch:
-  - estimates output bytes from `(sweeps, flag, radius, runs)`
-  - compares estimate against `shutil.disk_usage(...).free`
-  - exits early with clear guidance if free space is insufficient
-- Added graceful handling for worker-propagated `OSError` failures:
-  - explicit handling for `ENOSPC`
-  - clean `pool.terminate()`/`pool.join()` shutdown
-  - writes `sim_status.txt` with `Status: ERROR` and message
-- Added `manager.shutdown()` in `finally` for cleaner multiprocess teardown.
+- No upfront size prediction or free-space gating.
+- Runtime `OSError` handling still catches `ENOSPC` and exits cleanly.
+- `sim_status.txt` is updated on failures and on successful completion.
+- Multiprocess teardown remains explicit (`terminate`/`join` as needed, plus manager shutdown).
 
 ### 5.7 Plot Generation Progress Clarity
 
