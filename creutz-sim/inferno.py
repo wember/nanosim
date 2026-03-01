@@ -143,113 +143,6 @@ def count_bonds_jit(bonds):
     return bond_count
 
 
-@njit
-def forward_sweep_jit(lattice, bonds, E_demon, E_lattice, d_energy,
-                      order, order_idx, R_counter, radius, N, flag):
-    """
-    JIT-compiled full forward sweep of N demon moves.
-
-    Replaces the Python-level ``for j in range(N): x.demon_move(flag, i)``
-    loop, eliminating N Python function-call round-trips and moving the
-    bond-count from once-per-move (N×) down to once-per-sweep (1×).
-
-    Args:
-        lattice, bonds, E_demon: state arrays (modified in-place)
-        E_lattice, d_energy: tracked energies
-        order: shuffled site-visit order (reversible dynamics)
-        order_idx: current position in ``order``
-        R_counter: radius cycle counter
-        radius: max bond-demon coupling radius
-        N: lattice size
-        flag: 0 = reversible, non-zero = irreversible
-
-    Returns:
-        (E_lattice, d_energy, order_idx, R_counter, bond_count)
-    """
-    radius_cycle = 2 * radius + 1
-
-    for _ in range(N):
-        if flag == 0:
-            a = order[order_idx]
-        else:
-            a = np.random.randint(0, N)
-
-        R = (R_counter % radius_cycle) - radius
-        R_counter += 1
-        if flag != 0 and radius != 0:
-            R = np.random.randint(0, radius)
-
-        E_lattice, d_energy = spin_flip_jit(
-            lattice, bonds, E_demon, E_lattice, d_energy, a, (a + R) % N, N)
-
-        R = (R_counter % radius_cycle) - radius
-        R_counter += 1
-        if flag != 0 and radius != 0:
-            R = np.random.randint(0, radius)
-
-        E_lattice, d_energy = bond_change_jit(
-            lattice, bonds, E_demon, E_lattice, d_energy, a, (a + R) % N, N)
-
-        if flag == 0:
-            order_idx = (order_idx + 1) % N
-
-    bond_count = count_bonds_jit(bonds)
-    return E_lattice, d_energy, order_idx, R_counter, bond_count
-
-
-@njit
-def reverse_sweep_jit(lattice, bonds, E_demon, E_lattice, d_energy,
-                      rev_order, rev_order_idx, R_counter, radius, N, flag):
-    """
-    JIT-compiled full reverse sweep of N demon moves.
-
-    Mirror of ``forward_sweep_jit``: bond_change before spin_flip, and
-    R_counter decremented instead of incremented.
-
-    Args:
-        lattice, bonds, E_demon: state arrays (modified in-place)
-        E_lattice, d_energy: tracked energies
-        rev_order: reversed site-visit order
-        rev_order_idx: current position in ``rev_order``
-        R_counter: radius cycle counter (decremented each move)
-        radius: max bond-demon coupling radius
-        N: lattice size
-        flag: 0 = reversible, non-zero = irreversible
-
-    Returns:
-        (E_lattice, d_energy, rev_order_idx, R_counter, bond_count)
-    """
-    radius_cycle = 2 * radius + 1
-
-    for _ in range(N):
-        if flag == 0:
-            a = rev_order[rev_order_idx]
-        else:
-            a = np.random.randint(0, N)
-
-        R_counter -= 1
-        R = (R_counter % radius_cycle) - radius
-        if flag != 0 and radius != 0:
-            R = np.random.randint(0, radius)
-
-        E_lattice, d_energy = bond_change_jit(
-            lattice, bonds, E_demon, E_lattice, d_energy, a, (a + R) % N, N)
-
-        R_counter -= 1
-        R = (R_counter % radius_cycle) - radius
-        if flag != 0 and radius != 0:
-            R = np.random.randint(0, radius)
-
-        E_lattice, d_energy = spin_flip_jit(
-            lattice, bonds, E_demon, E_lattice, d_energy, a, (a + R) % N, N)
-
-        if flag == 0:
-            rev_order_idx = (rev_order_idx + 1) % N
-
-    bond_count = count_bonds_jit(bonds)
-    return E_lattice, d_energy, rev_order_idx, R_counter, bond_count
-
-
 ################################################################################
 # Inferno Class
 ################################################################################
@@ -285,6 +178,7 @@ class Inferno:
         self.order_idx = 0  # Index pointer for order array
         self.rev_order_idx = 0  # Index pointer for rev_order array
         self.radius = R
+        self.radius_cycle = 2 * R + 1
         self.R_counter = 0
         # self.radius_spin = self.rev_radius_bond = np.random.randint(0, R, size=N)*np.random.choice([-1, 1], size=N)
         # self.rev_radius_spin = self.radius_bond = np.flip(self.radius_spin)
@@ -340,67 +234,50 @@ class Inferno:
         """
         self.bond_count = count_bonds_jit(self.bonds)
 
-    def forward_sweep(self, flag):
-        """
-        Full forward sweep of N demon moves (JIT-compiled hot loop).
-
-        Replaces ``for j in range(N): self.demon_move(flag, i)`` with a
-        single JIT-compiled call, eliminating N Python function-call
-        round-trips and deferring bond-counting to once per sweep.
-        """
-        (self.E_lattice, self.d_energy,
-         self.order_idx, self.R_counter,
-         self.bond_count) = forward_sweep_jit(
-            self.lattice, self.bonds, self.E_demon,
-            self.E_lattice, self.d_energy,
-            self.order, self.order_idx, self.R_counter,
-            self.radius, self.N, flag
-        )
-
-    def reverse_sweep(self, flag):
-        """
-        Full reverse sweep of N demon moves (JIT-compiled hot loop).
-
-        Replaces ``for j in range(N): self.demon_reverse(flag, i)`` with a
-        single JIT-compiled call.
-        """
-        (self.E_lattice, self.d_energy,
-         self.rev_order_idx, self.R_counter,
-         self.bond_count) = reverse_sweep_jit(
-            self.lattice, self.bonds, self.E_demon,
-            self.E_lattice, self.d_energy,
-            self.rev_order, self.rev_order_idx, self.R_counter,
-            self.radius, self.N, flag
-        )
-
     def demon_move(self, flag, sweep_count):
         """
             "Randomly" move the demon around and flip spins & change bonds
         """
+        lattice = self.lattice
+        bonds = self.bonds
+        E_demon = self.E_demon
+        E_lattice = self.E_lattice
+        d_energy = self.d_energy
+        N = self.N
+
         a = self.order[self.order_idx]
-        radius_cycle = 2 * self.radius + 1
-        R = (self.R_counter % radius_cycle) - self.radius
+        R = (self.R_counter % self.radius_cycle) - self.radius
         self.R_counter += 1
+
         # If irr flag is on, generate a random number instead
         if (flag != 0):
-            a = np.random.randint(0, self.N)
+            a = np.random.randint(0, N)
             if self.radius != 0:
                 R = np.random.randint(0, self.radius)
 
         # Attempt to flip spin
-        self.spin_flip(a, (a + R)%self.N)
+        E_lattice, d_energy = spin_flip_jit(
+            lattice, bonds, E_demon, E_lattice, d_energy, a, (a + R) % N, N
+        )
 
-        R = (self.R_counter % radius_cycle) - self.radius
+        R = (self.R_counter % self.radius_cycle) - self.radius
         self.R_counter += 1
+
         # If irr flag is on, generate a random number instead
         if (flag != 0):
             if self.radius != 0:
                 R = np.random.randint(0, self.radius)
+
         # Attempt to change bond
-        self.bond_change(a, (a + R)%self.N)
+        E_lattice, d_energy = bond_change_jit(
+            lattice, bonds, E_demon, E_lattice, d_energy, a, (a + R) % N, N
+        )
+
+        self.E_lattice = E_lattice
+        self.d_energy = d_energy
 
         # Update bond count
-        self.count_bonds()
+        self.bond_count = count_bonds_jit(self.bonds)
 
         # Advance index pointer (replaces np.roll)
         if (flag == 0):
@@ -410,29 +287,46 @@ class Inferno:
         """
             In reverse order, flip spins & change bonds
         """
+        lattice = self.lattice
+        bonds = self.bonds
+        E_demon = self.E_demon
+        E_lattice = self.E_lattice
+        d_energy = self.d_energy
+        N = self.N
+
         a = self.rev_order[self.rev_order_idx]
-        radius_cycle = 2 * self.radius + 1 
         self.R_counter -= 1
-        R = (self.R_counter % radius_cycle) - self.radius
+        R = (self.R_counter % self.radius_cycle) - self.radius
+
         # If irr flag is on, generate a random number instead
         if (flag != 0):
-            a = np.random.randint(0, self.N)
+            a = np.random.randint(0, N)
             if self.radius != 0:
                 R = np.random.randint(0, self.radius)
+
         # Attempt to change bond
-        self.bond_change(a, (a + R)%self.N)
+        E_lattice, d_energy = bond_change_jit(
+            lattice, bonds, E_demon, E_lattice, d_energy, a, (a + R) % N, N
+        )
 
         self.R_counter -= 1
-        R = (self.R_counter % radius_cycle) - self.radius
+        R = (self.R_counter % self.radius_cycle) - self.radius
+
         # If irr flag is on, generate a random number instead
         if (flag != 0):
             if self.radius != 0:
                 R = np.random.randint(0, self.radius)
+
         # Attempt to flip spin
-        self.spin_flip(a, (a + R)%self.N)
+        E_lattice, d_energy = spin_flip_jit(
+            lattice, bonds, E_demon, E_lattice, d_energy, a, (a + R) % N, N
+        )
+
+        self.E_lattice = E_lattice
+        self.d_energy = d_energy
 
         # Update bond count
-        self.count_bonds()
+        self.bond_count = count_bonds_jit(self.bonds)
 
         # Advance index pointer (replaces np.roll)
         if (flag == 0):

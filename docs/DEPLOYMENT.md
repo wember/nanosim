@@ -347,7 +347,8 @@ server {
     listen 80;
     server_name plots.yourdomain.com;
 
-    client_max_body_size 100M;
+   # Large archive import/export support (.nanosim/.zip)
+   client_max_body_size 2G;
 
     # Gzip compression for faster page loads
     gzip on;
@@ -362,8 +363,12 @@ server {
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_read_timeout 300s;
+        proxy_read_timeout 900s;
         proxy_connect_timeout 75s;
+        proxy_send_timeout 900s;
+
+        # Large upload handling
+        proxy_request_buffering off;
 
         # Prevent request buffer overflow
         proxy_buffering on;

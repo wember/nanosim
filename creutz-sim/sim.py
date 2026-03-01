@@ -103,7 +103,10 @@ def get_params():
     print(f"Running simulation: n={defaults['n']:,}, sweeps={defaults['s']:,}, flag={defaults['flag']}, radius={defaults['r']:,}, runs={defaults['m']:,}")
     print()
     
-    return defaults['n'], defaults['s'], defaults['flag'], defaults['r'], defaults['m'], args.data_dir, not args.no_pbar
+    return (
+        defaults['n'], defaults['s'], defaults['flag'], defaults['r'], defaults['m'],
+        args.data_dir, not args.no_pbar
+    )
 
 
 def format_time(seconds):
@@ -245,8 +248,9 @@ def run_radius_simulations(R, n, s, flag, m, file_names, irr_files, init_files, 
                 pbar_accum = 0
 
                 for i in range(s//2):
-                    # Full sweep of N demon moves — single JIT call (hot loop)
-                    x.forward_sweep(dynamics_flag)
+                    # Attempt to flip each spin in lattice (full sweep)
+                    for _ in range(n):
+                        x.demon_move(dynamics_flag, i)
 
                     # Calculate entropy and data ONCE per sweep (after all N moves)
                     N0e = int(x.bond_count[1])
@@ -283,8 +287,9 @@ def run_radius_simulations(R, n, s, flag, m, file_names, irr_files, init_files, 
                 pbar_accum = 0
 
                 for i in range(s//2):
-                    # Full reverse sweep of N demon moves — single JIT call (hot loop)
-                    x.reverse_sweep(dynamics_flag)
+                    # Attempt to flip each spin in lattice (full sweep)
+                    for _ in range(n):
+                        x.demon_reverse(dynamics_flag, (s//2) - 1 - i)
 
                     # Calculate entropy and data ONCE per sweep (after all N moves)
                     N0_exp = int(x.bond_count[1])

@@ -1471,7 +1471,7 @@ HTML_TEMPLATE = """
                 method: 'POST',
                 body: formData
             })
-            .then(response => {
+            .then(async response => {
                 if (response.status === 409) {
                     // Conflict - duplicate exists
                     return response.json().then(data => {
@@ -1484,6 +1484,21 @@ HTML_TEMPLATE = """
                         return null; // Don't continue to .then
                     });
                 }
+
+                if (!response.ok) {
+                    if (response.status === 413) {
+                        throw new Error('Upload too large (HTTP 413). Increase nginx client_max_body_size and retry.');
+                    }
+
+                    const contentType = (response.headers.get('content-type') || '').toLowerCase();
+                    if (contentType.includes('application/json')) {
+                        const errData = await response.json();
+                        throw new Error(errData.error || `HTTP ${response.status} ${response.statusText}`);
+                    }
+
+                    throw new Error(`HTTP ${response.status} ${response.statusText}`);
+                }
+
                 return response.json();
             })
             .then(data => {
@@ -1504,7 +1519,12 @@ HTML_TEMPLATE = """
                 }
             })
             .catch(error => {
-                statusDiv.innerHTML = '<span class="msg msg-error">✗ Import failed: ' + error + '</span>';
+                const msg = (error && error.message) ? error.message : String(error);
+                if (msg.includes('Load failed') || msg.includes('Failed to fetch') || msg.includes('NetworkError')) {
+                    statusDiv.innerHTML = '<span class="msg msg-error">✗ Import failed before reaching app (network/proxy). If using nginx, raise upload/time limits (client_max_body_size, proxy_read_timeout) and retry.</span>';
+                } else {
+                    statusDiv.innerHTML = '<span class="msg msg-error">✗ Import failed: ' + msg + '</span>';
+                }
             });
         }
     </script>

@@ -1,8 +1,8 @@
 # Nanosim Performance Optimization - Complete Guide
 
-**Optimization Period**: February 17-28, 2026
+**Optimization Period**: February 17 - March 1, 2026
 
-**Final Results**: ~18,000x-27,000x total speedup (platform-dependent)
+**Final Results (current path)**: **8 → 2,840 sweeps/sec** (**~355x** net speedup)
 
 ---
 
@@ -13,7 +13,7 @@
 3. [Phase 2: JIT Compilation](#phase-2-jit-compilation-feb-17)
 4. [Phase 3: Loop Optimizations](#phase-3-loop-optimizations-feb-18)
 5. [Phase 4: Threading Management](#phase-4-threading-management-feb-18)
-6. [Phase 5: Sweep-Level JIT + Batched I/O + Operational UX](#phase-5-sweep-level-jit--batched-io--operational-ux-feb-28)
+6. [Phase 5: Stability-First Runtime + Operational UX](#phase-5-stability-first-runtime--operational-ux-feb-28-to-mar-1)
 7. [Performance Summary](#performance-summary)
 8. [Deployment Guide](#deployment-guide)
 9. [Future Optimization Opportunities](#future-optimization-opportunities)
@@ -37,10 +37,12 @@
 
 ### Final Performance
 
-| Platform           | Speedup      | Notes                           |
-| ------------------ | ------------ | ------------------------------- |
-| **macOS (M3 Max)** | **~18,000x** | Phases 1-5 + multiprocessing    |
-| **Linux HPC**      | **~27,000x** | Above + threading optimizations |
+| Metric                       | Value                   | Notes                       |
+| ---------------------------- | ----------------------- | --------------------------- |
+| Original baseline throughput | 8 sweeps/sec            | Pre-optimization reference  |
+| Current throughput           | 2,840 sweeps/sec        | Same workflow, updated code |
+| Net speedup vs baseline      | 355x                    | 8 → 2,840 sweeps/sec        |
+| Recent phase delta           | +230 sweeps/sec (1.09x) | 2,610 → 2,840 (+8.8%)       |
 
 ---
 
@@ -406,155 +408,72 @@ if platform.system() == 'Linux':
 
 ---
 
-## Phase 5: Sweep-Level JIT + Batched I/O + Operational UX (Feb 28)
+## Phase 5: Stability-First Runtime + Operational UX (Feb 28 to Mar 1)
 
-**Goal**: Eliminate the final Python overhead in the innermost simulation loop
+**Goal**: Improve real-world throughput and reliability without changing physics behavior.
 
-**Result**: **33x additional speedup** (vs Phase 3/4 baseline)
+**Result**: modest but repeatable runtime gains on the core path, plus stronger operational safety/visibility.
 
-### 5.1 Root Cause: Python ↔ JIT Bridge Overhead
+### 5.1 Runtime Path We Kept
 
-Phases 1-4 compiled `spin_flip`, `bond_change`, and `count_bonds` into JIT
-functions, but the _loop_ that drives them remained in Python:
-
-```python
-# sim.py — BEFORE (still Python)
-for i in range(sweeps):
-    for j in range(n):          # ← N Python → JIT transitions per sweep
-        x.demon_move(flag, i)   # ← also calls count_bonds() every move!
-```
-
-For N=1000, each sweep paid:
-
-- **N=1000 Python function-call round-trips** (Python interpreter → JIT → back)
-- **N=1000 `count_bonds()` calls** (needed only once per sweep for data output)
-
-Profiling showed this cost was far larger than the OPTIMIZATIONS.md estimate:
-the real overhead was ~55x slower than a fully-JIT-resident loop.
-
-### 5.2 Solution: `forward_sweep_jit` / `reverse_sweep_jit`
-
-Two new `@njit` functions in `inferno.py` perform the entire N-step loop
-inside a single JIT-compiled kernel:
+The current simulation loop remains the per-move implementation:
 
 ```python
-@njit
-def forward_sweep_jit(lattice, bonds, E_demon, E_lattice, d_energy,
-                      order, order_idx, R_counter, radius, N, flag):
-    radius_cycle = 2 * radius + 1
-    for _ in range(N):
-        # select site
-        a = order[order_idx] if flag == 0 else np.random.randint(0, N)
-        # spin flip
-        R = (R_counter % radius_cycle) - radius
-        R_counter += 1
-        if flag != 0 and radius != 0:
-            R = np.random.randint(0, radius)
-        E_lattice, d_energy = spin_flip_jit(..., a, (a+R)%N, N)
-        # bond change
-        R = (R_counter % radius_cycle) - radius
-        R_counter += 1
-        if flag != 0 and radius != 0:
-            R = np.random.randint(0, radius)
-        E_lattice, d_energy = bond_change_jit(..., a, (a+R)%N, N)
-        if flag == 0:
-            order_idx = (order_idx + 1) % N
-    bond_count = count_bonds_jit(bonds)   # ← called ONCE per sweep, not N times
-    return E_lattice, d_energy, order_idx, R_counter, bond_count
-```
-
-Numba inlines `spin_flip_jit` and `bond_change_jit` automatically, producing
-a single tightly-optimised native loop.
-
-`reverse_sweep_jit` mirrors this with decremented R_counter and
-bond_change before spin_flip.
-
-### 5.3 Class-Level Wrappers
-
-```python
-def forward_sweep(self, flag):
-    (self.E_lattice, self.d_energy,
-     self.order_idx, self.R_counter,
-     self.bond_count) = forward_sweep_jit(
-        self.lattice, self.bonds, self.E_demon,
-        self.E_lattice, self.d_energy,
-        self.order, self.order_idx, self.R_counter,
-        self.radius, self.N, flag
-    )
-```
-
-### 5.4 sim.py: Single Call Replaces Inner Loop
-
-```python
-# BEFORE
 for i in range(s//2):
-    for j in range(n):
+    for _ in range(n):
         x.demon_move(dynamics_flag, i)
-
-# AFTER
-for i in range(s//2):
-    x.forward_sweep(dynamics_flag)
 ```
 
-### 5.5 Batched CSV Writes
-
-Previously `add_row()` opened and closed the output file on every sweep
-(O(sweeps) syscalls). The file is now held open for the entire forward and
-reverse sweep phases:
+and reverse:
 
 ```python
-with open(active_file, 'a', newline='') as fwd_file:
-    fwd_writer = csv.writer(fwd_file)
-    for i in range(s//2):
-        x.forward_sweep(dynamics_flag)
-        # ... calculate entropy ...
-        fwd_writer.writerow([...])
+for i in range(s//2):
+    for _ in range(n):
+        x.demon_reverse(dynamics_flag, (s//2) - 1 - i)
 ```
 
-### 5.6 Benchmark Results
+This preserves the established forward/reverse semantics and kept the "known-good physics" path intact.
 
-**Hot-loop micro-benchmark** (N=1000, 50 sweeps, post-warmup):
+### 5.2 `inferno.py` Hot-Path Micro-optimizations (No Physics Changes)
 
-```
-Approach                        Time     Moves/s       Speedup
----------------------------------------------------------------
-OLD: Python loop / demon_move   0.117s   0.43M/s       1.0x
-NEW: forward_sweep_jit          0.002s   23.72M/s      55.7x
-NEW: reverse_sweep_jit          0.002s   23.44M/s      55.0x
-```
+Implemented optimizations in `demon_move()` / `demon_reverse()` were intentionally low risk:
 
-**Full simulation throughput** (N=1000, single core, including I/O):
+- Cached frequently used object fields into local variables to reduce Python attribute lookups.
+- Cached `radius_cycle` in `__init__` (`2 * R + 1`) to avoid recomputing per move.
+- Called `spin_flip_jit(...)` and `bond_change_jit(...)` directly in move methods.
+- Preserved operation order and counter updates used by reversible dynamics.
 
-```
-Sweeps    Total time   Throughput        Phase 4 baseline   Speedup
-----------------------------------------------------------------------
-s=1000    1.0s         994 sweeps/s      318 sweeps/s       3.1x
-s=5000    1.2s         4,020 sweeps/s    318 sweeps/s       12.6x
-s=20000   1.9s         10,587 sweeps/s   318 sweeps/s       33x
-```
+These changes target interpreter overhead only; acceptance rules and update ordering remain unchanged.
 
-_Note: shorter runs are dominated by JIT compilation time (~0.7s first call)._
-_Steady-state throughput stabilises around 10,000-11,000 sweeps/s._
+### 5.3 `sim.py` Throughput/Overhead Improvements
 
-**Energy conservation**: ✅ E_total conserved across 20 forward + 20 reverse sweeps.
+The driver retains straightforward CSV output and focuses on low-overhead control flow:
 
-### 5.7 Why the Gain Exceeds the 2-4x Target
+- File handles are opened once per forward phase and once per reverse phase (not per row).
+- Data output is one `writer.writerow(...)` per sweep (simple, OS-buffer-friendly path).
+- Progress queue updates are batched with `PBAR_BATCH` to reduce Manager queue IPC overhead.
 
-The docs estimated remaining gains of ~30% (`count_bonds`) + ~24% (wrapper
-overhead) = modest. The real bottleneck was the **N Python → JIT transitions
-per sweep**: each call from Python into a numba `@njit` function has a fixed
-dispatch cost. For N=1000 that cost repeated 1000× per sweep dominated
-everything once the JIT functions themselves became fast.
+Not retained in the final code path:
 
-### 5.8 Validation
+- no sweep-level JIT wrappers (`forward_sweep_jit` / `reverse_sweep_jit`)
+- no async writer process mode
+- no `--csv-batch` runtime tuning flag
 
-- ✅ Energy conservation maintained
-- ✅ Reversibility preserved
-- ✅ End-to-end simulation produces valid CSV output
-- ✅ Both reversible (flag=0) and irreversible (flag=1) dynamics work
-- ✅ All radii (R=0 to R_max) work correctly
+### 5.4 Performance Notes (Current State)
 
-### 5.9 Simulation Disk-Space Safeguards
+- Measured throughput improvement in the current code path: **2610 → 2840 sweeps/sec**.
+- This corresponds to **+230 sweeps/sec**, or **+8.8%** (**1.09x** speedup).
+- Gains are still workload-dependent, so repeated runs are recommended for fair comparisons.
+
+### 5.5 Validation
+
+- ✅ Energy conservation maintained in smoke/validation checks
+- ✅ Reversibility behavior preserved
+- ✅ End-to-end simulation writes valid CSV outputs
+- ✅ Combined/reversible/irreversible modes run correctly
+- ✅ Multi-radius multiprocessing path remains stable
+
+### 5.6 Simulation Disk-Space Safeguards
 
 **Problem**: Very large runs could fail late with `OSError: [Errno 28] No space left on device`, often after long runtime.
 
@@ -570,7 +489,7 @@ everything once the JIT functions themselves became fast.
   - writes `sim_status.txt` with `Status: ERROR` and message
 - Added `manager.shutdown()` in `finally` for cleaner multiprocess teardown.
 
-### 5.10 Plot Generation Progress Clarity
+### 5.7 Plot Generation Progress Clarity
 
 **Problem**: After final serialization logs, users still saw non-trivial delay while browser loaded/rendered embedded Plotly HTML.
 
@@ -581,7 +500,7 @@ everything once the JIT functions themselves became fast.
   - explicit log that server work is complete and browser rendering is in progress
 - Redirect moved to `requestAnimationFrame(...)` so final message visibly paints before navigation.
 
-### 5.11 Export Flow Redesign for Large Archives
+### 5.8 Export Flow Redesign for Large Archives
 
 **Problem**: Large exports were opaque and appeared stalled; full-page flow was less consistent than import UX.
 
@@ -595,7 +514,7 @@ everything once the JIT functions themselves became fast.
 - Added download-completion confirmation via cookie handshake.
 - Updated UX to **modal dialog** on main browser page (now aligns with import modal).
 
-### 5.12 Export Format Update (`.nanosim`)
+### 5.9 Export Format Update (`.nanosim`)
 
 **Problem**: macOS can auto-expand `.zip` downloads, which is undesirable for validated archive transport.
 
@@ -606,7 +525,7 @@ everything once the JIT functions themselves became fast.
 - Import now accepts both `.nanosim` and `.zip`.
 - Download content served as generic binary to reduce auto-handling.
 
-### 5.13 Net Effect
+### 5.10 Net Effect
 
 - Faster feedback and fewer surprise failures for long jobs.
 - Better observability for long-running web actions (plot/export).
@@ -618,52 +537,48 @@ everything once the JIT functions themselves became fast.
 
 ### Optimization Timeline
 
-| Date     | Phase             | Change                       | Per-Core | Cumulative |
-| -------- | ----------------- | ---------------------------- | -------- | ---------- |
-| Baseline | Original code     | -                            | 1.0x     | 1.0x       |
-| Feb 17   | Code quality      | np.unique → loop, cleanup    | 0.13x\*  | 0.13x      |
-| Feb 17   | JIT compilation   | Numba @njit on hot functions | 30.5x    | 3.8x       |
-| Feb 18   | Loop optimization | Remove redundant calls       | 14.2x    | 54x        |
-| Feb 18   | Threading (Linux) | Single-threaded BLAS         | 1.5x     | 81x        |
-| Feb 28   | Sweep-level JIT   | JIT entire N-step loop       | 33x      | ~1,800x    |
+| Date         | Phase              | Change                        | Per-Core | Cumulative |
+| ------------ | ------------------ | ----------------------------- | -------- | ---------- |
+| Baseline     | Original code      | -                             | 1.0x     | 1.0x       |
+| Feb 17       | Code quality       | np.unique → loop, cleanup     | 0.13x\*  | 0.13x      |
+| Feb 17       | JIT compilation    | Numba @njit on hot functions  | 30.5x    | 3.8x       |
+| Feb 18       | Loop optimization  | Remove redundant calls        | 14.2x    | 54x        |
+| Feb 18       | Threading (Linux)  | Single-threaded BLAS          | 1.5x     | 81x        |
+| Feb 28-Mar 1 | Runtime refinement | demon path + IPC + simple I/O | 1.09x    | ~88x       |
 
 \*Code quality made Python slower but enabled JIT
 
 ### Final Performance
 
-**Single-core speedup**:
+**End-to-end throughput (original baseline → current)**:
 
-- macOS: ~1,800x (Phases 1-5)
-- Linux HPC: ~2,700x (Phases 1-5)
+- Original baseline: **8 sweeps/sec**
+- Current: **2840 sweeps/sec**
+- Net speedup: **355x**
 
-**With multiprocessing (10 workers)**:
+**Measured recent Phase 5 delta (current implementation)**:
 
-- macOS: ~1,800x × 10 = **~18,000x total speedup**
-- Linux HPC: ~2,700x × 10 = **~27,000x total speedup**
+- Baseline: **2610 sweeps/sec**
+- Current: **2840 sweeps/sec**
+- Improvement: **+230 sweeps/sec** (**+8.8%**, **1.09x**)
 
 ### Benchmark Results
 
-**Test**: N=1000, sweeps=20000, single core (steady-state, post JIT warmup)
+**Test**: representative repeat runs in current code path
 
 ```
-Metric                    Phase 3 (before)    Phase 5 (now)     Improvement
-----------------------------------------------------------------------------
-Sweeps per second         318                 ~10,587           33x
-Demon moves per second    303K                ~10.6M            35x
-Python→JIT calls/sweep    N = 1000            1                 1000x fewer
-bond-count calls/sweep    N = 1000            1                 1000x fewer
+Metric                              Baseline         Current          Improvement
+---------------------------------------------------------------------------------
+Original baseline → current         8                2,840            355x
+Recent phase delta                  2,610            2,840            +8.8% (1.09x)
 ```
 
-### Production Example
+### Production Note
 
-**Scenario**: N=10,000, sweeps=10,000, r=10, m=5
-
-```
-Platform        Original        Phase 4         Phase 5 (now)    Total speedup
--------------------------------------------------------------------------------
-macOS           ~32 hours       ~3.6 minutes    ~6.5 seconds     ~18,000x
-Linux HPC       ~32 hours       ~2.4 minutes    ~4.3 seconds     ~27,000x
-```
+Production throughput remains highly dependent on lattice size, radius, run count,
+storage path, and host scheduling/thermal behavior. For current planning, use the
+measured Phase 5 delta above (**2610 → 2840 sweeps/sec, +8.8%**) as the most
+reliable indicator of this cycle's improvement.
 
 ---
 
@@ -806,6 +721,6 @@ Further optimization needed only if:
 
 ---
 
-_Last updated: February 28, 2026_
-_Optimization period: February 17-28, 2026_
-_Total speedup achieved: ~18,000x (macOS) / ~27,000x (Linux HPC)_
+_Last updated: March 1, 2026_
+_Optimization period: February 17 - March 1, 2026_
+_Current measured throughput: 8 → 2,840 sweeps/sec (~355x net speedup)_
