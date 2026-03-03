@@ -124,169 +124,164 @@ def format_time(seconds):
 ##################################### begin sim ######################################
 ######################################################################################
 
+def run_one_phase(x, dynamics_flag, active_file, s, n, t_counter, pbar_queue, PBAR_BATCH):
+    """
+    Run one full simulation phase (s//2 forward + s//2 reverse sweeps) for a given
+    dynamics type, writing results to active_file. State carries over in-place on x.
+
+    Args:
+        x: Inferno instance (mutated in-place)
+        dynamics_flag: 0 = reversible, 1 = irreversible
+        active_file: Path to output CSV file (opened in append mode)
+        s: Total sweeps (s//2 forward + s//2 reverse)
+        n: Lattice size
+        t_counter: Current sweep counter (continues across phases)
+        pbar_queue: Shared queue for progress updates
+        PBAR_BATCH: Batch size for progress IPC
+
+    Returns:
+        t_counter: Updated sweep counter after this phase
+    """
+    completed_count = 0
+
+    ### Forward sweeps
+    with open(active_file, 'a', newline='') as fwd_file:
+        fwd_writer = csv.writer(fwd_file)
+        pbar_accum = 0
+
+        for i in range(s // 2):
+            for _ in range(n):
+                x.demon_move(dynamics_flag, i)
+
+            N0e = int(x.bond_count[1])
+            if N0e == 0:
+                N0e = 1
+            total_entropy = (Sk(n, x.d_energy) + Su(n, x.bond_count[1], x.bond_count[2], N0e)) / n
+
+            t_counter += 1
+            fwd_writer.writerow([t_counter,
+                                  x.bond_count[1] / n * 100, x.bond_count[2] / n * 100,
+                                  total_entropy, n])
+
+            completed_count += 1
+            if pbar_queue:
+                pbar_accum += 1
+                if pbar_accum >= PBAR_BATCH:
+                    pbar_queue.put(pbar_accum)
+                    pbar_accum = 0
+
+        if pbar_queue and pbar_accum:
+            pbar_queue.put(pbar_accum)
+
+    ### Reverse sweeps
+    with open(active_file, 'a', newline='') as rev_file:
+        rev_writer = csv.writer(rev_file)
+        pbar_accum = 0
+
+        for i in range(s // 2):
+            for _ in range(n):
+                x.demon_reverse(dynamics_flag, (s // 2) - 1 - i)
+
+            N0_exp = int(x.bond_count[1])
+            if N0_exp == 0:
+                N0_exp = 1
+            total_entropy = (Sk(n, x.d_energy) + Su(n, x.bond_count[1], x.bond_count[2], N0_exp)) / n
+
+            t_counter += 1
+            rev_writer.writerow([t_counter,
+                                  x.bond_count[1] / n * 100, x.bond_count[2] / n * 100,
+                                  total_entropy, n])
+
+            completed_count += 1
+            if pbar_queue:
+                pbar_accum += 1
+                if pbar_accum >= PBAR_BATCH:
+                    pbar_queue.put(pbar_accum)
+                    pbar_accum = 0
+
+        if pbar_queue and pbar_accum:
+            pbar_queue.put(pbar_accum)
+
+    return t_counter
+
+
 def run_radius_simulations(R, n, s, flag, m, file_names, irr_files, init_files, pbar_queue):
     """
     Worker function to run all simulations for a given radius R.
-    
-    This function is executed in parallel by multiprocessing.Pool workers. Each worker
-    handles all M runs for a single R value (radius). The pool automatically distributes
-    R values across available CPU cores and queues remaining jobs.
-    
-    Architecture:
-    - Each worker is independent (no shared state except progress queue)
-    - Workers ignore SIGINT - main process handles Ctrl-C interrupts
-    - Progress updates sent via shared queue for real-time progress bar
-    - Each (R, M) combination writes to independent CSV files
-    
+
+    For flag='c' (combined): initializes one Inferno per radius, then for each of m
+    runs alternates a full reversible phase followed by a full irreversible phase,
+    with state carrying over continuously throughout. Rev and irr data are written
+    to separate files indexed by M.
+
+    For flag='r' or 'i': runs m independent simulations of the single dynamics type,
+    resetting state between runs (original behaviour).
+
     Args:
         R: Radius value (0 to r) for bond-demon coupling
         n: Lattice size
-        s: Number of sweeps (s//2 forward + s//2 reverse)
+        s: Number of sweeps (s//2 forward + s//2 reverse per phase)
         flag: Dynamics type ('c'=combined, 'r'=reversible, 'i'=irreversible)
-        m: Number of independent runs per radius
+        m: Number of rev/irr alternation cycles (combined) or independent runs
         file_names: List of file paths for reversible dynamics output
         irr_files: List of file paths for irreversible dynamics output
         init_files: List of file paths for initial/final state snapshots
         pbar_queue: Shared queue for sending progress updates to main process
-    
+
     Returns:
         int: Total number of completed sweeps (for validation)
     """
-    # Ignore keyboard interrupts in worker processes - main process handles them
     import signal
     signal.signal(signal.SIGINT, signal.SIG_IGN)
-    
+
+    PBAR_BATCH = max(50, 500_000 // max(n, 1))
+    data_types = ['t', 'N0 (%)', 'Nx (%)', 'S/nk', 'n']
+
     completed_count = 0
-    x = Inferno(n, R)
-    for M in range(m):
-        # Determine which dynamics to run based on flag
-        if flag == 'c':  # combined
-            dynamics_flags = [0, 1]
-        elif flag == 'r':  # reversible only
-            dynamics_flags = [0]
-        else:  # 'i' - irreversible only
-            dynamics_flags = [1]
 
-        for dynamics_flag in dynamics_flags:
-            filename = file_names[R].parent / f"{file_names[R].name}_{M}.csv"
-            irr_filename = irr_files[R].parent / f"{irr_files[R].name}_{M}.csv"
-            init_filename = init_files[R].parent / f"{init_files[R].name}_{M}.csv"
-            filenames = [filename, irr_filename, init_filename]
+    if flag == 'c':
+        # One Inferno for the entire radius; state carries over across all phases.
+        x = Inferno(n, R)
 
-            data_types = ['t', 'K', 'U', 'N0', 'Nx', 'S/nk', 'n'] # step counter, lattice energy, demon energy, total energy, broken bonds, anti-aligned spins, lattice size
+        for M in range(m):
+            t_rev = 0   # reset sweep counters at the start of each cycle
+            t_irr = 0
+            rev_filename  = file_names[R].parent / f"{file_names[R].name}_{M}.csv"
+            irr_filename  = irr_files[R].parent  / f"{irr_files[R].name}_{M}.csv"
 
-            if dynamics_flag == 0:  # rev only
-                filenames = [filename]
-            elif dynamics_flag:  # irr only
-                filenames = [irr_filename]
-            
-            # Create directories if they don't exist
-            for fname in filenames:
+            # Create directories
+            for fname in [rev_filename, irr_filename]:
                 fname.parent.mkdir(parents=True, exist_ok=True)
-            
-            for fname in filenames:
-                with open(fname, 'w+', newline='') as file:
-                    writer = csv.writer(file)
-                    writer.writerow(data_types)
 
-            # Separate counters for each file type
-            t_counter = 0
-            t_irr_counter = 0
+            # Write headers (fresh file each M)
+            for fname in [rev_filename, irr_filename]:
+                with open(fname, 'w', newline='') as f:
+                    csv.writer(f).writerow(data_types)
 
-            # Select the active output file for this dynamics type
-            active_file = filename if dynamics_flag == 0 else irr_filename
+            # --- Reversible phase ---
+            t_rev = run_one_phase(x, 0, rev_filename, s, n, t_rev, pbar_queue, PBAR_BATCH)
+            x.reset()  # shuffle traversal order before irreversible phase
 
-            # Batch size for progress-queue IPC: mp.Manager().Queue().put() is a
-            # socket round-trip (~0.5-2 ms).  The JIT kernel finishes N moves in
-            # microseconds; for small N (e.g. n=8) even PBAR_BATCH=50 sweeps is
-            # only ~400 moves (~40 µs), so workers still spend >90% of their time
-            # blocked on IPC.  Scale batch size ∝ 1/n so each batch represents
-            # roughly the same wall-clock compute time regardless of lattice size:
-            #   n=8   → 62,500   n=100  → 5,000
-            #   n=1000 → 500    n=10000 → 50
-            PBAR_BATCH = max(50, 500_000 // max(n, 1))
+            # --- Irreversible phase ---
+            t_irr = run_one_phase(x, 1, irr_filename, s, n, t_irr, pbar_queue, PBAR_BATCH)
+            x.reset()  # shuffle traversal order before next rev phase
 
-            ### Forward simulation — keep file open for all sweeps
-            with open(active_file, 'a', newline='') as fwd_file:
-                fwd_writer = csv.writer(fwd_file)
-                pbar_accum = 0
+    else:
+        # Single-dynamics mode: m independent runs, reset between each (original behaviour).
+        dynamics_flag = 0 if flag == 'r' else 1
 
-                for i in range(s//2):
-                    # Attempt to flip each spin in lattice (full sweep)
-                    for _ in range(n):
-                        x.demon_move(dynamics_flag, i)
+        x = Inferno(n, R)
+        for M in range(m):
+            active_file = (file_names[R] if dynamics_flag == 0 else irr_files[R])
+            filename = active_file.parent / f"{active_file.name}_{M}.csv"
+            filename.parent.mkdir(parents=True, exist_ok=True)
 
-                    # Calculate entropy and data ONCE per sweep (after all N moves)
-                    N0e = int(x.bond_count[1])
-                    if N0e == 0:
-                        N0e = 1
-                    total_entropy = (Sk(n, x.d_energy) + Su(n, x.bond_count[1], x.bond_count[2], N0e))/n
+            with open(filename, 'w', newline='') as f:
+                csv.writer(f).writerow(data_types)
 
-                    # Increment appropriate counter
-                    if dynamics_flag == 0:
-                        t_counter += 1
-                        t_value = t_counter
-                    else:
-                        t_irr_counter += 1
-                        t_value = t_irr_counter
-
-                    fwd_writer.writerow([t_value, x.d_energy/n, x.E_lattice/n,
-                                         x.bond_count[1]/n, x.bond_count[2]/n,
-                                         total_entropy, n])
-
-                    # Batch progress updates to avoid IPC bottleneck
-                    completed_count += 1
-                    if pbar_queue:
-                        pbar_accum += 1
-                        if pbar_accum >= PBAR_BATCH:
-                            pbar_queue.put(pbar_accum)
-                            pbar_accum = 0
-
-                if pbar_queue and pbar_accum:
-                    pbar_queue.put(pbar_accum)
-
-            ### Reverse simulation — keep file open for all sweeps
-            with open(active_file, 'a', newline='') as rev_file:
-                rev_writer = csv.writer(rev_file)
-                pbar_accum = 0
-
-                for i in range(s//2):
-                    # Attempt to flip each spin in lattice (full sweep)
-                    for _ in range(n):
-                        x.demon_reverse(dynamics_flag, (s//2) - 1 - i)
-
-                    # Calculate entropy and data ONCE per sweep (after all N moves)
-                    N0_exp = int(x.bond_count[1])
-                    if N0_exp == 0:
-                        N0_exp = 1
-                    total_entropy = (Sk(n, x.d_energy) + Su(n, x.bond_count[1], x.bond_count[2], N0_exp))/n
-
-                    # Increment appropriate counter
-                    if dynamics_flag == 0:
-                        t_counter += 1
-                        t_value = t_counter
-                    else:
-                        t_irr_counter += 1
-                        t_value = t_irr_counter
-
-                    rev_writer.writerow([t_value, x.d_energy/n, x.E_lattice/n,
-                                         x.bond_count[1]/n, x.bond_count[2]/n,
-                                         total_entropy, n])
-
-                    # Batch progress updates to avoid IPC bottleneck
-                    completed_count += 1
-                    if pbar_queue:
-                        pbar_accum += 1
-                        if pbar_accum >= PBAR_BATCH:
-                            pbar_queue.put(pbar_accum)
-                            pbar_accum = 0
-
-                if pbar_queue and pbar_accum:
-                    pbar_queue.put(pbar_accum)
-
-            # Reset "random" order for next simulation
+            run_one_phase(x, dynamics_flag, filename, s, n, 0, pbar_queue, PBAR_BATCH)
             x.reset()
-    
+
     return completed_count
 
 
@@ -391,9 +386,6 @@ if __name__ == '__main__':
         pbar_start_time = time.time()
 
         # Create a manager and queue for inter-process communication
-        # Workers send progress updates (1 per sweep) through this queue.
-        # Main process consumes updates and increments progress bar in real-time.
-        # Queue is thread-safe and works across process boundaries.
         manager = mp.Manager()
         pbar_queue = manager.Queue()
     
@@ -409,27 +401,19 @@ if __name__ == '__main__':
     pool = mp.Pool(processes=num_cores)
     
     try:
-        # Submit all (r+1) jobs to pool. Pool distributes across workers automatically.
-        # map_async returns immediately - workers run in background.
         results = pool.map_async(worker_func, range(r+1))
         
         if show_pbar:
-            # Monitor progress while workers run.
-            # Workers now put batched counts (up to PBAR_BATCH sweeps per put)
-            # to avoid mp.Manager().Queue() IPC becoming the bottleneck.
             completed_sweeps = 0
-            while not results.ready():  # Loop until all workers finish
+            while not results.ready():
                 try:
-                    # Wait 0.1s for progress update from any worker
                     n_done = pbar_queue.get(timeout=0.1)
                     completed_sweeps += n_done
                     pbar.update(n_done)
                     update_progress_time()
-                except Exception:  # Must be Exception, not bare except:!
-                    # Queue empty or timeout - KeyboardInterrupt must propagate up!
+                except Exception:
                     pass
 
-            # Get any remaining progress updates
             while not pbar_queue.empty():
                 try:
                     n_done = pbar_queue.get_nowait()
@@ -439,39 +423,28 @@ if __name__ == '__main__':
                 except Exception:
                     break
 
-            # Ensure progress bar is at 100%
             if pbar.n < total_sweeps:
                 pbar.update(total_sweeps - pbar.n)
         else:
-            # Wait for all workers to complete without rendering progress output
             results.wait()
         
-        # Get results (blocks until all complete)
         sweep_counts = results.get()
-        
-        # Close pool normally
         pool.close()
         pool.join()
         
     except KeyboardInterrupt:
-        # Ctrl-C pressed - clean shutdown
-        # Workers ignore SIGINT (set in worker function), so only main process catches it.
-        # terminate() sends SIGTERM to all workers for immediate forced shutdown.
-        # join() waits for workers to clean up before exiting.
         print("\n\nInterrupted! Terminating...")
         if pbar is not None:
-            pbar.close()       # Close progress bar first to clear terminal
-        pool.terminate()   # Force kill all worker processes
-        pool.join()        # Wait for cleanup
+            pbar.close()
+        pool.terminate()
+        pool.join()
         
-        # Write interrupted status
         with open(status_file, 'w') as f:
             f.write(f"Status: INTERRUPTED\n")
             f.write(f"Time: {datetime.now().isoformat()}\n")
         print(f"Status written to {status_file}")
         sys.exit(1)
     except OSError as e:
-        # Typical case: ENOSPC from worker CSV writes propagates here via results.get().
         if pbar is not None:
             pbar.close()
         pool.terminate()
@@ -503,7 +476,6 @@ if __name__ == '__main__':
         if manager is not None:
             manager.shutdown()
 
-    # Close progress bar
     if pbar is not None:
         pbar.close()
 
