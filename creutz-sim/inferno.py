@@ -253,7 +253,7 @@ class Inferno:
         if (flag != 0):
             a = np.random.randint(0, N)
             if self.radius != 0:
-                R = np.random.randint(0, self.radius)
+                R = np.random.randint(-self.radius, self.radius)
 
         # Attempt to flip spin
         E_lattice, d_energy = spin_flip_jit(
@@ -266,7 +266,7 @@ class Inferno:
         # If irr flag is on, generate a random number instead
         if (flag != 0):
             if self.radius != 0:
-                R = np.random.randint(0, self.radius)
+                R = np.random.randint(-self.radius, self.radius)
 
         # Attempt to change bond
         E_lattice, d_energy = bond_change_jit(
@@ -302,7 +302,7 @@ class Inferno:
         if (flag != 0):
             a = np.random.randint(0, N)
             if self.radius != 0:
-                R = np.random.randint(0, self.radius)
+                R = np.random.randint(-self.radius, self.radius)
 
         # Attempt to change bond
         E_lattice, d_energy = bond_change_jit(
@@ -315,7 +315,7 @@ class Inferno:
         # If irr flag is on, generate a random number instead
         if (flag != 0):
             if self.radius != 0:
-                R = np.random.randint(0, self.radius)
+                R = np.random.randint(-self.radius, self.radius)
 
         # Attempt to flip spin
         E_lattice, d_energy = spin_flip_jit(
