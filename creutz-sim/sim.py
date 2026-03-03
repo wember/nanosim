@@ -129,6 +129,9 @@ def run_one_phase(x, dynamics_flag, active_file, s, n, t_counter, pbar_queue, PB
     Run one full simulation phase (s//2 forward + s//2 reverse sweeps) for a given
     dynamics type, writing results to active_file. State carries over in-place on x.
 
+    Every (s * 0.01) sweeps are accumulated and written as a single averaged row,
+    reducing output size by 100x while preserving the overall trajectory.
+
     Args:
         x: Inferno instance (mutated in-place)
         dynamics_flag: 0 = reversible, 1 = irreversible
@@ -142,67 +145,79 @@ def run_one_phase(x, dynamics_flag, active_file, s, n, t_counter, pbar_queue, PB
     Returns:
         t_counter: Updated sweep counter after this phase
     """
-    completed_count = 0
+    # Number of sweeps to average into one CSV row (1% of total sweeps, min 1)
+    avg_window = max(1, int(s * 0.01))
+
+    def _run_half(sweep_range, move_fn):
+        nonlocal t_counter
+        pbar_accum = 0
+        acc_N0 = 0.0
+        acc_Nx = 0.0
+        acc_S  = 0.0
+        acc_count = 0
+
+        with open(active_file, 'a', newline='') as f:
+            writer = csv.writer(f)
+
+            for i in sweep_range:
+                move_fn(i)
+
+                N0e = int(x.bond_count[1])
+                if N0e == 0:
+                    N0e = 1
+                total_entropy = (Sk(n, x.d_energy) + Su(n, x.bond_count[1], x.bond_count[2], N0e)) / n
+
+                acc_N0    += x.bond_count[1] / n * 100
+                acc_Nx    += x.bond_count[2] / n * 100
+                acc_S     += total_entropy
+                acc_count += 1
+                t_counter += 1
+
+                if pbar_queue:
+                    pbar_accum += 1
+                    if pbar_accum >= PBAR_BATCH:
+                        pbar_queue.put(pbar_accum)
+                        pbar_accum = 0
+
+                # Write averaged row every avg_window sweeps
+                if acc_count >= avg_window:
+                    writer.writerow([t_counter,
+                                     acc_N0 / acc_count,
+                                     acc_Nx / acc_count,
+                                     acc_S  / acc_count,
+                                     n])
+                    acc_N0 = acc_Nx = acc_S = 0.0
+                    acc_count = 0
+
+            # Flush any remaining accumulated sweeps
+            if acc_count > 0:
+                writer.writerow([t_counter,
+                                 acc_N0 / acc_count,
+                                 acc_Nx / acc_count,
+                                 acc_S  / acc_count,
+                                 n])
+
+            if pbar_queue and pbar_accum:
+                pbar_queue.put(pbar_accum)
 
     ### Forward sweeps
-    with open(active_file, 'a', newline='') as fwd_file:
-        fwd_writer = csv.writer(fwd_file)
-        pbar_accum = 0
+    def fwd_move(i):
+        for _ in range(n):
+            x.demon_move(dynamics_flag, i)
 
-        for i in range(s // 2):
-            for _ in range(n):
-                x.demon_move(dynamics_flag, i)
-
-            N0e = int(x.bond_count[1])
-            if N0e == 0:
-                N0e = 1
-            total_entropy = (Sk(n, x.d_energy) + Su(n, x.bond_count[1], x.bond_count[2], N0e)) / n
-
-            t_counter += 1
-            fwd_writer.writerow([t_counter,
-                                  x.bond_count[1] / n * 100, x.bond_count[2] / n * 100,
-                                  total_entropy, n])
-
-            completed_count += 1
-            if pbar_queue:
-                pbar_accum += 1
-                if pbar_accum >= PBAR_BATCH:
-                    pbar_queue.put(pbar_accum)
-                    pbar_accum = 0
-
-        if pbar_queue and pbar_accum:
-            pbar_queue.put(pbar_accum)
+    _run_half(range(s // 2), fwd_move)
 
     ### Reverse sweeps
-    with open(active_file, 'a', newline='') as rev_file:
-        rev_writer = csv.writer(rev_file)
-        pbar_accum = 0
+    half = s // 2
 
-        for i in range(s // 2):
-            for _ in range(n):
-                x.demon_reverse(dynamics_flag, (s // 2) - 1 - i)
+    def rev_move(i):
+        for _ in range(n):
+            x.demon_reverse(dynamics_flag, half - 1 - i)
 
-            N0_exp = int(x.bond_count[1])
-            if N0_exp == 0:
-                N0_exp = 1
-            total_entropy = (Sk(n, x.d_energy) + Su(n, x.bond_count[1], x.bond_count[2], N0_exp)) / n
-
-            t_counter += 1
-            rev_writer.writerow([t_counter,
-                                  x.bond_count[1] / n * 100, x.bond_count[2] / n * 100,
-                                  total_entropy, n])
-
-            completed_count += 1
-            if pbar_queue:
-                pbar_accum += 1
-                if pbar_accum >= PBAR_BATCH:
-                    pbar_queue.put(pbar_accum)
-                    pbar_accum = 0
-
-        if pbar_queue and pbar_accum:
-            pbar_queue.put(pbar_accum)
+    _run_half(range(half), rev_move)
 
     return t_counter
+
 
 
 def run_radius_simulations(R, n, s, flag, m, file_names, irr_files, init_files, pbar_queue):
