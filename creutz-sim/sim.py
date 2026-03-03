@@ -56,7 +56,7 @@ def get_params():
         's': 100,       # sweeps
         'flag': 'c',    # c=combined, r=reversible, i=irreversible
         'r': 10,        # max radius, inclusive
-        'm': 5
+        'm': 10
     }
     
     # Interactive mode (only if -i flag is set)
@@ -173,7 +173,7 @@ def run_radius_simulations(R, n, s, flag, m, file_names, irr_files, init_files, 
             init_filename = init_files[R].parent / f"{init_files[R].name}_{M}.csv"
             filenames = [filename, irr_filename, init_filename]
 
-            data_types = ['t', 'K', 'U', 'N0', 'Nx', 'S/nk', 'n'] # step counter, lattice energy, demon energy, total energy, broken bonds, anti-aligned spins, lattice size
+            data_types = ['t', 'N0 (%)', 'Nx (%)', 'S/nk', 'n'] # step counter, total energy, broken bonds, anti-aligned spins, lattice size
 
             if dynamics_flag == 0:  # rev only
                 filenames = [filename]
@@ -206,10 +206,18 @@ def run_radius_simulations(R, n, s, flag, m, file_names, irr_files, init_files, 
             #   n=1000 → 500    n=10000 → 50
             PBAR_BATCH = max(50, 500_000 // max(n, 1))
 
+            # Averaging window: flush one CSV row per 0.1% of total sweeps (s//2 each direction).
+            # avg_window = max(1, ...) so it always works even for very small s.
+            avg_window = max(1, s // 2 // 1000)
+
             ### Forward simulation — keep file open for all sweeps
             with open(active_file, 'a', newline='') as fwd_file:
                 fwd_writer = csv.writer(fwd_file)
                 pbar_accum = 0
+
+                # Accumulators for averaging
+                acc = np.zeros(3)   # [N0(%), Nx(%), entropy]
+                acc_count = 0
 
                 for i in range(s//2):
                     # Attempt to flip each spin in lattice (full sweep)
@@ -222,17 +230,28 @@ def run_radius_simulations(R, n, s, flag, m, file_names, irr_files, init_files, 
                         N0e = 1
                     total_entropy = (Sk(n, x.d_energy) + Su(n, x.bond_count[1], x.bond_count[2], N0e))/n
 
-                    # Increment appropriate counter
-                    if dynamics_flag == 0:
-                        t_counter += 1
-                        t_value = t_counter
-                    else:
-                        t_irr_counter += 1
-                        t_value = t_irr_counter
+                    # Accumulate into running buffer
+                    acc[0] += x.bond_count[1] / n * 100
+                    acc[1] += x.bond_count[2] / n * 100
+                    acc[2] += total_entropy
+                    acc_count += 1
 
-                    fwd_writer.writerow([t_value, x.d_energy/n, x.E_lattice/n,
-                                         x.bond_count[1]/n, x.bond_count[2]/n,
-                                         total_entropy, n])
+                    # Flush averaged row every avg_window sweeps
+                    if acc_count == avg_window:
+                        if dynamics_flag == 0:
+                            t_counter += 1
+                            t_value = t_counter
+                        else:
+                            t_irr_counter += 1
+                            t_value = t_irr_counter
+
+                        fwd_writer.writerow([t_value,
+                                             acc[0] / acc_count,
+                                             acc[1] / acc_count,
+                                             acc[2] / acc_count,
+                                             n])
+                        acc[:] = 0
+                        acc_count = 0
 
                     # Batch progress updates to avoid IPC bottleneck
                     completed_count += 1
@@ -242,6 +261,20 @@ def run_radius_simulations(R, n, s, flag, m, file_names, irr_files, init_files, 
                             pbar_queue.put(pbar_accum)
                             pbar_accum = 0
 
+                # Flush any remaining partial window at end of forward pass
+                if acc_count > 0:
+                    if dynamics_flag == 0:
+                        t_counter += 1
+                        t_value = t_counter
+                    else:
+                        t_irr_counter += 1
+                        t_value = t_irr_counter
+                    fwd_writer.writerow([t_value,
+                                         acc[0] / acc_count,
+                                         acc[1] / acc_count,
+                                         acc[2] / acc_count,
+                                         n])
+
                 if pbar_queue and pbar_accum:
                     pbar_queue.put(pbar_accum)
 
@@ -249,6 +282,10 @@ def run_radius_simulations(R, n, s, flag, m, file_names, irr_files, init_files, 
             with open(active_file, 'a', newline='') as rev_file:
                 rev_writer = csv.writer(rev_file)
                 pbar_accum = 0
+
+                # Accumulators for averaging
+                acc = np.zeros(3)   # [N0(%), Nx(%), entropy]
+                acc_count = 0
 
                 for i in range(s//2):
                     # Attempt to flip each spin in lattice (full sweep)
@@ -261,17 +298,28 @@ def run_radius_simulations(R, n, s, flag, m, file_names, irr_files, init_files, 
                         N0_exp = 1
                     total_entropy = (Sk(n, x.d_energy) + Su(n, x.bond_count[1], x.bond_count[2], N0_exp))/n
 
-                    # Increment appropriate counter
-                    if dynamics_flag == 0:
-                        t_counter += 1
-                        t_value = t_counter
-                    else:
-                        t_irr_counter += 1
-                        t_value = t_irr_counter
+                    # Accumulate into running buffer
+                    acc[0] += x.bond_count[1] / n * 100
+                    acc[1] += x.bond_count[2] / n * 100
+                    acc[2] += total_entropy
+                    acc_count += 1
 
-                    rev_writer.writerow([t_value, x.d_energy/n, x.E_lattice/n,
-                                         x.bond_count[1]/n, x.bond_count[2]/n,
-                                         total_entropy, n])
+                    # Flush averaged row every avg_window sweeps
+                    if acc_count == avg_window:
+                        if dynamics_flag == 0:
+                            t_counter += 1
+                            t_value = t_counter
+                        else:
+                            t_irr_counter += 1
+                            t_value = t_irr_counter
+
+                        rev_writer.writerow([t_value,
+                                             acc[0] / acc_count,
+                                             acc[1] / acc_count,
+                                             acc[2] / acc_count,
+                                             n])
+                        acc[:] = 0
+                        acc_count = 0
 
                     # Batch progress updates to avoid IPC bottleneck
                     completed_count += 1
@@ -280,6 +328,20 @@ def run_radius_simulations(R, n, s, flag, m, file_names, irr_files, init_files, 
                         if pbar_accum >= PBAR_BATCH:
                             pbar_queue.put(pbar_accum)
                             pbar_accum = 0
+
+                # Flush any remaining partial window at end of reverse pass
+                if acc_count > 0:
+                    if dynamics_flag == 0:
+                        t_counter += 1
+                        t_value = t_counter
+                    else:
+                        t_irr_counter += 1
+                        t_value = t_irr_counter
+                    rev_writer.writerow([t_value,
+                                         acc[0] / acc_count,
+                                         acc[1] / acc_count,
+                                         acc[2] / acc_count,
+                                         n])
 
                 if pbar_queue and pbar_accum:
                     pbar_queue.put(pbar_accum)
