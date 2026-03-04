@@ -56,7 +56,7 @@ def get_params():
         's': 100,       # sweeps
         'flag': 'c',    # c=combined, r=reversible, i=irreversible
         'r': 10,        # max radius, inclusive
-        'm': 5
+        'm': 6
     }
     
     # Interactive mode (only if -i flag is set)
