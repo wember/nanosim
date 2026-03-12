@@ -155,8 +155,8 @@ for R in irr_radii:
 
     # Concatenate all DataFrames in the list into a single DataFrame
     # ignore_index=True resets the index of the combined DataFrame
-    combined_df = pd.concat(list_of_dfs)
-    average_df = combined_df.groupby(combined_df.index).mean()
+    combined_df = pd.concat(list_of_dfs, ignore_index=True)
+    average_df = combined_df.groupby('t', as_index=False).mean()
 
     n = int(average_df['n'][0])
     show_legend = R not in irr_legend_shown
@@ -254,8 +254,8 @@ for R in rev_radii:
 
     # Concatenate all DataFrames in the list into a single DataFrame
     # ignore_index=True resets the index of the combined DataFrame
-    combined_df = pd.concat(list_of_dfs)
-    average_df = combined_df.groupby(combined_df.index).mean()
+    combined_df = pd.concat(list_of_dfs, ignore_index=True)
+    average_df = combined_df.groupby('t', as_index=False).mean()
 
     n = int(average_df['n'][0])
     show_legend = R not in rev_legend_shown
@@ -325,10 +325,15 @@ print("Serializing fig1 to HTML...", flush=True)
 
 # Only add vlines and vrects if we have data
 if average_df is not None:
-    fig.add_vline(x=len(average_df['t'])//2, line_width=1, line_dash="dash", line_color="Red", row=1, col=1)
-    fig.add_vline(x=len(average_df['t'])//2, line_width=1, line_dash="dash", line_color="Red", row=1, col=2)
-    fig.add_vrect(x0=start_index, x1=end_index, line_width=0, fillcolor="blue", opacity=0.1, row=1, col=1)
-    fig.add_vrect(x0=start_index, x1=end_index, line_width=0, fillcolor="blue", opacity=0.1, row=1, col=2)
+    t_values = average_df['t'].values
+    mid_t = t_values[len(t_values) // 2]
+    t_start = t_values[start_index]
+    t_end = t_values[end_index - 1]
+
+    fig.add_vline(x=mid_t, line_width=1, line_dash="dash", line_color="Red", row=1, col=1)
+    fig.add_vline(x=mid_t, line_width=1, line_dash="dash", line_color="Red", row=1, col=2)
+    fig.add_vrect(x0=t_start, x1=t_end, line_width=0, fillcolor="blue", opacity=0.1, row=1, col=1)
+    fig.add_vrect(x0=t_start, x1=t_end, line_width=0, fillcolor="blue", opacity=0.1, row=1, col=2)
 
 # Add toggle buttons to show/hide reversible and irreversible traces
 num_traces = len(fig.data)

@@ -176,12 +176,10 @@ class Inferno:
         self.order = a
         self.rev_order = np.flip(a)
         self.order_idx = 0  # Index pointer for order array
-        self.rev_order_idx = 0  # Index pointer for rev_order array
+        self.r_idx = 0
         self.radius = R
-        self.radius_cycle = 2 * R + 1
-        self.R_counter = 0
-        # self.radius_spin = self.rev_radius_bond = np.random.randint(0, R, size=N)*np.random.choice([-1, 1], size=N)
-        # self.rev_radius_spin = self.radius_bond = np.flip(self.radius_spin)
+        offsets = np.array([0] + list(range(1, R+1)) + list(range(-R, 0))).reshape(-1, 1)
+        self.d_order = (a + offsets)  % N
         self.lattice = np.concatenate((np.ones(N//2, dtype=int), (-1)*np.ones(N//2, dtype=int)))
         self.bonds = np.ones(N, dtype=int)*(-1)
         self.bonds[[N//2-1, -1]] = 1
@@ -202,13 +200,25 @@ class Inferno:
 ################################################################################
 ################################################################################
     def reset(self):
-        """
-            Resets the "random" order for reversible simulations
-        """     
         a = np.arange(self.N)
         np.random.shuffle(a)
         self.order = a
         self.rev_order = np.flip(a)
+        # Rebuild d_order to match new order
+        offsets = np.array([0] + list(range(1, self.radius+1)) + list(range(-self.radius, 0))).reshape(-1, 1)
+        self.d_order = (a + offsets) % self.N
+        self.order_idx = 0  # Also reset index pointers
+        self.r_idx = 0
+        
+        # reset demon energy distribution
+        self.d_energy = self.N//2 - self.E_lattice
+
+        result = np.zeros(self.N, dtype=int)
+        for i in range(self.d_energy):
+            result[random.randint(0, self.N-1)] += 1
+
+        self.E_demon = np.array(result)
+        self.E_total = self.E_lattice + np.sum(self.E_demon)
 
     def spin_flip(self, a, i):
         """
@@ -238,96 +248,96 @@ class Inferno:
         """
             "Randomly" move the demon around and flip spins & change bonds
         """
-        lattice = self.lattice
-        bonds = self.bonds
-        E_demon = self.E_demon
-        E_lattice = self.E_lattice
-        d_energy = self.d_energy
-        N = self.N
-
+        ##################
+        #    Spin Flip   #
+        ##################
         a = self.order[self.order_idx]
-        R = (self.R_counter % self.radius_cycle) - self.radius
-        self.R_counter += 1
+        b = self.d_order[self.r_idx][self.order_idx]
 
         # If irr flag is on, generate a random number instead
         if (flag != 0):
-            a = np.random.randint(0, N)
-            if self.radius != 0:
-                R = np.random.randint(-self.radius, self.radius)
+            rand_idx = np.random.randint(0, self.N)
+            a = self.order[rand_idx]
+            r_idx = np.random.randint(0, self.radius * 2 + 1)
+            b = (self.d_order[r_idx][rand_idx])
 
         # Attempt to flip spin
-        E_lattice, d_energy = spin_flip_jit(
-            lattice, bonds, E_demon, E_lattice, d_energy, a, (a + R) % N, N
-        )
-
-        R = (self.R_counter % self.radius_cycle) - self.radius
-        self.R_counter += 1
-
-        # If irr flag is on, generate a random number instead
-        if (flag != 0):
-            if self.radius != 0:
-                R = np.random.randint(-self.radius, self.radius)
-
-        # Attempt to change bond
-        E_lattice, d_energy = bond_change_jit(
-            lattice, bonds, E_demon, E_lattice, d_energy, a, (a + R) % N, N
-        )
-
-        self.E_lattice = E_lattice
-        self.d_energy = d_energy
-
-        # Update bond count
-        self.bond_count = count_bonds_jit(self.bonds)
+        self.E_lattice, self.d_energy = spin_flip_jit(self.lattice, self.bonds, self.E_demon, self.E_lattice, self.d_energy, a, b, self.N)
 
         # Advance index pointer (replaces np.roll)
         if (flag == 0):
             self.order_idx = (self.order_idx + 1) % self.N
+            self.r_idx = (self.r_idx + 1) % (self.radius*2 + 1)
+
+        ##################
+        #   Bond Change  #
+        ##################
+        a = self.order[self.order_idx]
+        b = self.d_order[self.r_idx][self.order_idx]
+        # If irr flag is on, generate a random number instead
+        if (flag != 0):
+            rand_idx = np.random.randint(0, self.N)
+            a = self.order[rand_idx]
+            r_idx = np.random.randint(0, self.radius * 2 + 1)
+            b = (self.d_order[r_idx][rand_idx])
+
+        self.E_lattice, self.d_energy = bond_change_jit(self.lattice, self.bonds, self.E_demon, self.E_lattice, self.d_energy, a, b, self.N)
+
+        # Advance index pointer (replaces np.roll)
+        if (flag == 0):
+            self.order_idx = (self.order_idx + 1) % self.N
+            self.r_idx = (self.r_idx + 1) % (self.radius*2 + 1)
+        
+        # Update bond count
+        self.bond_count = count_bonds_jit(self.bonds)
 
     def demon_reverse(self, flag, sweep_count):
         """
             In reverse order, flip spins & change bonds
         """
-        lattice = self.lattice
-        bonds = self.bonds
-        E_demon = self.E_demon
-        E_lattice = self.E_lattice
-        d_energy = self.d_energy
-        N = self.N
+        ##################
+        #   Bond Change  #
+        ##################
+        # Advance index pointer (replaces np.roll)
+        if (flag == 0):
+            self.order_idx = (self.order_idx - 1) % self.N
+            self.r_idx = (self.r_idx - 1) % (self.radius*2 + 1)
 
-        a = self.rev_order[self.rev_order_idx]
-        self.R_counter -= 1
-        R = (self.R_counter % self.radius_cycle) - self.radius
-
-        # If irr flag is on, generate a random number instead
-        if (flag != 0):
-            a = np.random.randint(0, N)
-            if self.radius != 0:
-                R = np.random.randint(-self.radius, self.radius)
-
-        # Attempt to change bond
-        E_lattice, d_energy = bond_change_jit(
-            lattice, bonds, E_demon, E_lattice, d_energy, a, (a + R) % N, N
-        )
-
-        self.R_counter -= 1
-        R = (self.R_counter % self.radius_cycle) - self.radius
+        a = self.order[self.order_idx]
+        b = self.d_order[self.r_idx][self.order_idx]
 
         # If irr flag is on, generate a random number instead
         if (flag != 0):
-            if self.radius != 0:
-                R = np.random.randint(-self.radius, self.radius)
+            rand_idx = np.random.randint(0, self.N)
+            a = self.order[rand_idx]
+            r_idx = np.random.randint(0, self.radius * 2 + 1)
+            b = (self.d_order[r_idx][rand_idx])
 
-        # Attempt to flip spin
-        E_lattice, d_energy = spin_flip_jit(
-            lattice, bonds, E_demon, E_lattice, d_energy, a, (a + R) % N, N
-        )
 
-        self.E_lattice = E_lattice
-        self.d_energy = d_energy
+        self.E_lattice, self.d_energy = bond_change_jit(self.lattice, self.bonds, self.E_demon, self.E_lattice, self.d_energy, a, b, self.N)
+
+        ##################
+        #    Spin Flip   #
+        ##################
+        # Advance index pointer (replaces np.roll)
+        if (flag == 0):
+            self.order_idx = (self.order_idx - 1) % self.N
+            self.r_idx = (self.r_idx - 1) % (self.radius*2 + 1)
+
+
+        a = self.order[self.order_idx]
+        b = self.d_order[self.r_idx][self.order_idx]
+        # If irr flag is on, generate a random number instead
+
+        # If irr flag is on, generate a random number instead
+        if (flag != 0):
+            rand_idx = np.random.randint(0, self.N)
+            a = self.order[rand_idx]
+            r_idx = np.random.randint(0, self.radius * 2 + 1)
+            b = (self.d_order[r_idx][rand_idx])
+
+        
+        self.E_lattice, self.d_energy = spin_flip_jit(self.lattice, self.bonds, self.E_demon, self.E_lattice, self.d_energy, a, b, self.N)
 
         # Update bond count
         self.bond_count = count_bonds_jit(self.bonds)
-
-        # Advance index pointer (replaces np.roll)
-        if (flag == 0):
-            self.rev_order_idx = (self.rev_order_idx + 1) % self.N
