@@ -30,7 +30,7 @@ Su0 = lambda N, N0, Nx: logg(N+1) + np.log(2**(N0+1)) - (logg(N-N0-Nx+1) + logg(
 def spin_flip_jit(lattice, bonds, E_demon, E_lattice, d_energy, a, i, N):
     """
     JIT-compiled spin flip with Metropolis criterion.
-    
+
     Args:
         lattice: array of spin values
         bonds: array of bond values
@@ -40,16 +40,16 @@ def spin_flip_jit(lattice, bonds, E_demon, E_lattice, d_energy, a, i, N):
         a: lattice site index
         i: demon index
         N: lattice size
-    
+
     Returns:
         (E_lattice, d_energy): updated energies
     """
     s = lattice[a]
-    
+
     # Calculate energy based on nearest neighbors
     nb = lattice[(a+1)%N]*abs(bonds[a%N]) + lattice[(a-1)%N]*abs(bonds[(a-1)%N])
     cost = 2*s*nb
-    
+
     # Metropolis acceptance: flip if favorable or if demon has energy
     if cost < 0 or cost <= E_demon[i]:
         s *= -1
@@ -57,20 +57,20 @@ def spin_flip_jit(lattice, bonds, E_demon, E_lattice, d_energy, a, i, N):
         d_energy -= cost
         E_lattice += cost
         lattice[a] = s
-        
+
         # Update bonds
         if bonds[a] != 0:
             if lattice[a] == lattice[(a+1)%N]:
                 bonds[a] = -1
             else:
                 bonds[a] = 1
-        
+
         if bonds[(a-1)%N] != 0:
             if lattice[a] == lattice[(a-1)%N]:
                 bonds[(a-1)%N] = -1
             else:
                 bonds[(a-1)%N] = 1
-    
+
     return E_lattice, d_energy
 
 
@@ -78,7 +78,7 @@ def spin_flip_jit(lattice, bonds, E_demon, E_lattice, d_energy, a, i, N):
 def bond_change_jit(lattice, bonds, E_demon, E_lattice, d_energy, a, i, N):
     """
     JIT-compiled bond creation/breaking.
-    
+
     Args:
         lattice: array of spin values
         bonds: array of bond values
@@ -88,7 +88,7 @@ def bond_change_jit(lattice, bonds, E_demon, E_lattice, d_energy, a, i, N):
         a: lattice site index
         i: demon index
         N: lattice size
-    
+
     Returns:
         (E_lattice, d_energy): updated energies
     """
@@ -96,28 +96,28 @@ def bond_change_jit(lattice, bonds, E_demon, E_lattice, d_energy, a, i, N):
     b = bonds[a]
     n = lattice[(a+1)%N]
     cost = -1 if s == n else 1
-    
+
     # If bond is broken, attempt to remake
     if (b == 0) and (E_demon[i] >= cost):
         E_lattice += cost
         E_demon[i] -= cost
         d_energy -= cost
         bonds[a] = cost
-    
+
     # If bond is made, attempt to break
     elif (b != 0) and (E_demon[i] + cost >= 0):
         E_lattice -= cost
         E_demon[i] += cost
         d_energy += cost
         bonds[a] = 0
-    
+
     # Update neighbor bond if it exists
     if bonds[(a-1)%N] != 0:
         if lattice[a] == lattice[(a-1)%N]:
             bonds[(a-1)%N] = -1
         else:
             bonds[(a-1)%N] = 1
-    
+
     return E_lattice, d_energy
 
 
@@ -125,10 +125,10 @@ def bond_change_jit(lattice, bonds, E_demon, E_lattice, d_energy, a, i, N):
 def count_bonds_jit(bonds):
     """
     JIT-compiled bond counting.
-    
+
     Args:
         bonds: array of bond values
-    
+
     Returns:
         bond_count: array [count_of_-1, count_of_0, count_of_1]
     """
@@ -209,7 +209,7 @@ class Inferno:
         self.d_order = (a + offsets) % self.N
         self.order_idx = 0  # Also reset index pointers
         self.r_idx = 0
-        
+
         # reset demon energy distribution
         self.d_energy = self.N//2 - self.E_lattice
 
@@ -244,100 +244,153 @@ class Inferno:
         """
         self.bond_count = count_bonds_jit(self.bonds)
 
+    def _choose_rev_pair(self):
+        """
+        Deterministic reversible site/source pair for the CURRENT step.
+        Do not advance indices here.
+        """
+        a = self.order[self.order_idx]
+        b = self.d_order[self.r_idx][self.order_idx]
+        return a, b
+
+
+    def _choose_irr_pair(self):
+        """
+        Random irreversible site/source pair for one step.
+        """
+        rand_idx = np.random.randint(0, self.N)
+        a = self.order[rand_idx]
+
+        if self.radius == 0:
+            b = a
+        else:
+            local_idx = np.random.randint(0, self.radius * 2 + 1)
+            b = self.d_order[local_idx][rand_idx]
+
+        return a, b
+
+
+    def _advance_rev_forward(self):
+        self.order_idx = (self.order_idx + 1) % self.N
+        self.r_idx = (self.r_idx + 1) % (self.radius * 2 + 1)
+
+
+    def _advance_rev_backward(self):
+        self.order_idx = (self.order_idx - 1) % self.N
+        self.r_idx = (self.r_idx - 1) % (self.radius * 2 + 1)
+
+
     def demon_move(self, flag, sweep_count):
         """
-            "Randomly" move the demon around and flip spins & change bonds
+        One forward step.
+
+        Reversible:
+        - choose one deterministic (site, demon) pair
+        - apply spin/bond to that SAME pair
+        - then advance indices once
+
+        Irreversible:
+        - choose one random (site, demon) pair
+        - randomly choose spin-first or bond-first
+        - use SAME pair for both sub-attempts
         """
-        ##################
-        #    Spin Flip   #
-        ##################
-        a = self.order[self.order_idx]
-        b = self.d_order[self.r_idx][self.order_idx]
+        if flag == 0:
+            # Reversible: same pair for both sub-attempts
+            a, b = self._choose_rev_pair()
 
-        # If irr flag is on, generate a random number instead
-        if (flag != 0):
-            rand_idx = np.random.randint(0, self.N)
-            a = self.order[rand_idx]
-            r_idx = np.random.randint(0, self.radius * 2 + 1)
-            b = (self.d_order[r_idx][rand_idx])
+            # Keep forward ordering fixed for reversibility
+            self.E_lattice, self.d_energy = spin_flip_jit(
+                self.lattice, self.bonds, self.E_demon,
+                self.E_lattice, self.d_energy, a, b, self.N
+            )
+            self.E_lattice, self.d_energy = bond_change_jit(
+                self.lattice, self.bonds, self.E_demon,
+                self.E_lattice, self.d_energy, a, b, self.N
+            )
 
-        # Attempt to flip spin
-        self.E_lattice, self.d_energy = spin_flip_jit(self.lattice, self.bonds, self.E_demon, self.E_lattice, self.d_energy, a, b, self.N)
+            self._advance_rev_forward()
 
-        # Advance index pointer (replaces np.roll)
-        if (flag == 0):
-            self.order_idx = (self.order_idx + 1) % self.N
-            self.r_idx = (self.r_idx + 1) % (self.radius*2 + 1)
+        else:
+            # Irreversible: same pair for both sub-attempts, random order
+            a, b = self._choose_irr_pair()
+            spin_first = np.random.randint(0, 2) == 0
 
-        ##################
-        #   Bond Change  #
-        ##################
-        a = self.order[self.order_idx]
-        b = self.d_order[self.r_idx][self.order_idx]
-        # If irr flag is on, generate a random number instead
-        if (flag != 0):
-            rand_idx = np.random.randint(0, self.N)
-            a = self.order[rand_idx]
-            r_idx = np.random.randint(0, self.radius * 2 + 1)
-            b = (self.d_order[r_idx][rand_idx])
+            if spin_first:
+                self.E_lattice, self.d_energy = spin_flip_jit(
+                    self.lattice, self.bonds, self.E_demon,
+                    self.E_lattice, self.d_energy, a, b, self.N
+                )
+                self.E_lattice, self.d_energy = bond_change_jit(
+                    self.lattice, self.bonds, self.E_demon,
+                    self.E_lattice, self.d_energy, a, b, self.N
+                )
+            else:
+                self.E_lattice, self.d_energy = bond_change_jit(
+                    self.lattice, self.bonds, self.E_demon,
+                    self.E_lattice, self.d_energy, a, b, self.N
+                )
+                self.E_lattice, self.d_energy = spin_flip_jit(
+                    self.lattice, self.bonds, self.E_demon,
+                    self.E_lattice, self.d_energy, a, b, self.N
+                )
 
-        self.E_lattice, self.d_energy = bond_change_jit(self.lattice, self.bonds, self.E_demon, self.E_lattice, self.d_energy, a, b, self.N)
-
-        # Advance index pointer (replaces np.roll)
-        if (flag == 0):
-            self.order_idx = (self.order_idx + 1) % self.N
-            self.r_idx = (self.r_idx + 1) % (self.radius*2 + 1)
-        
-        # Update bond count
         self.bond_count = count_bonds_jit(self.bonds)
+        self.E_total = self.E_lattice + np.sum(self.E_demon)
+
 
     def demon_reverse(self, flag, sweep_count):
         """
-            In reverse order, flip spins & change bonds
+        One reverse step.
+
+        Reversible:
+        - step indices backward once to recover the PREVIOUS forward pair
+        - undo in reverse sub-order: bond then spin
+        - use SAME pair for both sub-attempts
+
+        Irreversible:
+        - there is no microscopic reverse path, so treat as another
+            stochastic step but with reversed sub-order bias if desired.
         """
-        ##################
-        #   Bond Change  #
-        ##################
-        # Advance index pointer (replaces np.roll)
-        if (flag == 0):
-            self.order_idx = (self.order_idx - 1) % self.N
-            self.r_idx = (self.r_idx - 1) % (self.radius*2 + 1)
+        if flag == 0:
+            # Move back to the pair used in the previous forward step
+            self._advance_rev_backward()
+            a, b = self._choose_rev_pair()
 
-        a = self.order[self.order_idx]
-        b = self.d_order[self.r_idx][self.order_idx]
+            # Reverse sub-order of the forward move
+            self.E_lattice, self.d_energy = bond_change_jit(
+                self.lattice, self.bonds, self.E_demon,
+                self.E_lattice, self.d_energy, a, b, self.N
+            )
+            self.E_lattice, self.d_energy = spin_flip_jit(
+                self.lattice, self.bonds, self.E_demon,
+                self.E_lattice, self.d_energy, a, b, self.N
+            )
 
-        # If irr flag is on, generate a random number instead
-        if (flag != 0):
-            rand_idx = np.random.randint(0, self.N)
-            a = self.order[rand_idx]
-            r_idx = np.random.randint(0, self.radius * 2 + 1)
-            b = (self.d_order[r_idx][rand_idx])
+        else:
+            # Irreversible "reverse half" is not truly invertible;
+            # use the same one-pair-per-step rule.
+            a, b = self._choose_irr_pair()
+            spin_first = np.random.randint(0, 2) == 0
 
+            # Optional: bias toward opposite order from demon_move()
+            if spin_first:
+                self.E_lattice, self.d_energy = bond_change_jit(
+                    self.lattice, self.bonds, self.E_demon,
+                    self.E_lattice, self.d_energy, a, b, self.N
+                )
+                self.E_lattice, self.d_energy = spin_flip_jit(
+                    self.lattice, self.bonds, self.E_demon,
+                    self.E_lattice, self.d_energy, a, b, self.N
+                )
+            else:
+                self.E_lattice, self.d_energy = spin_flip_jit(
+                    self.lattice, self.bonds, self.E_demon,
+                    self.E_lattice, self.d_energy, a, b, self.N
+                )
+                self.E_lattice, self.d_energy = bond_change_jit(
+                    self.lattice, self.bonds, self.E_demon,
+                    self.E_lattice, self.d_energy, a, b, self.N
+                )
 
-        self.E_lattice, self.d_energy = bond_change_jit(self.lattice, self.bonds, self.E_demon, self.E_lattice, self.d_energy, a, b, self.N)
-
-        ##################
-        #    Spin Flip   #
-        ##################
-        # Advance index pointer (replaces np.roll)
-        if (flag == 0):
-            self.order_idx = (self.order_idx - 1) % self.N
-            self.r_idx = (self.r_idx - 1) % (self.radius*2 + 1)
-
-
-        a = self.order[self.order_idx]
-        b = self.d_order[self.r_idx][self.order_idx]
-        # If irr flag is on, generate a random number instead
-
-        # If irr flag is on, generate a random number instead
-        if (flag != 0):
-            rand_idx = np.random.randint(0, self.N)
-            a = self.order[rand_idx]
-            r_idx = np.random.randint(0, self.radius * 2 + 1)
-            b = (self.d_order[r_idx][rand_idx])
-
-        
-        self.E_lattice, self.d_energy = spin_flip_jit(self.lattice, self.bonds, self.E_demon, self.E_lattice, self.d_energy, a, b, self.N)
-
-        # Update bond count
         self.bond_count = count_bonds_jit(self.bonds)
+        self.E_total = self.E_lattice + np.sum(self.E_demon)
