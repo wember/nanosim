@@ -23,6 +23,7 @@ import sys
 import multiprocessing as mp
 from functools import partial
 import errno
+from inferno import Inferno, Sk, Su, Su0
 
 def add_row(filename, row_data):    # appends a new row to csv file
     try:
@@ -31,9 +32,6 @@ def add_row(filename, row_data):    # appends a new row to csv file
             writer.writerow(row_data)
     except Exception as e:
          print(f"An error occurred: {e}")
-
-Sk = lambda N, K: logg(K + N) - logg(K+1) - logg(N) # N == lattice size, K == kinetic energy
-Su = lambda N, N0, Nx, N0_exp: logg(N+1) + math.log(2**N0_exp) - (logg(N-N0-Nx+1) + logg(N0+1) + logg(Nx+1)) # N == lattice size, N0 == broken bonds, Nx == bonds between anti-aligned spins
 
 
 def get_params():
@@ -162,10 +160,15 @@ def run_one_phase(x, dynamics_flag, active_file, s, n, t_counter, pbar_queue, PB
             for i in sweep_range:
                 move_fn(i)
 
-                N0e = int(x.bond_count[1])
-                if N0e == 0:
-                    N0e = 1
-                total_entropy = (Sk(n, x.d_energy) + Su(n, x.bond_count[1], x.bond_count[2], N0e)) / n
+                N0 = int(x.bond_count[1])
+                Nx = int(x.bond_count[2])
+
+                if N0 == 0:
+                    S_conf = Su0(n, N0, Nx)
+                else:
+                    S_conf = Su(n, N0, Nx)
+
+                total_entropy = (Sk(n, x.d_energy) + S_conf) / n
 
                 acc_N0    += x.bond_count[1] / n * 100
                 acc_Nx    += x.bond_count[2] / n * 100
