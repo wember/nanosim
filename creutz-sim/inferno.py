@@ -111,12 +111,12 @@ def bond_change_jit(lattice, bonds, E_demon, E_lattice, d_energy, a, i, N):
         d_energy += cost
         bonds[a] = 0
 
-    # Update neighbor bond if it exists
-    if bonds[(a-1)%N] != 0:
-        if lattice[a] == lattice[(a-1)%N]:
-            bonds[(a-1)%N] = -1
-        else:
-            bonds[(a-1)%N] = 1
+    # # Update neighbor bond if it exists
+    # if bonds[(a-1)%N] != 0:
+    #     if lattice[a] == lattice[(a-1)%N]:
+    #         bonds[(a-1)%N] = -1
+    #     else:
+    #         bonds[(a-1)%N] = 1
 
     return E_lattice, d_energy
 
@@ -278,12 +278,12 @@ class Inferno:
 
     def _advance_rev_forward(self):
         self.order_idx = (self.order_idx + 1) % self.N
-        self.r_idx = (self.r_idx + 2) % (self.radius * 2 + 1)
+        self.r_idx = (self.r_idx + 1) % (self.radius * 2 + 1)
 
 
     def _advance_rev_backward(self):
         self.order_idx = (self.order_idx - 1) % self.N
-        self.r_idx = (self.r_idx - 2) % (self.radius * 2 + 1)
+        self.r_idx = (self.r_idx - 1) % (self.radius * 2 + 1)
 
 
     def demon_move(self, flag, sweep_count):

@@ -261,8 +261,7 @@ def run_radius_simulations(R, n, s, flag, m, file_names, irr_files, init_files, 
         # One Inferno for the entire radius; state carries over across all phases.
         x = Inferno(n, R)
 
-        for M in range(m):
-            x.reset()           # generate fresh order once per M
+        for M in range(m):           # generate fresh order once per M
             t_rev = 0   # reset sweep counters at the start of each cycle
             t_irr = 0
             rev_filename  = file_names[R].parent / f"{file_names[R].name}_{M}.csv"
@@ -279,12 +278,11 @@ def run_radius_simulations(R, n, s, flag, m, file_names, irr_files, init_files, 
 
             # --- Reversible phase ---
             t_rev = run_one_phase(x, 0, rev_filename, s, n, t_rev, pbar_queue, PBAR_BATCH)
-
-            # x.order_idx = x.N - 1
-            # x.r_idx = (x.radius * 2)  # last r_idx = 2R
-
+            x.reset()
+            
             # --- Irreversible phase ---
             t_irr = run_one_phase(x, 1, irr_filename, s, n, t_irr, pbar_queue, PBAR_BATCH)
+            x.reset()
 
     else:
         # Single-dynamics mode: m independent runs, reset between each (original behaviour).
