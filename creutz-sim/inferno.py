@@ -174,12 +174,12 @@ class Inferno:
 
         self.N = N
         self.order = a
-        self.rev_order = np.flip(a)
         self.order_idx = 0  # Index pointer for order array
         self.r_idx = 0
         self.radius = R
         offsets = np.array([0] + list(range(1, R+1)) + list(range(-R, 0))).reshape(-1, 1)
         self.d_order = (a + offsets)  % N
+        self.order_type = np.random.randint(0, 2, size=self.N) # 0 = spin-first, 1 = bond-first
         self.lattice = np.concatenate((np.ones(N//2, dtype=int), (-1)*np.ones(N//2, dtype=int)))
         self.bonds = np.ones(N, dtype=int)*(-1)
         self.bonds[[N//2-1, -1]] = 1
@@ -203,12 +203,12 @@ class Inferno:
         a = np.arange(self.N)
         np.random.shuffle(a)
         self.order = a
-        self.rev_order = np.flip(a)
         # Rebuild d_order to match new order
         offsets = np.array([0] + list(range(1, self.radius+1)) + list(range(-self.radius, 0))).reshape(-1, 1)
         self.d_order = (a + offsets) % self.N
         self.order_idx = 0  # Also reset index pointers
         self.r_idx = 0
+        self.order_type = np.random.randint(0, 2, size=self.N)
 
         # reset demon energy distribution
         self.d_energy = self.N//2 - self.E_lattice
@@ -291,33 +291,44 @@ class Inferno:
         One forward step.
 
         Reversible:
-        - choose one deterministic (site, demon) pair
-        - apply spin/bond to that SAME pair
+        - choose one deterministic (site, spin_demon, bond_demon) triple
+        - use the stored order_type at this step:
+            0 -> spin then bond
+            1 -> bond then spin
         - then advance indices once
 
         Irreversible:
-        - choose one random (site, demon) pair
-        - randomly choose spin-first or bond-first
-        - use SAME pair for both sub-attempts
+        - choose one random (site, spin_demon, bond_demon) triple
+        - choose spin-first or bond-first randomly each step
         """
         if flag == 0:
-            # Reversible: b1 for spin flip, b2 for bond change
             a, b1, b2 = self._choose_rev_pair()
 
-            # Keep forward ordering fixed for reversibility
-            self.E_lattice, self.d_energy = spin_flip_jit(
-                self.lattice, self.bonds, self.E_demon,
-                self.E_lattice, self.d_energy, a, b1, self.N
-            )
-            self.E_lattice, self.d_energy = bond_change_jit(
-                self.lattice, self.bonds, self.E_demon,
-                self.E_lattice, self.d_energy, a, b2, self.N
-            )
+            # Fixed reversible substep order for this step
+            spin_first = (self.order_type[self.order_idx] == 0)
+
+            if spin_first:
+                self.E_lattice, self.d_energy = spin_flip_jit(
+                    self.lattice, self.bonds, self.E_demon,
+                    self.E_lattice, self.d_energy, a, b1, self.N
+                )
+                self.E_lattice, self.d_energy = bond_change_jit(
+                    self.lattice, self.bonds, self.E_demon,
+                    self.E_lattice, self.d_energy, a, b2, self.N
+                )
+            else:
+                self.E_lattice, self.d_energy = bond_change_jit(
+                    self.lattice, self.bonds, self.E_demon,
+                    self.E_lattice, self.d_energy, a, b2, self.N
+                )
+                self.E_lattice, self.d_energy = spin_flip_jit(
+                    self.lattice, self.bonds, self.E_demon,
+                    self.E_lattice, self.d_energy, a, b1, self.N
+                )
 
             self._advance_rev_forward()
 
         else:
-            # Irreversible: independently sampled b1 for spin, b2 for bond
             a, b1, b2 = self._choose_irr_pair()
             spin_first = np.random.randint(0, 2) == 0
 
@@ -349,36 +360,23 @@ class Inferno:
         One reverse step.
 
         Reversible:
-        - step indices backward once to recover the PREVIOUS forward pair
-        - undo in reverse sub-order: bond then spin
-        - use SAME pair for both sub-attempts
+        - move indices backward first to recover the previous forward step
+        - read the SAME stored order_type used on that forward step
+        - undo in the opposite sub-order
 
         Irreversible:
-        - there is no microscopic reverse path, so treat as another
-            stochastic step but with reversed sub-order bias if desired.
+        - not microscopically invertible, so just use another random step
+        with random substep order
         """
         if flag == 0:
-            # Move back to the pair used in the previous forward step
+            # Go back to the exact reversible step we want to undo
             self._advance_rev_backward()
             a, b1, b2 = self._choose_rev_pair()
 
-            # Reverse sub-order of the forward move: bond (b2) then spin (b1)
-            self.E_lattice, self.d_energy = bond_change_jit(
-                self.lattice, self.bonds, self.E_demon,
-                self.E_lattice, self.d_energy, a, b2, self.N
-            )
-            self.E_lattice, self.d_energy = spin_flip_jit(
-                self.lattice, self.bonds, self.E_demon,
-                self.E_lattice, self.d_energy, a, b1, self.N
-            )
+            # This is the order that was used during the forward step
+            spin_first = (self.order_type[self.order_idx] == 0)
 
-        else:
-            # Irreversible "reverse half" is not truly invertible;
-            # use the same one-pair-per-step rule with reversed sub-order bias.
-            a, b1, b2 = self._choose_irr_pair()
-            spin_first = np.random.randint(0, 2) == 0
-
-            # Optional: bias toward opposite order from demon_move()
+            # Undo in the opposite order
             if spin_first:
                 self.E_lattice, self.d_energy = bond_change_jit(
                     self.lattice, self.bonds, self.E_demon,
@@ -396,6 +394,29 @@ class Inferno:
                 self.E_lattice, self.d_energy = bond_change_jit(
                     self.lattice, self.bonds, self.E_demon,
                     self.E_lattice, self.d_energy, a, b2, self.N
+                )
+
+        else:
+            a, b1, b2 = self._choose_irr_pair()
+            spin_first = np.random.randint(0, 2) == 0
+
+            if spin_first:
+                self.E_lattice, self.d_energy = spin_flip_jit(
+                    self.lattice, self.bonds, self.E_demon,
+                    self.E_lattice, self.d_energy, a, b1, self.N
+                )
+                self.E_lattice, self.d_energy = bond_change_jit(
+                    self.lattice, self.bonds, self.E_demon,
+                    self.E_lattice, self.d_energy, a, b2, self.N
+                )
+            else:
+                self.E_lattice, self.d_energy = bond_change_jit(
+                    self.lattice, self.bonds, self.E_demon,
+                    self.E_lattice, self.d_energy, a, b2, self.N
+                )
+                self.E_lattice, self.d_energy = spin_flip_jit(
+                    self.lattice, self.bonds, self.E_demon,
+                    self.E_lattice, self.d_energy, a, b1, self.N
                 )
 
         self.bond_count = count_bonds_jit(self.bonds)
