@@ -251,6 +251,7 @@ class Inferno:
         Do not advance indices here.
         """
         a  = self.order[self.order_idx]
+
         b1 = self.d_order[self.r_idx % (self.radius * 2 + 1)][self.order_idx]
         b2 = self.d_order[(self.r_idx + 1) % (self.radius * 2 + 1)][self.order_idx]
         return a, b1, b2
@@ -264,14 +265,10 @@ class Inferno:
         rand_idx = np.random.randint(0, self.N)
         a = self.order[rand_idx]
 
-        if self.radius == 0:
-            b1 = a
-            b2 = a
-        else:
-            local_idx1 = np.random.randint(0, self.radius * 2 + 1)
-            local_idx2 = np.random.randint(0, self.radius * 2 + 1)
-            b1 = self.d_order[local_idx1][rand_idx]
-            b2 = self.d_order[local_idx2][rand_idx]
+        local_idx1 = np.random.randint(0, self.radius * 2 + 1)
+        local_idx2 = np.random.randint(0, self.radius * 2 + 1)
+        b1 = self.d_order[local_idx1][rand_idx]
+        b2 = self.d_order[local_idx2][rand_idx]
 
         return a, b1, b2
 
