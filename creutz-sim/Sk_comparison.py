@@ -459,5 +459,45 @@ fig2.update_xaxes(title_text="Sweeps", row=1, col=2)
 fig2.update_yaxes(title_text="(S<sub>irr</sub>-S<sub>rev</sub>)/Nk", row=1, col=2)
 
 fig2.update_layout(title_text=f"Lattice Size: {n}")
+
+# --- Stats box: total average entropy for r>0, irr vs rev, and their difference ---
+# Filter to r>0 entries only (index 0 in the plotted_radii lists corresponds to r=0 if present)
+def _total_avg_for_r_gt0(plotted_radii, avg_sk_array):
+    """Return the mean of avg_sk_array entries where the corresponding radius > 0."""
+    if len(plotted_radii) == 0 or len(avg_sk_array) == 0:
+        return float('nan')
+    mask = np.array(plotted_radii) > 0
+    vals = avg_sk_array[mask]
+    return float(np.mean(vals)) if len(vals) > 0 else float('nan')
+
+total_avg_rev = _total_avg_for_r_gt0(rev_plotted_radii, avg_Sk)
+total_avg_irr = _total_avg_for_r_gt0(irr_plotted_radii, irr_avg_Sk)
+delta = total_avg_irr - total_avg_rev
+
+def _fmt(val):
+    return f"{val:.4f}" if not np.isnan(val) else "N/A"
+
+stats_lines = [
+    "<b>Total avg S/Nk (r > 0)</b>",
+    f"  Rev:  {_fmt(total_avg_rev)}",
+    f"  Irr:  {_fmt(total_avg_irr)}",
+    f"  Δ (Irr − Rev):  {_fmt(delta)}",
+]
+stats_text = "<br>".join(stats_lines)
+
+fig2.add_annotation(
+    text=stats_text,
+    xref="paper", yref="paper",
+    x=0.98, y=0.98,
+    xanchor="right", yanchor="top",
+    showarrow=False,
+    align="left",
+    font=dict(size=12, family="monospace"),
+    bgcolor="rgba(255,255,255,0.85)" if not is_dark_mode else "rgba(30,30,30,0.85)",
+    bordercolor="rgba(0,0,0,0.3)" if not is_dark_mode else "rgba(200,200,200,0.3)",
+    borderwidth=1,
+    borderpad=8,
+)
+
 print("Serializing fig2 to HTML...", flush=True)
 fig2.show()
