@@ -37,15 +37,20 @@ _plot_cache: dict = {}
 # Populated by /export-stream; consumed by /export-download.
 _export_cache: dict = {}
 
-FAVICON_SVG = "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='15' fill='%23ab63fa'/><polyline points='10,24 10,8 22,24 22,8' fill='none' stroke='white' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'/></svg>"
+FAVICON_SVG = "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%23ab63fa'/><polyline points='8,26 8,6 24,26 24,6' fill='none' stroke='white' stroke-width='4' stroke-linecap='round' stroke-linejoin='round'/></svg>"
 FAVICON_VERSION = hashlib.md5(FAVICON_SVG.encode()).hexdigest()[:8]
 
 
 @app.route('/favicon.ico')
+@app.route('/favicon.svg')
 def favicon():
     """Serve an inline SVG favicon."""
     svg = FAVICON_SVG.replace('%23', '#')
-    return Response(svg, mimetype='image/svg+xml')
+    resp = Response(svg, mimetype='image/svg+xml')
+    resp.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    resp.headers['Pragma'] = 'no-cache'
+    resp.headers['Expires'] = '0'
+    return resp
 
 
 HTML_TEMPLATE = """
@@ -55,7 +60,7 @@ HTML_TEMPLATE = """
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Simulation Browser</title>
-    <link rel="icon" type="image/svg+xml" href="/favicon.ico?v={{ favicon_version }}">
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg?v={{ favicon_version }}">
     <script>
         // Set theme immediately to prevent flash
         (function() {
@@ -1781,7 +1786,7 @@ FILE_LIST_TEMPLATE = """
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Archive Files - {{ dirname }}</title>
-    <link rel="icon" type="image/svg+xml" href="/favicon.ico?v={{ favicon_version }}">
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg?v={{ favicon_version }}">
     <script>
         // Set theme immediately to prevent flash
         (function() {
@@ -2427,7 +2432,7 @@ def export_loading(dirname):
     <html>
     <head>
         <title>Preparing Export...</title>
-        <link rel="icon" type="image/svg+xml" href="/favicon.ico?v={FAVICON_VERSION}">
+        <link rel="icon" type="image/svg+xml" href="/favicon.svg?v={FAVICON_VERSION}">
         <script>
             (function() {{
                 const urlParams = new URLSearchParams(window.location.search);
@@ -3407,7 +3412,7 @@ def plot_loading(dirname):
     <html>
     <head>
         <title>Generating Plots...</title>
-        <link rel="icon" type="image/svg+xml" href="/favicon.ico?v={FAVICON_VERSION}">
+        <link rel="icon" type="image/svg+xml" href="/favicon.svg?v={FAVICON_VERSION}">
         <script>
             // Set theme immediately to prevent flash
             (function() {{
@@ -3898,7 +3903,7 @@ def plot_data(dirname):
             <html>
             <head>
                 <title>Simulation Plots</title>
-                <link rel="icon" type="image/svg+xml" href="/favicon.ico?v={FAVICON_VERSION}">
+                <link rel="icon" type="image/svg+xml" href="/favicon.svg?v={FAVICON_VERSION}">
                 <script>
                     // Set theme immediately to prevent flash
                     (function() {{
