@@ -37,6 +37,17 @@ _plot_cache: dict = {}
 # Populated by /export-stream; consumed by /export-download.
 _export_cache: dict = {}
 
+FAVICON_SVG = "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='15' fill='%23ab63fa'/><polyline points='10,24 10,8 22,24 22,8' fill='none' stroke='white' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'/></svg>"
+FAVICON_VERSION = hashlib.md5(FAVICON_SVG.encode()).hexdigest()[:8]
+
+
+@app.route('/favicon.ico')
+def favicon():
+    """Serve an inline SVG favicon."""
+    svg = FAVICON_SVG.replace('%23', '#')
+    return Response(svg, mimetype='image/svg+xml')
+
+
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html>
@@ -44,6 +55,7 @@ HTML_TEMPLATE = """
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Simulation Browser</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.ico?v={{ favicon_version }}">
     <script>
         // Set theme immediately to prevent flash
         (function() {
@@ -1769,6 +1781,7 @@ FILE_LIST_TEMPLATE = """
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Archive Files - {{ dirname }}</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.ico?v={{ favicon_version }}">
     <script>
         // Set theme immediately to prevent flash
         (function() {
@@ -2245,7 +2258,7 @@ def index():
             elif flag in ['i', 'irr', '1', 1]:
                 irr_archives.append(archive_info)
     
-    return render_template_string(HTML_TEMPLATE, archives=archives, rev_archives=rev_archives, irr_archives=irr_archives)
+    return render_template_string(HTML_TEMPLATE, archives=archives, rev_archives=rev_archives, irr_archives=irr_archives, favicon_version=FAVICON_VERSION)
 
 @app.route('/notes/<dirname>', methods=['POST'])
 def update_notes(dirname):
@@ -2391,7 +2404,7 @@ def view_files(dirname):
             size = format_size(file_path.stat().st_size)
             files.append({'path': str(rel_path), 'size': size})
     
-    return render_template_string(FILE_LIST_TEMPLATE, dirname=dirname, files=files)
+    return render_template_string(FILE_LIST_TEMPLATE, dirname=dirname, files=files, favicon_version=FAVICON_VERSION)
 
 @app.route('/export-loading/<dirname>')
 def export_loading(dirname):
@@ -2414,6 +2427,7 @@ def export_loading(dirname):
     <html>
     <head>
         <title>Preparing Export...</title>
+        <link rel="icon" type="image/svg+xml" href="/favicon.ico?v={FAVICON_VERSION}">
         <script>
             (function() {{
                 const urlParams = new URLSearchParams(window.location.search);
@@ -3393,6 +3407,7 @@ def plot_loading(dirname):
     <html>
     <head>
         <title>Generating Plots...</title>
+        <link rel="icon" type="image/svg+xml" href="/favicon.ico?v={FAVICON_VERSION}">
         <script>
             // Set theme immediately to prevent flash
             (function() {{
@@ -3883,6 +3898,7 @@ def plot_data(dirname):
             <html>
             <head>
                 <title>Simulation Plots</title>
+                <link rel="icon" type="image/svg+xml" href="/favicon.ico?v={FAVICON_VERSION}">
                 <script>
                     // Set theme immediately to prevent flash
                     (function() {{
