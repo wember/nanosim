@@ -149,10 +149,12 @@ def run_one_phase(x, dynamics_flag, active_file, s, n, t_counter, pbar_queue, PB
     def _run_half(sweep_range, move_fn):
         nonlocal t_counter
         pbar_accum = 0
-        acc_N0 = 0.0
-        acc_Nx = 0.0
-        acc_S  = 0.0
-        acc_count = 0
+        acc_N0      = 0.0
+        acc_Nx      = 0.0
+        acc_S       = 0.0
+        acc_E_lat   = 0.0
+        acc_E_demon = 0.0
+        acc_count   = 0
 
         with open(active_file, 'a', newline='') as f:
             writer = csv.writer(f)
@@ -170,10 +172,12 @@ def run_one_phase(x, dynamics_flag, active_file, s, n, t_counter, pbar_queue, PB
 
                 total_entropy = (Sk(n, x.d_energy) + S_conf) / n
 
-                acc_N0    += x.bond_count[1] / n * 100
-                acc_Nx    += x.bond_count[2] / n * 100
-                acc_S     += total_entropy
-                acc_count += 1
+                acc_N0      += x.bond_count[1] / n * 100
+                acc_Nx      += x.bond_count[2] / n * 100
+                acc_S       += total_entropy
+                acc_E_lat   += x.E_lattice
+                acc_E_demon += x.d_energy
+                acc_count   += 1
                 t_counter += 1
 
                 if pbar_queue:
@@ -185,19 +189,23 @@ def run_one_phase(x, dynamics_flag, active_file, s, n, t_counter, pbar_queue, PB
                 # Write averaged row every avg_window sweeps
                 if acc_count >= avg_window:
                     writer.writerow([t_counter,
-                                     acc_N0 / acc_count,
-                                     acc_Nx / acc_count,
-                                     acc_S  / acc_count,
+                                     acc_N0    / acc_count,
+                                     acc_Nx    / acc_count,
+                                     acc_S     / acc_count,
+                                     acc_E_lat   / acc_count,
+                                     acc_E_demon / acc_count,
                                      n])
-                    acc_N0 = acc_Nx = acc_S = 0.0
+                    acc_N0 = acc_Nx = acc_S = acc_E_lat = acc_E_demon = 0.0
                     acc_count = 0
 
             # Flush any remaining accumulated sweeps
             if acc_count > 0:
                 writer.writerow([t_counter,
-                                 acc_N0 / acc_count,
-                                 acc_Nx / acc_count,
-                                 acc_S  / acc_count,
+                                 acc_N0    / acc_count,
+                                 acc_Nx    / acc_count,
+                                 acc_S     / acc_count,
+                                 acc_E_lat   / acc_count,
+                                 acc_E_demon / acc_count,
                                  n])
 
             if pbar_queue and pbar_accum:
@@ -253,7 +261,7 @@ def run_radius_simulations(R, n, s, flag, m, file_names, irr_files, init_files, 
     signal.signal(signal.SIGINT, signal.SIG_IGN)
 
     PBAR_BATCH = max(50, 500_000 // max(n, 1))
-    data_types = ['t', 'N0 (%)', 'Nx (%)', 'S/nk', 'n']
+    data_types = ['t', 'N0 (%)', 'Nx (%)', 'S/nk', 'E_lattice', 'E_demon', 'n']
 
     completed_count = 0
 
