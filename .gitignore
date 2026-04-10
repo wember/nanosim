@@ -5,6 +5,9 @@ __pycache__/
 *.so
 .Python
 
+# Archived (non-destructively removed) simulation runs
+archive/
+
 # Virtual Environment
 # my_venv/ - keeping this in repo for now
 venv/
