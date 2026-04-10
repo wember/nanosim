@@ -307,7 +307,6 @@ class Inferno:
 
         return a, b1, b2
 
-
     def _advance_rev_forward(self):
         self.order_idx = (self.order_idx + 1) % self.N
 
