@@ -17,10 +17,10 @@ from numba import njit
 # test #
 from scipy.special import factorial as f
 from scipy.special import loggamma as logg
-Sk = lambda N, K: logg(K + N) - logg(K+1) - logg(N) # N == lattice size, K == kinetic energy
-Su = lambda N, N0, Nx: logg(N+1) + np.log(2**(N0)) - (logg(N-N0-Nx+1) + logg(N0+1) + logg(Nx+1)) # N == lattice size, N0 == broken bonds, Nx == bonds between anti-aligned spins
-Su0 = lambda N, N0, Nx: logg(N+1) + np.log(2**(N0+1)) - (logg(N-N0-Nx+1) + logg(N0+1) + logg(Nx+1)) # N == lattice size, N0 == broken bonds, Nx == bonds between anti-aligned spins
 
+Sk = lambda N, K: logg(K + N) - logg(K+1) - logg(N) # N == lattice size, K == kinetic energy
+Su  = lambda N, N0, Nx: logg(N+1) + N0       * np.log(2) - (logg(N-N0-Nx+1) + logg(N0+1) + logg(Nx+1))
+Su0 = lambda N, N0, Nx: logg(N+1) + (N0 + 1) * np.log(2) - (logg(N-N0-Nx+1) + logg(N0+1) + logg(Nx+1))
 
 ################################################################################
 # JIT-Compiled Functions (Hot Path Optimization)
