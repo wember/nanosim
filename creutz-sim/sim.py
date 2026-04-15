@@ -170,10 +170,10 @@ def run_one_phase(x, dynamics_flag, active_file, s, n, t_counter, pbar_queue, PB
                 else:
                     S_conf = Su(n, N0, Nx)
 
-                # Store only configurational entropy (per site)
+                # Store total entropy: kinetic (demon) + configurational (per site)
                 acc_N0      += x.bond_count[1] / n * 100
                 acc_Nx      += x.bond_count[2] / n * 100
-                acc_S       += S_conf / n
+                acc_S       += (Sk(n, x.d_energy) + S_conf) / n
                 acc_E_lat   += x.E_lattice
                 acc_E_demon += x.d_energy
                 acc_count   += 1
@@ -260,7 +260,7 @@ def run_radius_simulations(R, n, s, flag, m, file_names, irr_files, init_files, 
     signal.signal(signal.SIGINT, signal.SIG_IGN)
 
     PBAR_BATCH = max(50, 500_000 // max(n, 1))
-    data_types = ['t', 'N0 (%)', 'Nx (%)', 'S_conf/n', 'E_lattice', 'E_demon', 'n']
+    data_types = ['t', 'N0 (%)', 'Nx (%)', 'S/nk', 'E_lattice', 'E_demon', 'n']
 
     completed_count = 0
 

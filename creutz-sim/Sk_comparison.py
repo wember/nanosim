@@ -3,17 +3,6 @@ import glob
 import os
 import numpy as np
 
-from scipy.special import loggamma as logg
-
-def Sk(N, K):
-    return logg(K + N) - logg(K + 1) - logg(N)
-
-def Su(N, N0, Nx):
-    return logg(N+1) + np.log(2**(N0)) - (logg(N-N0-Nx+1) + logg(N0+1) + logg(Nx+1))
-
-def Su0(N, N0, Nx):
-    return logg(N+1) + np.log(2**(N0+1)) - (logg(N-N0-Nx+1) + logg(N0+1) + logg(Nx+1))
-
 import math
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
@@ -169,21 +158,6 @@ for R in irr_radii:
     # ignore_index=True resets the index of the combined DataFrame
     combined_df = pd.concat(list_of_dfs, ignore_index=True)
     average_df = combined_df.groupby('t', as_index=False).mean()
-    # Recompute total entropy from stored observables
-    N = int(average_df['n'][0])
-    N0 = average_df['N0 (%)'] * N / 100
-    Nx = average_df['Nx (%)'] * N / 100
-    K  = average_df['E_demon']
-
-    S_conf = np.where(
-        N0 == 0,
-        Su0(N, N0, Nx),
-        Su(N, N0, Nx)
-    )
-
-    S_total = (Sk(N, K) + S_conf) / N
-    average_df['S/nk'] = S_total
-
 
     n = int(average_df['n'][0])
     show_legend = R not in irr_legend_shown
@@ -283,21 +257,6 @@ for R in rev_radii:
     # ignore_index=True resets the index of the combined DataFrame
     combined_df = pd.concat(list_of_dfs, ignore_index=True)
     average_df = combined_df.groupby('t', as_index=False).mean()
-    # Recompute total entropy from stored observables
-    N = int(average_df['n'][0])
-    N0 = average_df['N0 (%)'] * N / 100
-    Nx = average_df['Nx (%)'] * N / 100
-    K  = average_df['E_demon']
-
-    S_conf = np.where(
-        N0 == 0,
-        Su0(N, N0, Nx),
-        Su(N, N0, Nx)
-    )
-
-    S_total = (Sk(N, K) + S_conf) / N
-    average_df['S/nk'] = S_total
-
 
     n = int(average_df['n'][0])
     show_legend = R not in rev_legend_shown
