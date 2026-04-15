@@ -221,7 +221,7 @@ def run_one_phase(x, dynamics_flag, active_file, s, n, t_counter, pbar_queue, PB
     ### Forward sweeps
     def fwd_move(i):
         for _ in range(n):
-            x.demon_move(dynamics_flag, i)
+            x.demon_move(dynamics_flag)
 
     _run_half(range(s // 2), fwd_move)
     x.d_energy_hist[:] = 0
@@ -231,7 +231,7 @@ def run_one_phase(x, dynamics_flag, active_file, s, n, t_counter, pbar_queue, PB
 
     def rev_move(i):
         for _ in range(n):
-            x.demon_reverse(dynamics_flag, half - 1 - i)
+            x.demon_reverse(dynamics_flag)
 
     _run_half(range(half), rev_move)
 

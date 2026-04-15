@@ -11,7 +11,6 @@ if platform.system() == 'Linux':
 
 import numpy as np
 import random
-import math
 from numba import njit
 
 # test #
@@ -184,11 +183,6 @@ class Inferno:
         self.d_order = self.d_order[row_perm]
         self.order_type = np.random.randint(0, 2, size=self.N) # 0 = spin-first, 1 = bond-first
 
-        # Reversible demon scheduling parameters.
-        # Keep the map deterministic/invertible, but avoid simple lock-step
-        # resonance between order_idx and demon-row order.
-        self.r_step = self._coprime_step(self.n_demon_rows, prefer=2)
-        self.r_sweep_step = self._coprime_step(self.n_demon_rows, prefer=max(2, self.n_demon_rows // 2))
         self.lattice = np.concatenate((np.ones(N//2, dtype=int), (-1)*np.ones(N//2, dtype=int)))
         self.bonds = np.ones(N, dtype=int)*(-1)
         self.bonds[[N//2-1, -1]] = 1
@@ -259,37 +253,9 @@ class Inferno:
         """
         self.bond_count = count_bonds_jit(self.bonds)
 
-    def _coprime_step(self, modulus, prefer=2):
-        """
-        Choose a deterministic step size that is coprime to `modulus`.
-        Prefer a value larger than 1 when possible so the reversible demon-row
-        schedule does not simply march 0, 1, 2, ... in lock-step with order_idx.
-        """
-        if modulus <= 1:
-            return 0
-
-        start = prefer % modulus
-        if start == 0:
-            start = 1
-
-        for delta in range(modulus):
-            cand = (start + delta) % modulus
-            if cand == 0:
-                continue
-            if math.gcd(cand, modulus) == 1:
-                return cand
-
-        return 1
-
-
-    def _choose_rev_pair(self, sweep_count):
+    def _choose_rev_pair(self):
         a = self.order[self.order_idx]
-
-        if self.n_demon_rows == 1:
-            row1 = 0
-        else:
-            sweep_phase = (sweep_count * self.r_sweep_step) % self.n_demon_rows
-            row1 = (sweep_phase + self.r_step * self.order_idx) % self.n_demon_rows
+        row1 = self.order_idx % self.n_demon_rows
 
         row2 = (row1 + 1) % self.n_demon_rows
         b1 = self.d_order[row1][self.order_idx]
@@ -319,7 +285,7 @@ class Inferno:
         self.order_idx = (self.order_idx - 1) % self.N
 
 
-    def demon_move(self, flag, sweep_count):
+    def demon_move(self, flag):
         """
         One forward step.
 
@@ -335,7 +301,7 @@ class Inferno:
         - choose spin-first or bond-first randomly each step
         """
         if flag == 0:
-            a, b1, b2 = self._choose_rev_pair(sweep_count)
+            a, b1, b2 = self._choose_rev_pair()
 
             # Fixed reversible substep order for this step
             spin_first = (self.order_type[self.order_idx] == 0)
@@ -390,7 +356,7 @@ class Inferno:
         self.E_total = self.E_lattice + np.sum(self.E_demon)
 
 
-    def demon_reverse(self, flag, sweep_count):
+    def demon_reverse(self, flag):
         """
         One reverse step.
 
@@ -406,7 +372,7 @@ class Inferno:
         if flag == 0:
             # Go back to the exact reversible step we want to undo
             self._advance_rev_backward()
-            a, b1, b2 = self._choose_rev_pair(sweep_count)
+            a, b1, b2 = self._choose_rev_pair()
 
             # This is the order that was used during the forward step
             spin_first = (self.order_type[self.order_idx] == 0)
