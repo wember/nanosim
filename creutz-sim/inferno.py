@@ -205,6 +205,9 @@ class Inferno:
         self.E_demon = np.array(result)
         self.E_total = self.E_lattice + sum(self.E_demon)
 
+        self.total_energy = total_energy
+        self.d_energy_hist = np.zeros(self.total_energy + 1, dtype=np.int64)
+
 ################################################################################
 ################################################################################
 ################################################################################
@@ -229,6 +232,8 @@ class Inferno:
 
         self.E_demon = np.array(result)
         self.E_total = self.E_lattice + np.sum(self.E_demon)
+
+        self.d_energy_hist[:] = 0
 
     def spin_flip(self, a, i):
         """
@@ -379,6 +384,8 @@ class Inferno:
                     self.E_lattice, self.d_energy, a, b1, self.N
                 )
 
+        self.d_energy_hist[self.E_demon[b1]] += 1
+        self.d_energy_hist[self.E_demon[b2]] += 1
         self.bond_count = count_bonds_jit(self.bonds)
         self.E_total = self.E_lattice + np.sum(self.E_demon)
 
@@ -447,5 +454,7 @@ class Inferno:
                     self.E_lattice, self.d_energy, a, b1, self.N
                 )
 
+        self.d_energy_hist[self.E_demon[b1]] += 1
+        self.d_energy_hist[self.E_demon[b2]] += 1
         self.bond_count = count_bonds_jit(self.bonds)
         self.E_total = self.E_lattice + np.sum(self.E_demon)

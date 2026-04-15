@@ -187,25 +187,33 @@ def run_one_phase(x, dynamics_flag, active_file, s, n, t_counter, pbar_queue, PB
 
                 # Write averaged row every avg_window sweeps
                 if acc_count >= avg_window:
+                    h = x.d_energy_hist
+                    ratios = [h[k] / h[k + 1] if h[k + 1] > 0 else 0 for k in range(4)]
                     writer.writerow([t_counter,
                                      acc_N0    / acc_count,
                                      acc_Nx    / acc_count,
                                      acc_S     / acc_count,
                                      acc_E_lat   / acc_count,
                                      acc_E_demon / acc_count,
-                                     n])
+                                     n,
+                                     *ratios])
                     acc_N0 = acc_Nx = acc_S = acc_E_lat = acc_E_demon = 0.0
                     acc_count = 0
+                    x.d_energy_hist[:] = 0
 
             # Flush any remaining accumulated sweeps
             if acc_count > 0:
+                h = x.d_energy_hist
+                ratios = [h[k] / h[k + 1] if h[k + 1] > 0 else 0 for k in range(4)]
                 writer.writerow([t_counter,
                                  acc_N0    / acc_count,
                                  acc_Nx    / acc_count,
                                  acc_S     / acc_count,
                                  acc_E_lat   / acc_count,
                                  acc_E_demon / acc_count,
-                                 n])
+                                 n,
+                                 *ratios])
+                x.d_energy_hist[:] = 0
 
             if pbar_queue and pbar_accum:
                 pbar_queue.put(pbar_accum)
@@ -216,6 +224,7 @@ def run_one_phase(x, dynamics_flag, active_file, s, n, t_counter, pbar_queue, PB
             x.demon_move(dynamics_flag, i)
 
     _run_half(range(s // 2), fwd_move)
+    x.d_energy_hist[:] = 0
 
     ### Reverse sweeps
     half = s // 2
@@ -260,7 +269,8 @@ def run_radius_simulations(R, n, s, flag, m, file_names, irr_files, init_files, 
     signal.signal(signal.SIGINT, signal.SIG_IGN)
 
     PBAR_BATCH = max(50, 500_000 // max(n, 1))
-    data_types = ['t', 'N0 (%)', 'Nx (%)', 'S_conf/n', 'E_lattice', 'E_demon', 'n']
+    data_types = ['t', 'N0 (%)', 'Nx (%)', 'S_conf/n', 'E_lattice', 'E_demon', 'n',
+                  'p0/p1', 'p1/p2', 'p2/p3', 'p3/p4']
 
     completed_count = 0
 
