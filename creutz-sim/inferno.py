@@ -200,7 +200,8 @@ class Inferno:
         self.E_total = self.E_lattice + sum(self.E_demon)
 
         self.total_energy = total_energy
-        self.d_energy_hist = np.zeros(self.total_energy + 1, dtype=np.int64)
+        self.d_energy_hist = np.zeros(self.N + self.total_energy + 1, dtype=np.int64)
+        self.sweep_row = 0  # Which d_order row is active; increments each full sweep
 
 ################################################################################
 ################################################################################
@@ -214,6 +215,7 @@ class Inferno:
         self.d_order = (a + offsets) % self.N
         self.order_idx = 0  # Also reset index pointers
         self.r_idx = 0
+        self.sweep_row = 0
         self.order_type = np.random.randint(0, 2, size=self.N)
 
         # reset demon energy distribution
@@ -228,7 +230,6 @@ class Inferno:
         self.E_total = self.E_lattice + np.sum(self.E_demon)
 
         self.d_energy_hist[:] = 0
-
     def spin_flip(self, a, i):
         """
             Attempt to flip the spin of a given lattice site (JIT-optimized)
@@ -255,8 +256,7 @@ class Inferno:
 
     def _choose_rev_pair(self):
         a = self.order[self.order_idx]
-        row1 = self.order_idx % self.n_demon_rows
-
+        row1 = self.sweep_row
         row2 = (row1 + 1) % self.n_demon_rows
         b1 = self.d_order[row1][self.order_idx]
         b2 = self.d_order[row2][self.order_idx]
@@ -272,7 +272,7 @@ class Inferno:
         a = self.order[rand_idx]
 
         local_idx1 = np.random.randint(0, self.radius + 1)
-        local_idx2 = np.random.randint(0, self.radius + 1)
+        local_idx2 = (local_idx1 + 1) % self.n_demon_rows
         b1 = self.d_order[local_idx1][rand_idx]
         b2 = self.d_order[local_idx2][rand_idx]
 
@@ -280,8 +280,12 @@ class Inferno:
 
     def _advance_rev_forward(self):
         self.order_idx = (self.order_idx + 1) % self.N
+        if self.order_idx == 0:  # completed a full sweep
+            self.sweep_row = (self.sweep_row + 1) % self.n_demon_rows
 
     def _advance_rev_backward(self):
+        if self.order_idx == 0:  # about to cross a sweep boundary going back
+            self.sweep_row = (self.sweep_row - 1) % self.n_demon_rows
         self.order_idx = (self.order_idx - 1) % self.N
 
 

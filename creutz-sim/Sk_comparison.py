@@ -495,10 +495,47 @@ fig2.add_trace(go.Scatter(x=irr_plotted_radii, y=irr_avg_Sk, error_y=dict(type='
 fig2.update_xaxes(title_text="Radius", row=1, col=1)
 fig2.update_yaxes(title_text="Avg S/Nk", row=1, col=1)
 
-### Entropy Difference
+### Entropy Difference (ppm) vs Radius
+# Align the two series on common radii, then express the gap in parts per million.
+rev_r_arr = np.array(rev_plotted_radii)
+irr_r_arr = np.array(irr_plotted_radii)
+common_radii = np.intersect1d(rev_r_arr, irr_r_arr)
 
-fig2.update_xaxes(title_text="Sweeps", row=1, col=2)
-fig2.update_yaxes(title_text="(S<sub>irr</sub>-S<sub>rev</sub>)/Nk", row=1, col=2)
+if len(common_radii) > 0:
+    rev_idx = np.searchsorted(rev_r_arr, common_radii)
+    irr_idx = np.searchsorted(irr_r_arr, common_radii)
+
+    rev_vals  = avg_Sk[rev_idx]
+    irr_vals  = irr_avg_Sk[irr_idx]
+    rev_sems  = SEM[rev_idx]
+    irr_sems  = irr_SEM[irr_idx]
+
+    diff_ppm     = (irr_vals - rev_vals) * 1e6
+    diff_sem_ppm = np.sqrt(irr_sems**2 + rev_sems**2) * 1e6
+
+    fig2.add_trace(
+        go.Scatter(
+            x=common_radii,
+            y=diff_ppm,
+            error_y=dict(type='data', array=diff_sem_ppm),
+            name="Irr − Rev",
+            mode='lines+markers',
+            line=dict(color='#E23CB1'),
+            marker=dict(size=6),
+            hovertemplate=(
+                '<b>Irr − Rev</b><br>'
+                'Radius: %{x}<br>'
+                'Δ S/Nk: %{y:.2f} ppm<extra></extra>'
+            ),
+        ),
+        row=1, col=2,
+    )
+
+    # Zero-reference line so the sign of the gap is obvious
+    fig2.add_hline(y=0, line_width=1, line_dash="dot", line_color="gray", row=1, col=2)
+
+fig2.update_xaxes(title_text="Radius", row=1, col=2)
+fig2.update_yaxes(title_text="(S<sub>irr</sub>−S<sub>rev</sub>)/Nk [ppm]", row=1, col=2)
 
 fig2.update_layout(title_text=f"Lattice Size: {n}")
 
@@ -530,8 +567,8 @@ stats_text = "<br>".join(stats_lines)
 fig2.add_annotation(
     text=stats_text,
     xref="paper", yref="paper",
-    x=0.98, y=0.98,
-    xanchor="right", yanchor="top",
+    x=1.01, y=0.45,
+    xanchor="left", yanchor="top",
     showarrow=False,
     align="left",
     font=dict(size=12, family="monospace"),
