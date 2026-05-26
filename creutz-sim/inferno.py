@@ -142,6 +142,115 @@ def count_bonds_jit(bonds):
     return bond_count
 
 
+@njit
+def run_sweep_fwd_jit(lattice, bonds, E_demon, d_order, order, order_type,
+                      E_lattice, d_energy, sweep_row, order_idx,
+                      N, n_demon_rows, flag, d_energy_hist):
+    """
+    Run one complete forward sweep (N steps) inside a single JIT frame.
+
+    Eliminates the per-step Python→Numba boundary crossing and moves
+    count_bonds to once per sweep instead of once per step.
+    """
+    for _ in range(N):
+        if flag == 0:                               # reversible
+            a          = order[order_idx]
+            row1       = sweep_row
+            row2       = (row1 + 1) % n_demon_rows
+            b1         = d_order[row1][order_idx]
+            b2         = d_order[row2][order_idx]
+            spin_first = (order_type[order_idx] == 0)
+        else:                                       # irreversible
+            rand_idx   = np.random.randint(0, N)
+            a          = order[rand_idx]
+            loc1       = np.random.randint(0, n_demon_rows)
+            loc2       = (loc1 + 1) % n_demon_rows
+            b1         = d_order[loc1][rand_idx]
+            b2         = d_order[loc2][rand_idx]
+            spin_first = np.random.randint(0, 2) == 0
+
+        if spin_first:
+            E_lattice, d_energy = spin_flip_jit(
+                lattice, bonds, E_demon, E_lattice, d_energy, a, b1, N)
+            E_lattice, d_energy = bond_change_jit(
+                lattice, bonds, E_demon, E_lattice, d_energy, a, b2, N)
+        else:
+            E_lattice, d_energy = bond_change_jit(
+                lattice, bonds, E_demon, E_lattice, d_energy, a, b2, N)
+            E_lattice, d_energy = spin_flip_jit(
+                lattice, bonds, E_demon, E_lattice, d_energy, a, b1, N)
+
+        d_energy_hist[E_demon[b1]] += 1
+        d_energy_hist[E_demon[b2]] += 1
+
+        if flag == 0:
+            order_idx = (order_idx + 1) % N
+            if order_idx == 0:
+                sweep_row = (sweep_row + 1) % n_demon_rows
+
+    bond_count = count_bonds_jit(bonds)
+    E_total    = E_lattice + np.sum(E_demon)
+    return E_lattice, d_energy, sweep_row, order_idx, bond_count, E_total
+
+
+@njit
+def run_sweep_rev_jit(lattice, bonds, E_demon, d_order, order, order_type,
+                      E_lattice, d_energy, sweep_row, order_idx,
+                      N, n_demon_rows, flag, d_energy_hist):
+    """
+    Run one complete reverse sweep (N steps) inside a single JIT frame.
+    """
+    for _ in range(N):
+        if flag == 0:                               # reversible: undo one forward step
+            if order_idx == 0:
+                sweep_row = (sweep_row - 1) % n_demon_rows
+            order_idx  = (order_idx - 1) % N
+
+            a          = order[order_idx]
+            row1       = sweep_row
+            row2       = (row1 + 1) % n_demon_rows
+            b1         = d_order[row1][order_idx]
+            b2         = d_order[row2][order_idx]
+            spin_first = (order_type[order_idx] == 0)
+
+            if spin_first:                          # undo in opposite sub-order
+                E_lattice, d_energy = bond_change_jit(
+                    lattice, bonds, E_demon, E_lattice, d_energy, a, b2, N)
+                E_lattice, d_energy = spin_flip_jit(
+                    lattice, bonds, E_demon, E_lattice, d_energy, a, b1, N)
+            else:
+                E_lattice, d_energy = spin_flip_jit(
+                    lattice, bonds, E_demon, E_lattice, d_energy, a, b1, N)
+                E_lattice, d_energy = bond_change_jit(
+                    lattice, bonds, E_demon, E_lattice, d_energy, a, b2, N)
+        else:                                       # irreversible: another random step
+            rand_idx   = np.random.randint(0, N)
+            a          = order[rand_idx]
+            loc1       = np.random.randint(0, n_demon_rows)
+            loc2       = (loc1 + 1) % n_demon_rows
+            b1         = d_order[loc1][rand_idx]
+            b2         = d_order[loc2][rand_idx]
+            spin_first = np.random.randint(0, 2) == 0
+
+            if spin_first:
+                E_lattice, d_energy = spin_flip_jit(
+                    lattice, bonds, E_demon, E_lattice, d_energy, a, b1, N)
+                E_lattice, d_energy = bond_change_jit(
+                    lattice, bonds, E_demon, E_lattice, d_energy, a, b2, N)
+            else:
+                E_lattice, d_energy = bond_change_jit(
+                    lattice, bonds, E_demon, E_lattice, d_energy, a, b2, N)
+                E_lattice, d_energy = spin_flip_jit(
+                    lattice, bonds, E_demon, E_lattice, d_energy, a, b1, N)
+
+        d_energy_hist[E_demon[b1]] += 1
+        d_energy_hist[E_demon[b2]] += 1
+
+    bond_count = count_bonds_jit(bonds)
+    E_total    = E_lattice + np.sum(E_demon)
+    return E_lattice, d_energy, sweep_row, order_idx, bond_count, E_total
+
+
 ################################################################################
 # Inferno Class
 ################################################################################
@@ -254,6 +363,32 @@ class Inferno:
         """
         self.bond_count = count_bonds_jit(self.bonds)
 
+    def do_sweep(self, flag):
+        """
+        Run one full forward sweep (N steps) in a single JIT call.
+        count_bonds is called once at the end of the sweep, not per step.
+        """
+        (self.E_lattice, self.d_energy, self.sweep_row, self.order_idx,
+         self.bond_count, self.E_total) = run_sweep_fwd_jit(
+            self.lattice, self.bonds, self.E_demon,
+            self.d_order, self.order, self.order_type,
+            self.E_lattice, self.d_energy, self.sweep_row, self.order_idx,
+            self.N, self.n_demon_rows, flag, self.d_energy_hist
+        )
+
+    def do_sweep_reverse(self, flag):
+        """
+        Run one full reverse sweep (N steps) in a single JIT call.
+        count_bonds is called once at the end of the sweep, not per step.
+        """
+        (self.E_lattice, self.d_energy, self.sweep_row, self.order_idx,
+         self.bond_count, self.E_total) = run_sweep_rev_jit(
+            self.lattice, self.bonds, self.E_demon,
+            self.d_order, self.order, self.order_type,
+            self.E_lattice, self.d_energy, self.sweep_row, self.order_idx,
+            self.N, self.n_demon_rows, flag, self.d_energy_hist
+        )
+
     def _choose_rev_pair(self):
         a = self.order[self.order_idx]
         row1 = self.sweep_row
@@ -356,8 +491,6 @@ class Inferno:
 
         self.d_energy_hist[self.E_demon[b1]] += 1
         self.d_energy_hist[self.E_demon[b2]] += 1
-        self.bond_count = count_bonds_jit(self.bonds)
-        self.E_total = self.E_lattice + np.sum(self.E_demon)
 
 
     def demon_reverse(self, flag):
@@ -426,5 +559,3 @@ class Inferno:
 
         self.d_energy_hist[self.E_demon[b1]] += 1
         self.d_energy_hist[self.E_demon[b2]] += 1
-        self.bond_count = count_bonds_jit(self.bonds)
-        self.E_total = self.E_lattice + np.sum(self.E_demon)

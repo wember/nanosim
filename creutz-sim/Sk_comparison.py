@@ -9,10 +9,10 @@ def Sk(N, K):
     return logg(K + N) - logg(K + 1) - logg(N)
 
 def Su(N, N0, Nx):
-    return logg(N+1) + np.log(2**(N0)) - (logg(N-N0-Nx+1) + logg(N0+1) + logg(Nx+1))
+    return logg(N+1) + N0 * np.log(2) - (logg(N-N0-Nx+1) + logg(N0+1) + logg(Nx+1))
 
 def Su0(N, N0, Nx):
-    return logg(N+1) + np.log(2**(N0+1)) - (logg(N-N0-Nx+1) + logg(N0+1) + logg(Nx+1))
+    return logg(N+1) + (N0+1) * np.log(2) - (logg(N-N0-Nx+1) + logg(N0+1) + logg(Nx+1))
 
 import math
 import plotly.graph_objects as go
