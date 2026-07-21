@@ -4,6 +4,7 @@ import os
 import numpy as np
 
 from scipy.special import loggamma as logg
+from scipy.optimize import curve_fit
 
 def Sk(N, K):
     return logg(K + N) - logg(K + 1) - logg(N)
@@ -494,6 +495,93 @@ fig2.add_trace(go.Scatter(x=irr_plotted_radii, y=irr_avg_Sk, error_y=dict(type='
 
 fig2.update_xaxes(title_text="Radius", row=1, col=1)
 fig2.update_yaxes(title_text="Avg S/Nk", row=1, col=1)
+
+### Power-law fit of irreversible avg S/Nk vs radius (y = A x^B), excluding r=0
+def power_law(x, A, B, C):
+    return A * np.power(x, B) + C
+
+irr_r_arr_fit = np.array(irr_plotted_radii)
+irr_avg_arr_fit = np.array(irr_avg_Sk)
+fit_mask = irr_r_arr_fit > 0
+
+if np.sum(fit_mask) >= 3:
+    try:
+        popt, pcov = curve_fit(
+            power_law,
+            irr_r_arr_fit[fit_mask],
+            irr_avg_arr_fit[fit_mask],
+            p0=[1.0, -1.0, float(np.mean(irr_avg_arr_fit[fit_mask]))],
+            maxfev=10000,
+        )
+        A_fit, B_fit, C_fit = popt
+        perr = np.sqrt(np.diag(pcov))
+
+        r_fit_x = np.linspace(irr_r_arr_fit[fit_mask].min(), irr_r_arr_fit[fit_mask].max(), 200)
+        r_fit_y = power_law(r_fit_x, A_fit, B_fit, C_fit)
+
+        fig2.add_trace(
+            go.Scatter(
+                x=r_fit_x,
+                y=r_fit_y,
+                mode='lines',
+                name=f"Irr fit: y={A_fit:.4g}x^{B_fit:.4g}+{C_fit:.4g}",
+                line=dict(color='#00C4C4', dash='dash'),
+                hovertemplate='<b>Irreversible Fit</b><br>Radius: %{x:.2f}<br>S/Nk: %{y:.6f}<extra></extra>',
+            ),
+            row=1, col=1,
+        )
+
+        print(
+            f"Irreversible power-law fit (r>0): A={A_fit:.6g} (+/-{perr[0]:.2g}), "
+            f"B={B_fit:.6g} (+/-{perr[1]:.2g}), C={C_fit:.6g} (+/-{perr[2]:.2g})",
+            flush=True,
+        )
+    except RuntimeError as e:
+        print(f"Warning: power-law fit to irreversible data failed to converge: {e}", flush=True)
+else:
+    print("Warning: not enough irreversible r>0 points to fit y=Ax^B+C (need at least 3).", flush=True)
+
+### Power-law fit of reversible avg S/Nk vs radius (y = A x^B), excluding r=0
+rev_r_arr_fit = np.array(rev_plotted_radii)
+rev_avg_arr_fit = np.array(avg_Sk)
+rev_fit_mask = rev_r_arr_fit > 0
+
+if np.sum(rev_fit_mask) >= 3:
+    try:
+        popt_rev, pcov_rev = curve_fit(
+            power_law,
+            rev_r_arr_fit[rev_fit_mask],
+            rev_avg_arr_fit[rev_fit_mask],
+            p0=[1.0, -1.0, float(np.mean(rev_avg_arr_fit[rev_fit_mask]))],
+            maxfev=10000,
+        )
+        A_fit_rev, B_fit_rev, C_fit_rev = popt_rev
+        perr_rev = np.sqrt(np.diag(pcov_rev))
+
+        r_fit_x_rev = np.linspace(rev_r_arr_fit[rev_fit_mask].min(), rev_r_arr_fit[rev_fit_mask].max(), 200)
+        r_fit_y_rev = power_law(r_fit_x_rev, A_fit_rev, B_fit_rev, C_fit_rev)
+
+        fig2.add_trace(
+            go.Scatter(
+                x=r_fit_x_rev,
+                y=r_fit_y_rev,
+                mode='lines',
+                name=f"Rev fit: y={A_fit_rev:.4g}x^{B_fit_rev:.4g}+{C_fit_rev:.4g}",
+                line=dict(color='purple', dash='dash'),
+                hovertemplate='<b>Reversible Fit</b><br>Radius: %{x:.2f}<br>S/Nk: %{y:.6f}<extra></extra>',
+            ),
+            row=1, col=1,
+        )
+
+        print(
+            f"Reversible power-law fit (r>0): A={A_fit_rev:.6g} (+/-{perr_rev[0]:.2g}), "
+            f"B={B_fit_rev:.6g} (+/-{perr_rev[1]:.2g}), C={C_fit_rev:.6g} (+/-{perr_rev[2]:.2g})",
+            flush=True,
+        )
+    except RuntimeError as e:
+        print(f"Warning: power-law fit to reversible data failed to converge: {e}", flush=True)
+else:
+    print("Warning: not enough reversible r>0 points to fit y=Ax^B+C (need at least 3).", flush=True)
 
 ### Entropy Difference (ppm) vs Radius
 # Align the two series on common radii, then express the gap in parts per million.

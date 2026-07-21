@@ -144,7 +144,7 @@ def run_one_phase(x, dynamics_flag, active_file, s, n, t_counter, pbar_queue, PB
         t_counter: Updated sweep counter after this phase
     """
     # Number of sweeps to average into one CSV row (1% of total sweeps, min 1)
-    avg_window = max(1, int(s * 0.01))
+    avg_window = 1#max(1, int(s * 0.01))
 
     def _run_half(sweep_range, move_fn):
         nonlocal t_counter
