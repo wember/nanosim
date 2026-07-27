@@ -1,4 +1,4 @@
-.PHONY: setup activate setup-clean sim sim-i sim-repeat sim-archive sim-test sim-test-clean plot plot-test browse status remote-status restart remote-restart help
+.PHONY: setup activate setup-clean sim sim-i sim-repeat sim-archive sim-test sim-test-clean plot plot-test plot-cache browse status remote-status restart remote-restart debug remote-debug help
 
 # Variables
 VENV_NAME = venv
@@ -34,12 +34,16 @@ help:
 	@echo "  make browse    - Open web browser to view all runs in data/"
 	@echo "  make plot      - Generate plots from last simulation in data/"
 	@echo "  make plot-test - Generate plots from test simulation in test_data/"
+	@echo "  make plot-cache - Build dark+light plot cache for a run locally"
+	@echo "                     Example: make plot-cache ARGS=\"--run 20260725_143642\""
 	@echo ""
 	@echo "Remote (Lightsail):"
 	@echo "  make status         - Check status of nanosim service when run locally"
 	@echo "  make remote-status  - Check status of nanosim service on Lightsail"
 	@echo "  make restart        - Restart nanosim service when run locally"
 	@echo "  make remote-restart - Restart nanosim service on Lightsail"
+	@echo "  make debug          - Show local nanosim status + recent logs"
+	@echo "  make remote-debug   - Show remote nanosim status + recent logs"
 
 # ============================================================================
 # Environment
@@ -109,6 +113,10 @@ plot-test:
 	@echo "Generating test plots..."
 	@$(VENV_PYTHON) creutz-sim/Sk_comparison.py --data-dir test_data
 
+plot-cache:
+	@echo "Building plot cache..."
+	@$(VENV_PYTHON) tools/build_plot_cache.py $(ARGS)
+
 sim-test-clean:
 	@echo "Removing test simulation data..."
 	@rm -rf test_data/
@@ -130,16 +138,58 @@ remote-status:
 	@echo "Checking nanosim service status on Lightsail..."
 	@ssh plots.myember.org "sudo supervisorctl status nanosim"
 
+debug:
+	@echo "Local nanosim status:"
+	@sudo supervisorctl status nanosim || true
+	@echo ""
+	@echo "Recent local error log (/var/log/nanosim/error.log):"
+	@sudo tail -n 80 /var/log/nanosim/error.log || true
+	@echo ""
+	@echo "Recent local access log (/var/log/nanosim/access.log):"
+	@sudo tail -n 80 /var/log/nanosim/access.log || true
+
+remote-debug:
+	@echo "Remote nanosim status on Lightsail:"
+	@ssh plots.myember.org "sudo supervisorctl status nanosim" || true
+	@echo ""
+	@echo "Recent remote error log (/var/log/nanosim/error.log):"
+	@ssh plots.myember.org "sudo tail -n 80 /var/log/nanosim/error.log" || true
+	@echo ""
+	@echo "Recent remote access log (/var/log/nanosim/access.log):"
+	@ssh plots.myember.org "sudo tail -n 80 /var/log/nanosim/access.log" || true
+
 restart:
 	@echo "Restarting nanosim service..."
 	@sudo supervisorctl restart nanosim
 	@echo "Waiting for service to start..."
-	@sleep 2
-	@sudo supervisorctl status nanosim
+	@attempt=1; \
+	max_attempts=12; \
+	while [ $$attempt -le $$max_attempts ]; do \
+		status_line=$$(sudo supervisorctl status nanosim); \
+		echo "[$$attempt/$$max_attempts] $$status_line"; \
+		echo "$$status_line" | grep -q "RUNNING" && exit 0; \
+		sleep 2; \
+		attempt=$$((attempt + 1)); \
+	done; \
+	echo "nanosim failed to reach RUNNING state after $$max_attempts attempts"; \
+	echo "Recent service error log:"; \
+	sudo tail -n 80 /var/log/nanosim/error.log || true; \
+	exit 7
 
 remote-restart:
 	@echo "Restarting nanosim service on Lightsail..."
 	@ssh plots.myember.org "sudo supervisorctl restart nanosim"
 	@echo "Waiting for service to start..."
-	@sleep 2
-	@ssh plots.myember.org "sudo supervisorctl status nanosim"
+	@attempt=1; \
+	max_attempts=12; \
+	while [ $$attempt -le $$max_attempts ]; do \
+		status_line=$$(ssh plots.myember.org "sudo supervisorctl status nanosim"); \
+		echo "[$$attempt/$$max_attempts] $$status_line"; \
+		echo "$$status_line" | grep -q "RUNNING" && exit 0; \
+		sleep 2; \
+		attempt=$$((attempt + 1)); \
+	done; \
+	echo "nanosim failed to reach RUNNING state on Lightsail after $$max_attempts attempts"; \
+	echo "Recent remote error log:"; \
+	ssh plots.myember.org "sudo tail -n 80 /var/log/nanosim/error.log" || true; \
+	exit 7

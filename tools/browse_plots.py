@@ -5,6 +5,9 @@ from flask import Flask, render_template_string, send_file, request, jsonify, se
 from pathlib import Path
 from datetime import datetime
 import hashlib
+import json
+import logging
+import os
 import zipfile
 import tempfile
 import shutil
@@ -12,6 +15,7 @@ import secrets
 
 app = Flask(__name__)
 app.secret_key = secrets.token_hex(16)  # For session management
+app.logger.setLevel(logging.INFO)
 
 # Add custom Jinja2 filter for formatting numbers with commas
 @app.template_filter('commafy')
@@ -29,6 +33,11 @@ DATA_DIR = REPO_ROOT / 'data'
 ARCHIVE_DIR = DATA_DIR  # Runs stored directly in data directory
 DELETED_DIR = REPO_ROOT / 'archive'  # Non-destructive archive destination
 EXPORT_EXTENSION = '.nanosim'
+PLOT_CACHE_VERSION = 1
+PLOT_CACHE_THEMES = ('dark', 'light')
+WEB_PLOT_BUILD_POLICY = os.getenv('NANOSIM_WEB_PLOT_BUILD', 'localhost-only').strip().lower()
+PLOT_MEMORY_CACHE_MAX_MB = int(os.getenv('NANOSIM_PLOT_MEMORY_CACHE_MAX_MB', '16'))
+PLOT_MEMORY_CACHE_MAX_BYTES = PLOT_MEMORY_CACHE_MAX_MB * 1024 * 1024
 
 # Cache for completed plot HTML, keyed by (dirname, theme).
 # Populated by /plot-stream; consumed by /plot.
@@ -40,6 +49,195 @@ _export_cache: dict = {}
 
 FAVICON_SVG = "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%23ab63fa'/><polyline points='8,26 8,6 24,26 24,6' fill='none' stroke='white' stroke-width='4' stroke-linecap='round' stroke-linejoin='round'/></svg>"
 FAVICON_VERSION = hashlib.md5(FAVICON_SVG.encode()).hexdigest()[:8]
+
+
+def is_loopback_host(host_value: str) -> bool:
+    """Return True if a Host header resolves to localhost/loopback."""
+    host = (host_value or '').strip().lower()
+    if not host:
+        return False
+
+    if host.startswith('localhost') or host.startswith('127.'):
+        return True
+    if host == '::1' or host.startswith('[::1]'):
+        return True
+
+    return False
+
+
+def can_run_web_plot_build(req) -> bool:
+    """Policy gate for expensive plot builds triggered by web requests."""
+    if WEB_PLOT_BUILD_POLICY in ('enabled', 'allow-all', 'true', '1'):
+        return True
+    if WEB_PLOT_BUILD_POLICY in ('disabled', 'cache-only', 'false', '0'):
+        return False
+
+    # Default: localhost-only
+    host = req.host or ''
+    forwarded_host = req.headers.get('X-Forwarded-Host', '')
+    return is_loopback_host(host) or is_loopback_host(forwarded_host)
+
+
+app.logger.info(
+    'plot_cache web_build_policy=%s memory_cache_max_mb=%s',
+    WEB_PLOT_BUILD_POLICY,
+    PLOT_MEMORY_CACHE_MAX_MB,
+)
+
+
+def plot_payload_total_bytes(plot1_html: str | None, plot2_html: str | None) -> int:
+    """Return total UTF-8 payload size for two optional plot HTML strings."""
+    total = 0
+    if plot1_html is not None:
+        total += len(plot1_html.encode('utf-8'))
+    if plot2_html is not None:
+        total += len(plot2_html.encode('utf-8'))
+    return total
+
+
+def to_mb(size_bytes: int) -> float:
+    """Convert bytes to MB for compact logging."""
+    return size_bytes / (1024 * 1024)
+
+
+def put_plot_in_memory_cache(dirname: str, theme: str, plot1_html: str | None, plot2_html: str | None, meta: dict | None) -> bool:
+    """Store plot HTML in memory only if payload size is below configured threshold."""
+    payload_bytes = plot_payload_total_bytes(plot1_html, plot2_html)
+    if payload_bytes > PLOT_MEMORY_CACHE_MAX_BYTES:
+        _plot_cache.pop((dirname, theme), None)
+        app.logger.info(
+            "plot_cache event=memory_cache_skip run=%s theme=%s payload_mb=%.2f limit_mb=%s",
+            dirname,
+            theme,
+            payload_bytes / (1024 * 1024),
+            PLOT_MEMORY_CACHE_MAX_MB,
+        )
+        return False
+
+    _plot_cache[(dirname, theme)] = {
+        'plot1': plot1_html,
+        'plot2': plot2_html,
+        'meta': meta,
+    }
+    return True
+
+
+def resolve_plot_data_path(dirname: str) -> Path:
+    if dirname == 'current':
+        return DATA_DIR
+    return ARCHIVE_DIR / dirname
+
+
+def plot_cache_paths(data_path: Path, theme: str) -> dict[str, Path]:
+    cache_dir = data_path / 'plot_cache'
+    return {
+        'dir': cache_dir,
+        'plot1': cache_dir / f'plot1_{theme}.html',
+        'plot2': cache_dir / f'plot2_{theme}.html',
+        'meta': cache_dir / f'manifest_{theme}.json',
+    }
+
+
+def write_plot_cache_artifacts(data_path: Path, theme: str, plot1_html: str | None, plot2_html: str | None, source: str) -> dict:
+    paths = plot_cache_paths(data_path, theme)
+    tmp_root = Path(tempfile.mkdtemp(prefix='plot_cache_tmp_', dir=str(data_path)))
+    tmp_cache_dir = tmp_root / 'plot_cache'
+    tmp_cache_dir.mkdir(parents=True, exist_ok=True)
+
+    if plot1_html is not None:
+        (tmp_cache_dir / paths['plot1'].name).write_text(plot1_html)
+    if plot2_html is not None:
+        (tmp_cache_dir / paths['plot2'].name).write_text(plot2_html)
+
+    manifest = {
+        'cache_version': PLOT_CACHE_VERSION,
+        'theme': theme,
+        'source': source,
+        'built_at': datetime.now().isoformat(),
+    }
+    (tmp_cache_dir / paths['meta'].name).write_text(json.dumps(manifest, indent=2))
+
+    paths['dir'].mkdir(parents=True, exist_ok=True)
+    for entry in tmp_cache_dir.iterdir():
+        shutil.move(str(entry), str(paths['dir'] / entry.name))
+
+    shutil.rmtree(tmp_root, ignore_errors=True)
+    return manifest
+
+
+def build_plot_cache(dirname: str, theme: str, source: str = 'local-precompute', log_fn=None) -> tuple[dict, float]:
+    import subprocess
+    import time
+
+    if theme not in PLOT_CACHE_THEMES:
+        raise ValueError(f"Unsupported theme '{theme}'")
+
+    data_path = resolve_plot_data_path(dirname)
+    plot_script = REPO_ROOT / 'creutz-sim' / 'Sk_comparison.py'
+    plotly_template = 'plotly_dark' if theme == 'dark' else 'plotly_white'
+    emit = log_fn or (lambda _message: None)
+    started_at = time.time()
+
+    if not data_path.exists():
+        raise FileNotFoundError(f"data path not found: {data_path}")
+    if not plot_script.exists():
+        raise FileNotFoundError(f"plotting script not found: {plot_script}")
+
+    emit(f"cache_build_scan: preparing plot build inputs for {theme}")
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmpdir_path = Path(tmpdir)
+        script_content = plot_script.read_text()
+        modified_script = script_content.replace(
+            "args = parser.parse_args()",
+            f"args = parser.parse_args(['--data-dir', r'{data_path}'])"
+        ).replace(
+            'pio.templates.default = "plotly_white"',
+            f'pio.templates.default = "{plotly_template}"'
+        ).replace(
+            "fig.show()",
+            f"fig.write_html(r'{tmpdir_path}/plot1.html')"
+        ).replace(
+            "fig2.show()",
+            f"fig2.write_html(r'{tmpdir_path}/plot2.html')"
+        )
+
+        temp_script = tmpdir_path / 'plot_script.py'
+        temp_script.write_text(modified_script)
+
+        python_bin = REPO_ROOT / 'venv' / 'bin' / 'python'
+        proc = subprocess.Popen(
+            [python_bin, str(temp_script)],
+            cwd=tmpdir_path,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+        )
+
+        for line in proc.stdout:
+            line = line.rstrip()
+            if line:
+                emit(line)
+
+        proc.wait()
+        if proc.returncode != 0:
+            raise RuntimeError("plot build subprocess exited with non-zero status")
+
+        plot1 = tmpdir_path / 'plot1.html'
+        plot2 = tmpdir_path / 'plot2.html'
+        if not plot1.exists() and not plot2.exists():
+            raise RuntimeError("no plot HTML files generated")
+
+        emit(f"cache_build_write: writing cache artifacts for {theme}")
+        plot1_html = plot1.read_text() if plot1.exists() else None
+        plot2_html = plot2.read_text() if plot2.exists() else None
+        cache_meta = write_plot_cache_artifacts(data_path, theme, plot1_html, plot2_html, source)
+
+    elapsed = time.time() - started_at
+    put_plot_in_memory_cache(dirname, theme, plot1_html, plot2_html, cache_meta)
+    emit(f"cache_build_done: {theme} cache ready in {elapsed:.2f}s")
+    return cache_meta, elapsed
 
 
 @app.route('/favicon.ico')
@@ -1977,7 +2175,6 @@ RESTORE_TEMPLATE = """
     <div class="page-header">
         <div class="back-link"><a href="/" title="Back to simulation browser">‹</a></div>
         <h1>Restore Archived Run</h1>
-        <button id="themeToggle" class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">🌙</button>
     </div>
 
     {% if archived %}
@@ -2046,22 +2243,6 @@ RESTORE_TEMPLATE = """
     <script>
         const savedTheme = localStorage.getItem('theme') || 'dark';
         document.documentElement.setAttribute('data-theme', savedTheme);
-        updateThemeIcon();
-
-        function toggleTheme() {
-            const current = document.documentElement.getAttribute('data-theme');
-            const next = current === 'dark' ? 'light' : 'dark';
-            document.documentElement.setAttribute('data-theme', next);
-            localStorage.setItem('theme', next);
-            updateThemeIcon();
-        }
-
-        function updateThemeIcon() {
-            const theme = document.documentElement.getAttribute('data-theme');
-            const btn = document.getElementById('themeToggle');
-            btn.textContent = theme === 'dark' ? '☀️' : '🌙';
-            btn.title = theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode';
-        }
 
         function restoreRun(dirname, btn) {
             if (!confirm('Restore "' + dirname + '" back to the data directory?')) return;
@@ -2278,7 +2459,6 @@ FILE_LIST_TEMPLATE = """
 <body>
     <div class="header">
         <div class="back-link"><a href="/" title="Back to simulation browser">‹</a></div>
-        <button id="themeToggle" class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">🌙</button>
     </div>
     <h1>📂 Archive: {{ dirname }}</h1>
     <ul class="file-list">
@@ -2294,22 +2474,6 @@ FILE_LIST_TEMPLATE = """
         // Load theme from localStorage or default to dark
         const savedTheme = localStorage.getItem('theme') || 'dark';
         document.documentElement.setAttribute('data-theme', savedTheme);
-        updateThemeIcon();
-        
-        function toggleTheme() {
-            const currentTheme = document.documentElement.getAttribute('data-theme');
-            const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
-            document.documentElement.setAttribute('data-theme', newTheme);
-            localStorage.setItem('theme', newTheme);
-            updateThemeIcon();
-        }
-        
-        function updateThemeIcon() {
-            const theme = document.documentElement.getAttribute('data-theme');
-            const btn = document.getElementById('themeToggle');
-            btn.textContent = theme === 'dark' ? '☀️' : '🌙';
-            btn.title = theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode';
-        }
     </script>
 </body>
 </html>
@@ -2694,6 +2858,19 @@ def archive_run(dirname):
     """Move a run to the archive folder (non-destructive)."""
     from flask import jsonify
     import shutil
+
+    def next_archive_destination(base_dir: Path, run_name: str) -> Path:
+        """Return an available archive destination using +n suffix on collisions."""
+        candidate = base_dir / run_name
+        if not candidate.exists():
+            return candidate
+
+        suffix = 1
+        while True:
+            candidate = base_dir / f"{run_name}+{suffix}"
+            if not candidate.exists():
+                return candidate
+            suffix += 1
     
     run_path = ARCHIVE_DIR / dirname
     if not run_path.exists():
@@ -2704,11 +2881,9 @@ def archive_run(dirname):
     
     try:
         DELETED_DIR.mkdir(parents=True, exist_ok=True)
-        dest = DELETED_DIR / dirname
-        if dest.exists():
-            return jsonify({'success': False, 'error': 'A run with this name already exists in the archive folder'}), 409
+        dest = next_archive_destination(DELETED_DIR, dirname)
         shutil.move(str(run_path), str(dest))
-        return jsonify({'success': True})
+        return jsonify({'success': True, 'archive_name': dest.name})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
@@ -3212,21 +3387,35 @@ def export_stream(dirname):
                 'files': {}
             }
 
-            with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+            # Use stored mode to reduce CPU/memory pressure on small instances.
+            with zipfile.ZipFile(zip_path, 'w', compression=zipfile.ZIP_STORED, allowZip64=True) as zipf:
                 for index, file_path in enumerate(file_list, start=1):
                     rel_path = file_path.relative_to(archive_path)
+                    file_size = file_path.stat().st_size
 
                     sha256_hash = hashlib.sha256()
-                    with open(file_path, 'rb') as f:
-                        for chunk in iter(lambda: f.read(4096), b''):
+                    bytes_written = 0
+
+                    # Single-pass read/write/hash so we avoid reading each file twice.
+                    with open(file_path, 'rb') as src, zipf.open(str(rel_path), 'w') as dst:
+                        for chunk in iter(lambda: src.read(4 * 1024 * 1024), b''):
                             sha256_hash.update(chunk)
+                            dst.write(chunk)
+                            bytes_written += len(chunk)
+
+                            # Emit periodic keep-alive progress to prevent worker timeout
+                            # when a single large file takes a long time to package.
+                            if bytes_written % (128 * 1024 * 1024) < len(chunk):
+                                pct = int((bytes_written / file_size) * 100) if file_size > 0 else 100
+                                yield (
+                                    f"data: Packing {index:,}/{total_files:,}: {rel_path} "
+                                    f"{bytes_written:,}/{file_size:,} bytes ({pct}%)\n\n"
+                                )
 
                     manifest['files'][str(rel_path)] = {
                         'sha256': sha256_hash.hexdigest(),
-                        'size': file_path.stat().st_size
+                        'size': file_size
                     }
-
-                    zipf.write(file_path, arcname=str(rel_path))
 
                     if index == 1 or index == total_files or index % 25 == 0:
                         yield f"data: Packed {index:,}/{total_files:,}: {rel_path}\n\n"
@@ -3327,26 +3516,26 @@ def export_archive(dirname):
             'files': {}
         }
         
-        # Create zip and calculate hashes
-        with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+        # Use stored mode to reduce CPU/memory pressure on small instances.
+        # Single-pass write keeps IO predictable for large archives.
+        with zipfile.ZipFile(zip_path, 'w', compression=zipfile.ZIP_STORED, allowZip64=True) as zipf:
             for file_path in archive_path.rglob('*'):
                 if file_path.is_file():
                     rel_path = file_path.relative_to(archive_path)
+                    file_size = file_path.stat().st_size
                     
                     # Calculate SHA256 hash of file
                     sha256_hash = hashlib.sha256()
-                    with open(file_path, 'rb') as f:
-                        for chunk in iter(lambda: f.read(4096), b''):
+                    with open(file_path, 'rb') as src, zipf.open(str(rel_path), 'w') as dst:
+                        for chunk in iter(lambda: src.read(4 * 1024 * 1024), b''):
                             sha256_hash.update(chunk)
+                            dst.write(chunk)
                     
                     # Store file and hash in manifest
                     manifest['files'][str(rel_path)] = {
                         'sha256': sha256_hash.hexdigest(),
-                        'size': file_path.stat().st_size
+                        'size': file_size
                     }
-                    
-                    # Add file to zip
-                    zipf.write(file_path, arcname=str(rel_path))
             
             # Add manifest to zip
             manifest_json = json.dumps(manifest, indent=2)
@@ -3641,12 +3830,95 @@ def plot_stream(dirname):
     import subprocess
     import tempfile
     import shutil
+    import time
 
     theme = request.args.get('theme', 'dark')
+    force_replot = request.args.get('force_replot', '0') == '1'
+
+    def cache_paths(data_path: Path, active_theme: str) -> dict[str, Path]:
+        cache_dir = data_path / 'plot_cache'
+        return {
+            'dir': cache_dir,
+            'plot1': cache_dir / f'plot1_{active_theme}.html',
+            'plot2': cache_dir / f'plot2_{active_theme}.html',
+            'meta': cache_dir / f'manifest_{active_theme}.json',
+        }
+
+    def load_disk_cache(data_path: Path, active_theme: str) -> dict | None:
+        paths = cache_paths(data_path, active_theme)
+        if not paths['dir'].exists():
+            return None
+
+        plot1_html = paths['plot1'].read_text() if paths['plot1'].exists() else None
+        plot2_html = paths['plot2'].read_text() if paths['plot2'].exists() else None
+        manifest = None
+
+        if paths['meta'].exists():
+            try:
+                manifest = json.loads(paths['meta'].read_text())
+            except Exception:
+                manifest = None
+
+        if plot1_html is None and plot2_html is None:
+            return None
+
+        cached_in_memory = put_plot_in_memory_cache(
+            dirname,
+            active_theme,
+            plot1_html,
+            plot2_html,
+            manifest,
+        )
+        payload_bytes = plot_payload_total_bytes(plot1_html, plot2_html)
+        return {
+            'meta': manifest,
+            'cached_in_memory': cached_in_memory,
+            'payload_bytes': payload_bytes,
+        }
+
+    def format_cache_meta(meta: dict | None) -> str:
+        if not meta:
+            return "source=unknown built_at=unknown version=unknown"
+
+        return (
+            f"source={meta.get('source', 'unknown')} "
+            f"built_at={meta.get('built_at', 'unknown')} "
+            f"version={meta.get('cache_version', 'unknown')}"
+        )
+
+    def write_disk_cache(data_path: Path, active_theme: str, plot1_html: str | None, plot2_html: str | None, source: str) -> None:
+        paths = cache_paths(data_path, active_theme)
+        tmp_root = Path(tempfile.mkdtemp(prefix='plot_cache_tmp_', dir=str(data_path)))
+        tmp_cache_dir = tmp_root / 'plot_cache'
+        tmp_cache_dir.mkdir(parents=True, exist_ok=True)
+
+        if plot1_html is not None:
+            (tmp_cache_dir / paths['plot1'].name).write_text(plot1_html)
+        if plot2_html is not None:
+            (tmp_cache_dir / paths['plot2'].name).write_text(plot2_html)
+
+        manifest = {
+            'cache_version': 1,
+            'theme': active_theme,
+            'source': source,
+            'built_at': datetime.now().isoformat(),
+        }
+        (tmp_cache_dir / paths['meta'].name).write_text(json.dumps(manifest, indent=2))
+
+        paths['dir'].mkdir(parents=True, exist_ok=True)
+        for entry in tmp_cache_dir.iterdir():
+            final_path = paths['dir'] / entry.name
+            shutil.move(str(entry), str(final_path))
+
+        shutil.rmtree(tmp_root, ignore_errors=True)
 
     # If already cached (e.g. EventSource reconnect), immediately signal done.
-    if (dirname, theme) in _plot_cache:
+    if not force_replot and (dirname, theme) in _plot_cache:
         def already_done():
+            cache_meta = _plot_cache.get((dirname, theme), {}).get('meta')
+            app.logger.info("plot_cache event=cache_hit_memory run=%s theme=%s", dirname, theme)
+            yield "data: cache_hit: using in-memory plot cache\n\n"
+            yield f"data: cache_meta: {format_cache_meta(cache_meta)}\n\n"
             yield "event: done\ndata: ok\n\n"
         return Response(stream_with_context(already_done()),
                         mimetype='text/event-stream',
@@ -3662,6 +3934,9 @@ def plot_stream(dirname):
 
     @stream_with_context
     def generate():
+        started_at = time.time()
+        web_build_allowed = can_run_web_plot_build(request)
+
         if not data_path.exists():
             yield "data: ERROR: data path not found\n\n"
             yield "event: error\ndata: data path not found\n\n"
@@ -3670,6 +3945,50 @@ def plot_stream(dirname):
             yield "data: ERROR: plotting script not found\n\n"
             yield "event: error\ndata: plotting script not found\n\n"
             return
+
+        if not force_replot:
+            disk_cache = load_disk_cache(data_path, theme)
+            if disk_cache:
+                elapsed = time.time() - started_at
+                cache_meta = disk_cache.get('meta')
+                cache_mode = 'in-memory+disk' if disk_cache.get('cached_in_memory') else 'disk-only'
+                payload_bytes = int(disk_cache.get('payload_bytes') or 0)
+                app.logger.info(
+                    "plot_cache event=cache_hit_disk run=%s theme=%s elapsed=%.3fs cache_mode=%s payload_mb=%.2f",
+                    dirname,
+                    theme,
+                    elapsed,
+                    cache_mode,
+                    to_mb(payload_bytes),
+                )
+                yield f"data: cache_hit: loaded cached plot artifacts from disk ({elapsed:.2f}s, {cache_mode})\n\n"
+                yield f"data: cache_meta: {format_cache_meta(cache_meta)}\n\n"
+                yield "event: done\ndata: ok\n\n"
+                return
+            app.logger.info("plot_cache event=cache_miss run=%s theme=%s", dirname, theme)
+            yield "data: cache_miss: no cached plot artifacts found, starting cache build\n\n"
+        else:
+            _plot_cache.pop((dirname, theme), None)
+            app.logger.info("plot_cache event=force_replot run=%s theme=%s", dirname, theme)
+            yield "data: cache_rebuild: force replot requested, rebuilding cache\n\n"
+
+        if not web_build_allowed:
+            app.logger.warning(
+                "plot_cache event=cache_build_blocked run=%s theme=%s policy=%s host=%s",
+                dirname,
+                theme,
+                WEB_PLOT_BUILD_POLICY,
+                request.host,
+            )
+            if force_replot:
+                yield "data: cache_rebuild_blocked: web replot is disabled for this host\n\n"
+            else:
+                yield "data: cache_build_blocked: server plotting is disabled for this host\n\n"
+            yield "data: hint: run make plot-cache locally, then export/import the run including plot_cache\n\n"
+            yield "event: error\ndata: Server plotting disabled for non-localhost requests\n\n"
+            return
+
+        yield "data: cache_build_scan: preparing plot build inputs\n\n"
 
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir_path = Path(tmpdir)
@@ -3715,6 +4034,8 @@ def plot_stream(dirname):
             proc.wait()
 
             if proc.returncode != 0:
+                app.logger.error("plot_cache event=cache_build_failed run=%s theme=%s reason=subprocess_nonzero", dirname, theme)
+                yield "data: cache_build_failed: subprocess exited non-zero, using fallback path failed\n\n"
                 yield "event: error\ndata: Script exited with non-zero status\n\n"
                 return
 
@@ -3722,13 +4043,41 @@ def plot_stream(dirname):
             plot2 = tmpdir_path / 'plot2.html'
 
             if not plot1.exists() and not plot2.exists():
+                app.logger.error("plot_cache event=cache_build_failed run=%s theme=%s reason=no_plot_html", dirname, theme)
+                yield "data: cache_build_failed: no plot html artifacts were produced\n\n"
                 yield "event: error\ndata: No plot HTML files generated\n\n"
                 return
 
-            _plot_cache[(dirname, theme)] = {
-                'plot1': plot1.read_text() if plot1.exists() else None,
-                'plot2': plot2.read_text() if plot2.exists() else None,
+            yield "data: cache_build_write: writing cache artifacts\n\n"
+
+            plot1_html = plot1.read_text() if plot1.exists() else None
+            plot2_html = plot2.read_text() if plot2.exists() else None
+            payload_bytes = plot_payload_total_bytes(plot1_html, plot2_html)
+            cache_meta = {
+                'cache_version': 1,
+                'theme': theme,
+                'source': 'dynamic-build',
+                'built_at': datetime.now().isoformat(),
             }
+
+            put_plot_in_memory_cache(dirname, theme, plot1_html, plot2_html, cache_meta)
+
+            try:
+                write_disk_cache(data_path, theme, plot1_html, plot2_html, source='dynamic-build')
+            except Exception as e:
+                app.logger.error("plot_cache event=cache_build_failed run=%s theme=%s reason=persist_failed error=%s", dirname, theme, str(e))
+                yield f"data: cache_build_failed: unable to persist cache to disk ({e})\n\n"
+
+        elapsed = time.time() - started_at
+        app.logger.info(
+            "plot_cache event=cache_build_done run=%s theme=%s elapsed=%.3fs payload_mb=%.2f",
+            dirname,
+            theme,
+            elapsed,
+            to_mb(payload_bytes),
+        )
+        yield f"data: cache_meta: {format_cache_meta(cache_meta)}\n\n"
+        yield f"data: cache_build_done: cache ready and plots rendered ({elapsed:.2f}s)\n\n"
 
         yield "event: done\ndata: ok\n\n"
 
@@ -4041,11 +4390,13 @@ def plot_loading(dirname):
             (function() {{
                 const urlParams = new URLSearchParams(window.location.search);
                 const theme = urlParams.get('theme') || localStorage.getItem('theme') || 'dark';
-                const streamUrl = '/plot-stream/{dirname}?theme=' + theme;
+                const forceReplot = urlParams.get('force_replot') === '1';
+                const streamUrl = '/plot-stream/{dirname}?theme=' + theme + (forceReplot ? '&force_replot=1' : '');
                 const destUrl   = '/plot/{dirname}?theme=' + theme;
 
                 const statusEl = document.getElementById('status-text');
                 const logBox   = document.getElementById('log-box');
+                let cacheMetaLine = '';
 
                 function appendLog(text, isError) {{
                     const p = document.createElement('p');
@@ -4060,14 +4411,24 @@ def plot_loading(dirname):
                 const es = new EventSource(streamUrl);
 
                 es.onopen = function() {{
-                    statusEl.textContent = 'Reading CSV data...';
+                    statusEl.textContent = forceReplot ? 'Force refresh requested...' : 'Checking cache...';
                 }};
 
                 es.onmessage = function(e) {{
                     const line = e.data;
                     appendLog(line, false);
                     // Update the headline status from key phrases in the output
-                    if      (line.includes('Serializing fig2')) statusEl.textContent = 'Serializing summary plot...';
+                    if      (line.includes('cache_hit:'))       statusEl.textContent = 'Using cached plot data...';
+                    else if (line.includes('cache_miss:'))      statusEl.textContent = 'Cache miss. Building cache on server...';
+                    else if (line.includes('cache_rebuild:'))   statusEl.textContent = 'Rebuilding cache from source data...';
+                    else if (line.includes('cache_build_blocked:')) statusEl.textContent = 'Server plotting disabled for this host.';
+                    else if (line.includes('cache_rebuild_blocked:')) statusEl.textContent = 'Web replot disabled for this host.';
+                    else if (line.includes('cache_build_scan:')) statusEl.textContent = 'Scanning run data...';
+                    else if (line.includes('cache_build_write:')) statusEl.textContent = 'Writing cache artifacts...';
+                    else if (line.includes('cache_build_done:')) statusEl.textContent = 'Cache ready. Preparing render...';
+                    else if (line.includes('cache_build_failed:')) statusEl.textContent = 'Cache build warning. Continuing...';
+                    else if (line.includes('cache_meta:'))      cacheMetaLine = line.replace('cache_meta:', '').trim();
+                    else if (line.includes('Serializing fig2')) statusEl.textContent = 'Serializing summary plot...';
                     else if (line.includes('Serializing fig1')) statusEl.textContent = 'Serializing main plot...';
                     else if (line.includes('[rev]'))            statusEl.textContent = 'Processing reversible data...';
                     else if (line.includes('[irr]'))            statusEl.textContent = 'Processing irreversible data...';
@@ -4077,8 +4438,9 @@ def plot_loading(dirname):
                     es.close();
                     statusEl.textContent = 'Done! Preparing browser rendering...';
                     appendLog('Server finished. Browser is now loading and rendering plots...', false);
+                    if (cacheMetaLine) appendLog('Cache metadata: ' + cacheMetaLine, false);
                     // Let the status/log paint before navigating to the heavy plot page.
-                    requestAnimationFrame(() => window.location.replace(destUrl));
+                    setTimeout(() => window.location.replace(destUrl), 300);
                 }});
 
                 es.addEventListener('error', function(e) {{
@@ -4106,8 +4468,55 @@ def plot_data(dirname):
     which will re-run the stream."""
     from flask import request, redirect, url_for, make_response
 
+    import time
+
+    started_at = time.time()
     theme = request.args.get('theme', 'dark')
+    force_replot = request.args.get('force_replot', '0') == '1'
+
+    if dirname == 'current':
+        data_path = DATA_DIR
+        if not data_path.exists():
+            return "Data directory not found", 404
+    else:
+        data_path = ARCHIVE_DIR / dirname
+        if not data_path.exists():
+            return "Archive not found", 404
+
     cached = _plot_cache.get((dirname, theme))
+    if not cached:
+        cache_dir = data_path / 'plot_cache'
+        plot1_path = cache_dir / f'plot1_{theme}.html'
+        plot2_path = cache_dir / f'plot2_{theme}.html'
+        meta_path = cache_dir / f'manifest_{theme}.json'
+
+        plot1_html = plot1_path.read_text() if plot1_path.exists() else None
+        plot2_html = plot2_path.read_text() if plot2_path.exists() else None
+        cache_meta = None
+        if meta_path.exists():
+            try:
+                cache_meta = json.loads(meta_path.read_text())
+            except Exception:
+                cache_meta = None
+
+        if plot1_html is not None or plot2_html is not None:
+            put_plot_in_memory_cache(dirname, theme, plot1_html, plot2_html, cache_meta)
+            cached = {
+                'plot1': plot1_html,
+                'plot2': plot2_html,
+                'meta': cache_meta,
+            }
+
+    if force_replot:
+        if not can_run_web_plot_build(request):
+            return (
+                "Web replot is disabled for this host. "
+                "Run make plot-cache locally and import plot_cache artifacts.",
+                403,
+            )
+        _plot_cache.pop((dirname, theme), None)
+        return redirect(url_for('plot_loading', dirname=dirname, theme=theme, force_replot='1'))
+
     if not cached:
         # Not yet generated — send to loading page which drives /plot-stream
         return redirect(url_for('plot_loading', dirname=dirname, theme=theme))
@@ -4135,15 +4544,8 @@ def plot_data(dirname):
     # Pull cached plot HTML produced by /plot-stream
     plot1_html = cached.get('plot1')
     plot2_html = cached.get('plot2')
-
-    if dirname == 'current':
-        data_path = DATA_DIR
-        if not data_path.exists():
-            return "Data directory not found", 404
-    else:
-        data_path = ARCHIVE_DIR / dirname
-        if not data_path.exists():
-            return "Archive not found", 404
+    cache_meta = cached.get('meta') or {}
+    plot_payload_bytes = plot_payload_total_bytes(plot1_html, plot2_html)
 
     try:
             # Combine plots into a single page
@@ -4285,6 +4687,40 @@ def plot_data(dirname):
             notes = read_notes(data_path)
             import html
             notes_escaped = html.escape(notes) if notes else ""
+
+            cache_source = cache_meta.get('source', 'session-cache')
+            cache_theme = cache_meta.get('theme', theme)
+            cache_version = cache_meta.get('cache_version', 'N/A')
+            cache_built_at = cache_meta.get('built_at')
+            freshness_label = 'UNKNOWN'
+            if cache_built_at:
+                try:
+                    built_dt = datetime.fromisoformat(cache_built_at)
+                    age_seconds = max(0.0, (datetime.now() - built_dt).total_seconds())
+                    if age_seconds < 86400:
+                        freshness_label = 'FRESH'
+                    elif age_seconds < 7 * 86400:
+                        freshness_label = 'AGING'
+                    else:
+                        freshness_label = 'STALE'
+                    cache_built_at = built_dt.strftime('%Y-%m-%d %H:%M:%S')
+                except ValueError:
+                    pass
+            else:
+                cache_built_at = 'Unknown'
+            replot_title = html.escape(
+                "Rebuild plot cache from source data"
+                f" | Status: {freshness_label}"
+                f" | Source: {cache_source}"
+                f" | Built: {cache_built_at}"
+                f" | Theme: {cache_theme}"
+                f" | v{cache_version}"
+            )
+            replot_enabled = can_run_web_plot_build(request)
+            if replot_enabled:
+                replot_button_html = f"<button class=\"replot-btn\" onclick=\"window.location.href='/plot-loading/{dirname}?theme=' + (document.documentElement.getAttribute('data-theme') || localStorage.getItem('theme') || 'dark') + '&force_replot=1'\" title=\"{replot_title}\">Replot</button>"
+            else:
+                replot_button_html = ""
             
             notes_html = f"""
             <div class="notes-panel">
@@ -4326,6 +4762,8 @@ def plot_data(dirname):
                         --param-bg: #383838;
                         --msg-muted: #9aa0a6;
                         --msg-success: #28a745;
+                        --msg-warning: #ff9800;
+                        --msg-warning-hover: #f57c00;
                     }}
                     
                     [data-theme="light"] {{
@@ -4337,6 +4775,8 @@ def plot_data(dirname):
                         --param-bg: #f0f0f0;
                         --msg-muted: #6c757d;
                         --msg-success: #1e7e34;
+                        --msg-warning: #ff9800;
+                        --msg-warning-hover: #ef6c00;
                     }}
                     
                     body {{ 
@@ -4430,6 +4870,31 @@ def plot_data(dirname):
                     .export-btn:hover {{
                         background: #218838;
                         transform: scale(1.05);
+                    }}
+                    .replot-btn {{
+                        background: var(--msg-warning);
+                        color: white;
+                        border: none;
+                        padding: 8px 16px;
+                        border-radius: 4px;
+                        cursor: pointer;
+                        font-size: 14px;
+                        font-weight: 600;
+                        transition: all 0.3s ease;
+                        display: flex;
+                        align-items: center;
+                        height: 38px;
+                    }}
+                    .replot-btn:hover {{
+                        background: var(--msg-warning-hover);
+                        transform: scale(1.05);
+                    }}
+                    .replot-btn-disabled,
+                    .replot-btn-disabled:hover {{
+                        background: #888;
+                        cursor: not-allowed;
+                        transform: none;
+                        opacity: 0.75;
                     }}
                     .params-panel {{
                         text-align: center;
@@ -4709,9 +5174,9 @@ def plot_data(dirname):
                 <div class="back-link">
                     <a href="/" title="Back to simulation browser">‹</a>
                     <div class="top-controls">
+                        {replot_button_html}
                         <button class="export-btn" onclick="window.location.href='/export-loading/{dirname}?theme=' + (document.documentElement.getAttribute('data-theme') || localStorage.getItem('theme') || 'dark')" title="Export this simulation archive">Export</button>
                         <button class="refresh-btn" onclick="location.reload()" title="Refresh the page to see latest data">🔄</button>
-                        <button id="themeToggle" class="theme-toggle" onclick="toggleTheme()" title="Switch between dark and light themes">🌙</button>
                     </div>
                 </div>
                 <h1>Simulation Plots - {title}</h1>
@@ -4735,6 +5200,17 @@ def plot_data(dirname):
             response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
             response.headers['Pragma'] = 'no-cache'
             response.headers['Expires'] = '0'
+            response_bytes = len(html_content.encode('utf-8'))
+            elapsed_ms = (time.time() - started_at) * 1000.0
+            app.logger.info(
+                "plot_serve event=plot_page_served run=%s theme=%s source=%s payload_mb=%.2f response_mb=%.2f elapsed_ms=%.1f",
+                dirname,
+                theme,
+                cache_meta.get('source', 'unknown'),
+                to_mb(plot_payload_bytes),
+                to_mb(response_bytes),
+                elapsed_ms,
+            )
             return response
 
     except Exception as e:
