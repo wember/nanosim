@@ -27,6 +27,7 @@ def commafy_filter(value):
 REPO_ROOT = Path(__file__).parent.parent
 DATA_DIR = REPO_ROOT / 'data'
 ARCHIVE_DIR = DATA_DIR  # Runs stored directly in data directory
+DELETED_DIR = REPO_ROOT / 'archive'  # Non-destructive archive destination
 EXPORT_EXTENSION = '.nanosim'
 
 # Cache for completed plot HTML, keyed by (dirname, theme).
@@ -37,6 +38,22 @@ _plot_cache: dict = {}
 # Populated by /export-stream; consumed by /export-download.
 _export_cache: dict = {}
 
+FAVICON_SVG = "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%23ab63fa'/><polyline points='8,26 8,6 24,26 24,6' fill='none' stroke='white' stroke-width='4' stroke-linecap='round' stroke-linejoin='round'/></svg>"
+FAVICON_VERSION = hashlib.md5(FAVICON_SVG.encode()).hexdigest()[:8]
+
+
+@app.route('/favicon.ico')
+@app.route('/favicon.svg')
+def favicon():
+    """Serve an inline SVG favicon."""
+    svg = FAVICON_SVG.replace('%23', '#')
+    resp = Response(svg, mimetype='image/svg+xml')
+    resp.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    resp.headers['Pragma'] = 'no-cache'
+    resp.headers['Expires'] = '0'
+    return resp
+
+
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html>
@@ -44,6 +61,7 @@ HTML_TEMPLATE = """
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Simulation Browser</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg?v={{ favicon_version }}">
     <script>
         // Set theme immediately to prevent flash
         (function() {
@@ -298,19 +316,19 @@ HTML_TEMPLATE = """
             color: white;
             text-decoration: none;
         }
-        .delete-link {
+        .archive-link {
             display: inline-block;
             padding: 2px 8px;
-            border: 2px solid #dc3545;
+            border: 2px solid #fd7e14;
             border-radius: 3px;
             font-size: 1em;
-            color: #dc3545;
+            color: #fd7e14;
             transition: all 0.2s;
             min-width: 80px;
             text-align: center;
         }
-        .delete-link:hover {
-            background: #dc3545;
+        .archive-link:hover {
+            background: #fd7e14;
             color: white;
             text-decoration: none;
         }
@@ -838,7 +856,7 @@ HTML_TEMPLATE = """
             .view-link,
             .notes-link,
             .plot-link,
-            .delete-link,
+            .archive-link,
             .export-link {
                 font-size: 0.8em;
                 padding: 4px 10px;
@@ -869,7 +887,7 @@ HTML_TEMPLATE = """
             .view-link,
             .notes-link,
             .plot-link,
-            .delete-link,
+            .archive-link,
             .export-link {
                 font-size: 0.8em;
                 padding: 4px 10px;
@@ -1410,22 +1428,22 @@ HTML_TEMPLATE = """
             }
         }
         
-        function deleteArchive(dirname) {
-            if (confirm('Are you sure you want to delete this archived run? This cannot be undone.\\n\\nArchive: ' + dirname)) {
-                fetch('/delete/' + dirname, {
+        function archiveRun(dirname) {
+            if (confirm('Move this run to the archive folder? It will no longer appear in the list but can be recovered from the archive/ directory.\\n\\nRun: ' + dirname)) {
+                fetch('/archive-run/' + dirname, {
                     method: 'POST'
                 })
                 .then(response => response.json())
                 .then(data => {
                     if (data.success) {
-                        sessionStorage.setItem('toastMessage', 'Archive deleted successfully');
+                        sessionStorage.setItem('toastMessage', 'Run archived successfully');
                         window.location.reload();
                     } else {
-                        alert('Error deleting archive: ' + data.error);
+                        alert('Error archiving run: ' + data.error);
                     }
                 })
                 .catch(error => {
-                    alert('Error deleting archive: ' + error);
+                    alert('Error archiving run: ' + error);
                 });
             }
         }
@@ -1746,7 +1764,7 @@ HTML_TEMPLATE = """
                     <a href="#" class="notes-link" data-dirname="{{ archive.dirname }}" data-notes="" onclick="openNotesModalFromLink(this); return false;" title="Add notes about this simulation">Add notes</a>
                     {% endif %}
                     <a href="#" class="export-link" onclick="exportArchive('{{ archive.dirname }}'); return false;" title="Export this simulation as a validated zip file">Export</a>
-                    <a href="#" class="delete-link" onclick="deleteArchive('{{ archive.dirname }}'); return false;" title="Permanently delete this archive">Delete</a>
+                    <a href="#" class="archive-link" onclick="archiveRun('{{ archive.dirname }}'); return false;" title="Move this run to the archive folder">Archive</a>
                 </div>
             </div>
         </div>
@@ -1762,6 +1780,323 @@ HTML_TEMPLATE = """
 </html>
 """
 
+RESTORE_TEMPLATE = """
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Restore Archived Run</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg?v={{ favicon_version }}">
+    <script>
+        (function() {
+            const savedTheme = localStorage.getItem('theme') || 'dark';
+            document.documentElement.setAttribute('data-theme', savedTheme);
+        })();
+    </script>
+    <style>
+        :root {
+            --bg-primary: #1e1e1e;
+            --bg-secondary: #2d2d2d;
+            --bg-hover: #3a3a3a;
+            --text-primary: #e0e0e0;
+            --text-secondary: #b0b0b0;
+            --border-color: #404040;
+            --shadow: rgba(0,0,0,0.3);
+            --param-bg: #383838;
+        }
+        [data-theme="light"] {
+            --bg-primary: #f5f5f5;
+            --bg-secondary: #ffffff;
+            --bg-hover: #fafafa;
+            --text-primary: #333333;
+            --text-secondary: #666666;
+            --border-color: #eeeeee;
+            --shadow: rgba(0,0,0,0.1);
+            --param-bg: #f8f9fa;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 30px 20px;
+        }
+        h1 { color: var(--text-primary); margin-bottom: 20px; }
+        .page-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+        }
+        .back-link a {
+            color: #007bff;
+            font-size: 34px;
+            font-weight: 800;
+            line-height: 1;
+            text-decoration: none;
+            padding: 0px 14px 4px 14px;
+            border-radius: 4px;
+            transition: all 0.2s;
+        }
+        .back-link a:hover { background: #007bff; color: white; text-decoration: none; }
+        .theme-toggle {
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 18px;
+            display: flex;
+            align-items: center;
+            height: 38px;
+        }
+        .archive-list { background: transparent; box-shadow: none; }
+        .archive-item {
+            padding: 15px;
+            margin-bottom: 12px;
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+            box-shadow: 0 2px 4px var(--shadow);
+        }
+        .archive-item:hover { background: var(--bg-hover); }
+        .timestamp {
+            font-size: 1.2em;
+            font-weight: bold;
+            color: var(--text-primary);
+            margin-bottom: 8px;
+        }
+        .archive-chip-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-bottom: 8px;
+        }
+        .status {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 4px;
+            font-weight: 600;
+            font-size: 0.85em;
+            margin-bottom: 8px;
+            margin-right: 8px;
+        }
+        .status-completed { background: #28a745; color: white; }
+        .status-running { background: #ff9800; color: white; }
+        .status-interrupted { background: #ffc107; color: black; }
+        .status-error { background: #dc3545; color: white; }
+        .status-unknown { background: #e2e3e5; color: #383d41; }
+        .combined-chip {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 4px;
+            font-weight: 600;
+            font-size: 0.85em;
+            margin-bottom: 8px;
+            background: linear-gradient(90deg, #ab63fa 0%, #00b8d4 100%);
+            color: white;
+        }
+        .dynamics-chip {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 4px;
+            font-weight: 600;
+            font-size: 0.85em;
+            margin-bottom: 8px;
+        }
+        .dynamics-chip.reversible { background: #ab63fa; color: white; }
+        .dynamics-chip.irreversible { background: #00b8d4; color: black; }
+        .details {
+            color: var(--text-secondary);
+            font-size: 0.9em;
+            line-height: 1.6;
+        }
+        .details-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 8px;
+            margin: 8px 0;
+        }
+        .param {
+            font-family: 'Courier New', monospace;
+            background: var(--param-bg);
+            padding: 4px 8px;
+            border-radius: 4px;
+        }
+        .meta-block { margin-top: 8px; }
+        .notes-preview {
+            white-space: pre-wrap;
+            margin-top: 4px;
+            max-height: 60px;
+            overflow: hidden;
+        }
+        .action-buttons {
+            margin-top: 10px;
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        .restore-btn {
+            display: inline-block;
+            padding: 2px 8px;
+            border: 2px solid #28a745;
+            border-radius: 3px;
+            font-size: 1em;
+            color: #28a745;
+            background: transparent;
+            cursor: pointer;
+            min-width: 80px;
+            text-align: center;
+            transition: all 0.2s;
+        }
+        .restore-btn:hover { background: #28a745; color: white; }
+        .restore-btn:disabled { border-color: #6c757d; color: #6c757d; cursor: not-allowed; }
+        .no-archives {
+            text-align: center;
+            padding: 60px 20px;
+            color: var(--text-secondary);
+        }
+        .toast {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: #155724;
+            color: white;
+            padding: 12px 24px;
+            border-radius: 4px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+            z-index: 2000;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="page-header">
+        <div class="back-link"><a href="/" title="Back to simulation browser">‹</a></div>
+        <h1>Restore Archived Run</h1>
+        <button id="themeToggle" class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">🌙</button>
+    </div>
+
+    {% if archived %}
+    <div class="archive-list">
+        {% for archive in archived %}
+        <div class="archive-item" id="row-{{ archive.dirname }}">
+            <div class="timestamp">{{ archive.display_time }}</div>
+            <div class="archive-chip-row">
+                {% if archive.is_combined %}
+                <span class="combined-chip">COMBINED</span>
+                {% elif archive.params %}
+                <span class="dynamics-chip {{ 'irreversible' if archive.params.flag == 'i' else 'reversible' }}">{{ 'IRREVERSIBLE' if archive.params.flag == 'i' else 'REVERSIBLE' }}</span>
+                {% endif %}
+                <span class="status status-{{ archive.status_class }}">{{ archive.status }}</span>
+            </div>
+            <div class="details">
+                {% if archive.is_combined %}
+                {% if archive.rev_params %}
+                <div class="details-grid">
+                    <div><strong>Lattice:</strong> <span class="param">n={{ archive.rev_params.n }}</span></div>
+                    <div><strong>Sweeps:</strong> <span class="param">s={{ archive.rev_params.sweeps }}</span></div>
+                    <div><strong>Radius:</strong> <span class="param">r={{ archive.rev_params.radius }}</span></div>
+                    <div><strong>Runs:</strong> <span class="param">m={{ archive.rev_params.runs }}</span></div>
+                </div>
+                {% endif %}
+                {% elif archive.params %}
+                <div class="details-grid">
+                    <div><strong>Lattice:</strong> <span class="param">n={{ archive.params.n }}</span></div>
+                    <div><strong>Sweeps:</strong> <span class="param">s={{ archive.params.sweeps }}</span></div>
+                    <div><strong>Radius:</strong> <span class="param">r={{ archive.params.radius }}</span></div>
+                    <div><strong>Runs:</strong> <span class="param">m={{ archive.params.runs }}</span></div>
+                    <div><strong>Total sims:</strong> <span class="param">{{ archive.params.total }}</span></div>
+                </div>
+                {% endif %}
+                {% if archive.completion_info %}
+                <div class="meta-block">
+                    <strong>Runtime:</strong> {{ archive.completion_info.total_time }}<br>
+                    <strong>Throughput:</strong> {{ archive.completion_info.throughput }}
+                </div>
+                {% endif %}
+                {% if archive.progress %}
+                <div class="meta-block"><strong>Progress:</strong> {{ archive.progress }}</div>
+                {% endif %}
+                {% if archive.notes %}
+                <div class="meta-block">
+                    <strong>Notes:</strong>
+                    <div class="notes-preview">{{ archive.notes }}</div>
+                </div>
+                {% endif %}
+                <div class="action-buttons">
+                    <button class="restore-btn" onclick="restoreRun('{{ archive.dirname }}', this)">Restore</button>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="no-archives">
+        <h2>No archived runs found</h2>
+        <p>Runs moved to <code>archive/</code> will appear here.</p>
+    </div>
+    {% endif %}
+
+    <div class="toast" id="toast"></div>
+
+    <script>
+        const savedTheme = localStorage.getItem('theme') || 'dark';
+        document.documentElement.setAttribute('data-theme', savedTheme);
+        updateThemeIcon();
+
+        function toggleTheme() {
+            const current = document.documentElement.getAttribute('data-theme');
+            const next = current === 'dark' ? 'light' : 'dark';
+            document.documentElement.setAttribute('data-theme', next);
+            localStorage.setItem('theme', next);
+            updateThemeIcon();
+        }
+
+        function updateThemeIcon() {
+            const theme = document.documentElement.getAttribute('data-theme');
+            const btn = document.getElementById('themeToggle');
+            btn.textContent = theme === 'dark' ? '☀️' : '🌙';
+            btn.title = theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode';
+        }
+
+        function restoreRun(dirname, btn) {
+            if (!confirm('Restore "' + dirname + '" back to the data directory?')) return;
+            btn.disabled = true;
+            btn.textContent = 'Restoring…';
+            fetch('/restore-run/' + dirname, { method: 'POST' })
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success) {
+                        document.getElementById('row-' + dirname).remove();
+                        showToast('Restored successfully');
+                    } else {
+                        btn.disabled = false;
+                        btn.textContent = 'Restore';
+                        alert('Error: ' + data.error);
+                    }
+                })
+                .catch(err => {
+                    btn.disabled = false;
+                    btn.textContent = 'Restore';
+                    alert('Error: ' + err);
+                });
+        }
+
+        function showToast(msg) {
+            const t = document.getElementById('toast');
+            t.textContent = msg;
+            t.style.display = 'block';
+            setTimeout(() => { t.style.display = 'none'; }, 3000);
+        }
+    </script>
+</body>
+</html>
+"""
+
 FILE_LIST_TEMPLATE = """
 <!DOCTYPE html>
 <html>
@@ -1769,6 +2104,7 @@ FILE_LIST_TEMPLATE = """
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Archive Files - {{ dirname }}</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg?v={{ favicon_version }}">
     <script>
         // Set theme immediately to prevent flash
         (function() {
@@ -2245,7 +2581,7 @@ def index():
             elif flag in ['i', 'irr', '1', 1]:
                 irr_archives.append(archive_info)
     
-    return render_template_string(HTML_TEMPLATE, archives=archives, rev_archives=rev_archives, irr_archives=irr_archives)
+    return render_template_string(HTML_TEMPLATE, archives=archives, rev_archives=rev_archives, irr_archives=irr_archives, favicon_version=FAVICON_VERSION)
 
 @app.route('/notes/<dirname>', methods=['POST'])
 def update_notes(dirname):
@@ -2353,21 +2689,106 @@ def combine_sims():
             shutil.rmtree(combined_path)
         return jsonify({'success': False, 'error': str(e)}), 500
 
-@app.route('/delete/<dirname>', methods=['POST'])
-def delete_archive(dirname):
-    """Delete an archived run."""
+@app.route('/archive-run/<dirname>', methods=['POST'])
+def archive_run(dirname):
+    """Move a run to the archive folder (non-destructive)."""
     from flask import jsonify
     import shutil
     
-    archive_path = ARCHIVE_DIR / dirname
-    if not archive_path.exists():
-        return jsonify({'success': False, 'error': 'Archive not found'}), 404
+    run_path = ARCHIVE_DIR / dirname
+    if not run_path.exists():
+        return jsonify({'success': False, 'error': 'Run not found'}), 404
     
-    if not archive_path.is_dir():
+    if not run_path.is_dir():
         return jsonify({'success': False, 'error': 'Not a directory'}), 400
     
     try:
-        shutil.rmtree(archive_path)
+        DELETED_DIR.mkdir(parents=True, exist_ok=True)
+        dest = DELETED_DIR / dirname
+        if dest.exists():
+            return jsonify({'success': False, 'error': 'A run with this name already exists in the archive folder'}), 409
+        shutil.move(str(run_path), str(dest))
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/restore')
+def restore_page():
+    """Hidden page listing archived runs available for restoration."""
+    archived = []
+    if DELETED_DIR.exists():
+        for run_dir in sorted(DELETED_DIR.iterdir(), reverse=True):
+            if not run_dir.is_dir():
+                continue
+
+            dirname = run_dir.name
+            try:
+                dt = datetime.strptime(dirname, '%Y%m%d_%H%M%S')
+                display_time = dt.strftime('%b %d, %Y %H:%M:%S')
+            except ValueError:
+                display_time = dirname
+
+            status_info = parse_status_file(run_dir)
+            if status_info:
+                status = status_info.get('Status', 'UNKNOWN')
+                progress = status_info.get('Completed', None)
+            else:
+                start_file = find_status_file(run_dir, 'sim_started.txt')
+                completion_file = find_status_file(run_dir, 'sim_completed.txt')
+                status = 'RUNNING' if (start_file and not completion_file) else 'UNKNOWN'
+                progress = None
+
+            status_class = status.lower()
+            is_combined = (run_dir / 'rev').exists() and (run_dir / 'irr').exists()
+            params = parse_start_file(run_dir)
+            rev_params = None
+            irr_params = None
+
+            if is_combined:
+                root_params = parse_start_file_root_first(run_dir)
+                if root_params:
+                    rev_params = root_params
+                    irr_params = root_params
+                else:
+                    rev_params = parse_start_file(run_dir / 'rev')
+                    irr_params = parse_start_file(run_dir / 'irr')
+
+            completion_info = parse_completion_file(run_dir)
+            notes = read_notes(run_dir)
+
+            archived.append({
+                'dirname': dirname,
+                'display_time': display_time,
+                'status': status,
+                'status_class': status_class,
+                'params': params,
+                'progress': progress,
+                'completion_info': completion_info,
+                'notes': notes,
+                'is_combined': is_combined,
+                'rev_params': rev_params,
+                'irr_params': irr_params,
+            })
+    return render_template_string(RESTORE_TEMPLATE, archived=archived, favicon_version=FAVICON_VERSION)
+
+@app.route('/restore-run/<dirname>', methods=['POST'])
+def restore_run(dirname):
+    """Move a run from the archive folder back to the data directory."""
+    from flask import jsonify
+
+    run_path = DELETED_DIR / dirname
+    if not run_path.exists():
+        return jsonify({'success': False, 'error': 'Run not found in archive'}), 404
+    if not run_path.is_dir():
+        return jsonify({'success': False, 'error': 'Not a directory'}), 400
+
+    dest = DATA_DIR / dirname
+    if dest.exists():
+        return jsonify({'success': False, 'error': 'A run with this name already exists in data/'}), 409
+
+    try:
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(run_path), str(dest))
         return jsonify({'success': True})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -2391,7 +2812,7 @@ def view_files(dirname):
             size = format_size(file_path.stat().st_size)
             files.append({'path': str(rel_path), 'size': size})
     
-    return render_template_string(FILE_LIST_TEMPLATE, dirname=dirname, files=files)
+    return render_template_string(FILE_LIST_TEMPLATE, dirname=dirname, files=files, favicon_version=FAVICON_VERSION)
 
 @app.route('/export-loading/<dirname>')
 def export_loading(dirname):
@@ -2414,6 +2835,7 @@ def export_loading(dirname):
     <html>
     <head>
         <title>Preparing Export...</title>
+        <link rel="icon" type="image/svg+xml" href="/favicon.svg?v={FAVICON_VERSION}">
         <script>
             (function() {{
                 const urlParams = new URLSearchParams(window.location.search);
@@ -3393,6 +3815,7 @@ def plot_loading(dirname):
     <html>
     <head>
         <title>Generating Plots...</title>
+        <link rel="icon" type="image/svg+xml" href="/favicon.svg?v={FAVICON_VERSION}">
         <script>
             // Set theme immediately to prevent flash
             (function() {{
@@ -3883,6 +4306,7 @@ def plot_data(dirname):
             <html>
             <head>
                 <title>Simulation Plots</title>
+                <link rel="icon" type="image/svg+xml" href="/favicon.svg?v={FAVICON_VERSION}">
                 <script>
                     // Set theme immediately to prevent flash
                     (function() {{
