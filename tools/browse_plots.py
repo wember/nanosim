@@ -8,6 +8,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import zipfile
 import tempfile
 import shutil
@@ -2533,6 +2534,25 @@ def parse_start_file_root_first(archive_path):
 
 def parse_completion_file(archive_path):
     """Parse sim_completed.txt to get completion info."""
+    def format_runtime_display(raw_runtime: str) -> str:
+        """Display long runtimes in days with hours in parentheses."""
+        match = re.match(r"^\s*([0-9]+(?:\.[0-9]+)?)\s*h\b", raw_runtime)
+        if not match:
+            return raw_runtime
+
+        hours = float(match.group(1))
+        total_minutes = int(round(hours * 60.0))
+        total_hours = total_minutes // 60
+        minutes = total_minutes % 60
+        hours_minutes = f"{total_hours}h {minutes}m"
+
+        if hours <= 48:
+            return hours_minutes
+
+        days = total_hours // 24
+        rem_hours = total_hours % 24
+        return f"{days}d {rem_hours}h ({hours_minutes})"
+
     completion_file = find_status_file(archive_path, 'sim_completed.txt')
     if not completion_file:
         return None
@@ -2541,7 +2561,8 @@ def parse_completion_file(archive_path):
     with open(completion_file) as f:
         for line in f:
             if 'Total time:' in line:
-                info['total_time'] = line.split(':', 1)[1].strip()
+                raw_total_time = line.split(':', 1)[1].strip()
+                info['total_time'] = format_runtime_display(raw_total_time)
             elif 'Throughput:' in line:
                 info['throughput'] = line.split(':', 1)[1].strip()
     return info
