@@ -1,4 +1,4 @@
-.PHONY: setup activate setup-clean sim sim-i sim-repeat sim-archive sim-test sim-test-clean plot plot-test plot-cache browse status remote-status restart remote-restart debug remote-debug help
+.PHONY: setup activate setup-clean sim sim-i sim-repeat sim-archive sim-test sim-test-clean plot plot-test plot-cache plot-cache-all plot-cache-sync-remote browse status remote-status restart remote-restart debug remote-debug help
 
 # Variables
 VENV_NAME = venv
@@ -6,6 +6,8 @@ PYTHON = python3
 VENV_BIN = $(VENV_NAME)/bin
 VENV_PIP = $(VENV_BIN)/pip
 VENV_PYTHON = $(VENV_BIN)/python
+REMOTE_HOST ?= plots.myember.org
+REMOTE_DATA_DIR ?= /var/www/nanosim/data
 
 # Check if caffeinate exists, use it if available, otherwise use empty command
 CAFFEINATE := $(shell command -v caffeinate 2>/dev/null)
@@ -36,12 +38,15 @@ help:
 	@echo "  make plot-test - Generate plots from test simulation in test_data/"
 	@echo "  make plot-cache - Build dark+light plot cache for a run locally"
 	@echo "                     Example: make plot-cache ARGS=\"--run 20260725_143642\""
+	@echo "  make plot-cache-all - Rebuild dark+light plot cache for every run in data/"
 	@echo ""
 	@echo "Remote (Lightsail):"
 	@echo "  make status         - Check status of nanosim service when run locally"
 	@echo "  make remote-status  - Check status of nanosim service on Lightsail"
 	@echo "  make restart        - Restart nanosim service when run locally"
 	@echo "  make remote-restart - Restart nanosim service on Lightsail"
+	@echo "  make plot-cache-sync-remote - Copy all data/*/plot_cache to Lightsail"
+	@echo "                                Override host/path: make plot-cache-sync-remote REMOTE_HOST=... REMOTE_DATA_DIR=..."
 	@echo "  make debug          - Show local nanosim status + recent logs"
 	@echo "  make remote-debug   - Show remote nanosim status + recent logs"
 
@@ -117,6 +122,52 @@ plot-cache:
 	@echo "Building plot cache..."
 	@$(VENV_PYTHON) tools/build_plot_cache.py $(ARGS)
 
+plot-cache-all:
+	@echo "Rebuilding plot cache for all runs in data/..."
+	@set -e; \
+	runs=$$(find data -mindepth 1 -maxdepth 1 -type d -exec basename {} \; | sort); \
+	if [ -z "$$runs" ]; then \
+		echo "No run directories found under data/."; \
+		exit 0; \
+	fi; \
+	for run in $$runs; do \
+		echo ""; \
+		echo "=== $$run ==="; \
+		$(VENV_PYTHON) tools/build_plot_cache.py --run "$$run" || exit $$?; \
+	done; \
+	echo ""; \
+	echo "Finished rebuilding plot cache for all runs."
+
+plot-cache-sync-remote:
+	@echo "Syncing plot_cache directories to $(REMOTE_HOST):$(REMOTE_DATA_DIR)..."
+	@set -e; \
+	cache_dirs=$$(find data -mindepth 2 -maxdepth 2 -type d -name plot_cache | sort); \
+	if [ -z "$$cache_dirs" ]; then \
+		echo "No plot_cache directories found under data/."; \
+		exit 0; \
+	fi; \
+	echo "Planned copies:"; \
+	for cache_dir in $$cache_dirs; do \
+		run_dir=$$(basename $$(dirname "$$cache_dir")); \
+		echo "  $$cache_dir/ -> $(REMOTE_HOST):$(REMOTE_DATA_DIR)/$$run_dir/plot_cache/"; \
+	done; \
+	echo ""; \
+	printf "Proceed with sync? [y/N] "; \
+	read confirm; \
+	case "$$confirm" in \
+		y|Y|yes|YES) ;; \
+		*) echo "Aborted."; exit 0;; \
+	esac; \
+	for cache_dir in $$cache_dirs; do \
+		run_dir=$$(basename $$(dirname "$$cache_dir")); \
+		echo ""; \
+		echo "=== $$run_dir ==="; \
+		ssh "$(REMOTE_HOST)" "mkdir -p '$(REMOTE_DATA_DIR)/$$run_dir/plot_cache'"; \
+		rsync -az "$$cache_dir/" "$(REMOTE_HOST):$(REMOTE_DATA_DIR)/$$run_dir/plot_cache/"; \
+	done; \
+	echo ""; \
+	echo "Finished syncing plot_cache directories to $(REMOTE_HOST)."
+
 sim-test-clean:
 	@echo "Removing test simulation data..."
 	@rm -rf test_data/
@@ -136,7 +187,7 @@ status:
 
 remote-status:
 	@echo "Checking nanosim service status on Lightsail..."
-	@ssh plots.myember.org "sudo supervisorctl status nanosim"
+	@ssh "$(REMOTE_HOST)" "sudo supervisorctl status nanosim"
 
 debug:
 	@echo "Local nanosim status:"
@@ -150,13 +201,13 @@ debug:
 
 remote-debug:
 	@echo "Remote nanosim status on Lightsail:"
-	@ssh plots.myember.org "sudo supervisorctl status nanosim" || true
+	@ssh "$(REMOTE_HOST)" "sudo supervisorctl status nanosim" || true
 	@echo ""
 	@echo "Recent remote error log (/var/log/nanosim/error.log):"
-	@ssh plots.myember.org "sudo tail -n 80 /var/log/nanosim/error.log" || true
+	@ssh "$(REMOTE_HOST)" "sudo tail -n 80 /var/log/nanosim/error.log" || true
 	@echo ""
 	@echo "Recent remote access log (/var/log/nanosim/access.log):"
-	@ssh plots.myember.org "sudo tail -n 80 /var/log/nanosim/access.log" || true
+	@ssh "$(REMOTE_HOST)" "sudo tail -n 80 /var/log/nanosim/access.log" || true
 
 restart:
 	@echo "Restarting nanosim service..."
@@ -178,12 +229,12 @@ restart:
 
 remote-restart:
 	@echo "Restarting nanosim service on Lightsail..."
-	@ssh plots.myember.org "sudo supervisorctl restart nanosim"
+	@ssh "$(REMOTE_HOST)" "sudo supervisorctl restart nanosim"
 	@echo "Waiting for service to start..."
 	@attempt=1; \
 	max_attempts=12; \
 	while [ $$attempt -le $$max_attempts ]; do \
-		status_line=$$(ssh plots.myember.org "sudo supervisorctl status nanosim"); \
+		status_line=$$(ssh "$(REMOTE_HOST)" "sudo supervisorctl status nanosim"); \
 		echo "[$$attempt/$$max_attempts] $$status_line"; \
 		echo "$$status_line" | grep -q "RUNNING" && exit 0; \
 		sleep 2; \
@@ -191,5 +242,5 @@ remote-restart:
 	done; \
 	echo "nanosim failed to reach RUNNING state on Lightsail after $$max_attempts attempts"; \
 	echo "Recent remote error log:"; \
-	ssh plots.myember.org "sudo tail -n 80 /var/log/nanosim/error.log" || true; \
+	ssh "$(REMOTE_HOST)" "sudo tail -n 80 /var/log/nanosim/error.log" || true; \
 	exit 7

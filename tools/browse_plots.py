@@ -4,6 +4,7 @@
 from flask import Flask, render_template_string, send_file, request, jsonify, session, Response, stream_with_context
 from pathlib import Path
 from datetime import datetime
+from urllib.parse import quote
 import hashlib
 import json
 import logging
@@ -34,15 +35,18 @@ DATA_DIR = REPO_ROOT / 'data'
 ARCHIVE_DIR = DATA_DIR  # Runs stored directly in data directory
 DELETED_DIR = REPO_ROOT / 'archive'  # Non-destructive archive destination
 EXPORT_EXTENSION = '.nanosim'
+EXPORT_MODE_FULL = 'full'
+EXPORT_MODE_PLOTS_ONLY = 'plots-only'
+PLOTS_ONLY_ROOT_FILES = {
+    'sim_started.txt',
+    'sim_status.txt',
+    'sim_completed.txt',
+    'sim_notes.txt',
+}
 PLOT_CACHE_VERSION = 1
 PLOT_CACHE_THEMES = ('dark', 'light')
+PLOT_CACHE_STATIC_PREFIX = os.getenv('NANOSIM_PLOT_CACHE_STATIC_PREFIX', '/plot-cache').rstrip('/')
 WEB_PLOT_BUILD_POLICY = os.getenv('NANOSIM_WEB_PLOT_BUILD', 'localhost-only').strip().lower()
-PLOT_MEMORY_CACHE_MAX_MB = int(os.getenv('NANOSIM_PLOT_MEMORY_CACHE_MAX_MB', '16'))
-PLOT_MEMORY_CACHE_MAX_BYTES = PLOT_MEMORY_CACHE_MAX_MB * 1024 * 1024
-
-# Cache for completed plot HTML, keyed by (dirname, theme).
-# Populated by /plot-stream; consumed by /plot.
-_plot_cache: dict = {}
 
 # Cache for completed exports, keyed by token.
 # Populated by /export-stream; consumed by /export-download.
@@ -80,9 +84,8 @@ def can_run_web_plot_build(req) -> bool:
 
 
 app.logger.info(
-    'plot_cache web_build_policy=%s memory_cache_max_mb=%s',
+    'plot_cache web_build_policy=%s',
     WEB_PLOT_BUILD_POLICY,
-    PLOT_MEMORY_CACHE_MAX_MB,
 )
 
 
@@ -101,26 +104,59 @@ def to_mb(size_bytes: int) -> float:
     return size_bytes / (1024 * 1024)
 
 
-def put_plot_in_memory_cache(dirname: str, theme: str, plot1_html: str | None, plot2_html: str | None, meta: dict | None) -> bool:
-    """Store plot HTML in memory only if payload size is below configured threshold."""
-    payload_bytes = plot_payload_total_bytes(plot1_html, plot2_html)
-    if payload_bytes > PLOT_MEMORY_CACHE_MAX_BYTES:
-        _plot_cache.pop((dirname, theme), None)
-        app.logger.info(
-            "plot_cache event=memory_cache_skip run=%s theme=%s payload_mb=%.2f limit_mb=%s",
-            dirname,
-            theme,
-            payload_bytes / (1024 * 1024),
-            PLOT_MEMORY_CACHE_MAX_MB,
-        )
-        return False
+def normalize_export_mode(mode_value: str | None) -> str:
+    """Normalize export mode to one of the supported values."""
+    if (mode_value or '').strip().lower() == EXPORT_MODE_PLOTS_ONLY:
+        return EXPORT_MODE_PLOTS_ONLY
+    return EXPORT_MODE_FULL
 
-    _plot_cache[(dirname, theme)] = {
-        'plot1': plot1_html,
-        'plot2': plot2_html,
-        'meta': meta,
-    }
-    return True
+
+def export_file_list(archive_path: Path, export_mode: str) -> list[Path]:
+    """Return the files to include for the selected export mode."""
+    all_files = sorted([p for p in archive_path.rglob('*') if p.is_file()])
+    if export_mode == EXPORT_MODE_FULL:
+        return all_files
+
+    selected_files = []
+    for file_path in all_files:
+        rel_path = file_path.relative_to(archive_path)
+        rel_parts = rel_path.parts
+        if not rel_parts:
+            continue
+
+        if rel_parts[0] == 'plot_cache':
+            selected_files.append(file_path)
+            continue
+
+        if len(rel_parts) == 1 and rel_parts[0] in PLOTS_ONLY_ROOT_FILES:
+            selected_files.append(file_path)
+
+    return selected_files
+
+
+def export_filename(dirname: str, export_mode: str) -> str:
+    """Return download filename for an export mode."""
+    if export_mode == EXPORT_MODE_PLOTS_ONLY:
+        return f'ember_nanosim_plots_{dirname}{EXPORT_EXTENSION}'
+    return f'ember_nanosim_{dirname}{EXPORT_EXTENSION}'
+
+
+def export_placeholder_dirs(archive_path: Path, export_mode: str) -> list[str]:
+    """Return empty directory placeholders to preserve for plots-only exports."""
+    if export_mode != EXPORT_MODE_PLOTS_ONLY:
+        return []
+
+    placeholders = []
+    if (archive_path / 'rev').is_dir():
+        placeholders.append('rev')
+    if (archive_path / 'irr').is_dir():
+        placeholders.append('irr')
+    return placeholders
+
+
+def write_zip_dir_entry(zipf: zipfile.ZipFile, dirname: str) -> None:
+    """Write an explicit empty directory entry into a zip file."""
+    zipf.writestr(f"{dirname.rstrip('/')}/", b'')
 
 
 def resolve_plot_data_path(dirname: str) -> Path:
@@ -137,6 +173,17 @@ def plot_cache_paths(data_path: Path, theme: str) -> dict[str, Path]:
         'plot2': cache_dir / f'plot2_{theme}.html',
         'meta': cache_dir / f'manifest_{theme}.json',
     }
+
+
+def plot_cache_public_url(dirname: str, filename: str) -> str:
+    """Return the public URL for a cached plot artifact.
+
+    In production, nginx should serve this path directly from disk.
+    In local development, Flask provides a fallback route on the same path.
+    """
+    safe_dir = quote(dirname, safe='')
+    safe_file = quote(filename, safe='')
+    return f"{PLOT_CACHE_STATIC_PREFIX}/{safe_dir}/plot_cache/{safe_file}"
 
 
 def write_plot_cache_artifacts(data_path: Path, theme: str, plot1_html: str | None, plot2_html: str | None, source: str) -> dict:
@@ -236,7 +283,6 @@ def build_plot_cache(dirname: str, theme: str, source: str = 'local-precompute',
         cache_meta = write_plot_cache_artifacts(data_path, theme, plot1_html, plot2_html, source)
 
     elapsed = time.time() - started_at
-    put_plot_in_memory_cache(dirname, theme, plot1_html, plot2_html, cache_meta)
     emit(f"cache_build_done: {theme} cache ready in {elapsed:.2f}s")
     return cache_meta, elapsed
 
@@ -546,6 +592,47 @@ HTML_TEMPLATE = """
         .export-link:hover {
             background: #28a745;
             color: white;
+            text-decoration: none;
+        }
+
+        .export-menu {
+            position: relative;
+            display: inline-block;
+        }
+
+        .export-menu summary {
+            list-style: none;
+            cursor: pointer;
+        }
+
+        .export-menu summary::-webkit-details-marker {
+            display: none;
+        }
+
+        .export-menu-items {
+            position: absolute;
+            right: 0;
+            top: calc(100% + 6px);
+            min-width: 170px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            box-shadow: 0 4px 10px var(--shadow);
+            z-index: 30;
+            padding: 6px;
+        }
+
+        .export-menu-item {
+            display: block;
+            padding: 7px 9px;
+            border-radius: 4px;
+            color: var(--text-primary);
+            text-decoration: none;
+            font-size: 0.9em;
+        }
+
+        .export-menu-item:hover {
+            background: var(--bg-hover);
             text-decoration: none;
         }
         
@@ -1096,6 +1183,7 @@ HTML_TEMPLATE = """
     <script>
         let currentDirname = null;
         let currentExportDirname = null;
+        let currentExportMode = 'full';
         let exportEventSource = null;
         
         // Theme management
@@ -1145,17 +1233,22 @@ HTML_TEMPLATE = """
             document.getElementById('notesModal').style.display = 'none';
         }
 
-        function openExportModal(dirname) {
+        function exportModeLabel(exportMode) {
+            return exportMode === 'plots-only' ? 'Plots Only' : 'Full Data Set';
+        }
+
+        function openExportModal(dirname, exportMode = 'full') {
             currentExportDirname = dirname;
+            currentExportMode = exportMode;
             const modal = document.getElementById('exportModal');
-            document.getElementById('exportStatus').textContent = 'Preparing export...';
+            document.getElementById('exportStatus').textContent = 'Preparing export (' + exportModeLabel(exportMode) + ')...';
             document.getElementById('exportProgress').textContent = '';
             document.getElementById('exportLog').innerHTML = '';
             document.getElementById('exportHelp').style.display = 'block';
             document.getElementById('exportCloseBtn').style.display = 'none';
             document.getElementById('exportSpinner').style.display = 'block';
             modal.style.display = 'block';
-            startExportStream(dirname);
+            startExportStream(dirname, exportMode);
         }
 
         function closeExportModal() {
@@ -1176,7 +1269,7 @@ HTML_TEMPLATE = """
             while (logBox.children.length > 300) logBox.removeChild(logBox.firstChild);
         }
 
-        function startExportStream(dirname) {
+        function startExportStream(dirname, exportMode = 'full') {
             if (exportEventSource) {
                 exportEventSource.close();
             }
@@ -1188,11 +1281,11 @@ HTML_TEMPLATE = """
             const spinnerEl = document.getElementById('exportSpinner');
 
             const theme = document.documentElement.getAttribute('data-theme') || localStorage.getItem('theme') || 'dark';
-            const streamUrl = '/export-stream/' + dirname + '?theme=' + theme;
+            const streamUrl = '/export-stream/' + dirname + '?theme=' + theme + '&export_mode=' + encodeURIComponent(exportMode);
             exportEventSource = new EventSource(streamUrl);
 
             exportEventSource.onopen = function() {
-                statusEl.textContent = 'Preparing export...';
+                statusEl.textContent = 'Preparing export (' + exportModeLabel(exportMode) + ')...';
                 progressEl.textContent = '';
             };
 
@@ -1647,8 +1740,8 @@ HTML_TEMPLATE = """
             }
         }
         
-        function exportArchive(dirname) {
-            openExportModal(dirname);
+        function exportArchive(dirname, exportMode = 'full') {
+            openExportModal(dirname, exportMode);
         }
         
         function importArchive(overwrite = false) {
@@ -1962,7 +2055,13 @@ HTML_TEMPLATE = """
                     {% if not archive.notes %}
                     <a href="#" class="notes-link" data-dirname="{{ archive.dirname }}" data-notes="" onclick="openNotesModalFromLink(this); return false;" title="Add notes about this simulation">Add notes</a>
                     {% endif %}
-                    <a href="#" class="export-link" onclick="exportArchive('{{ archive.dirname }}'); return false;" title="Export this simulation as a validated zip file">Export</a>
+                    <details class="export-menu">
+                        <summary class="export-link" title="Export this simulation archive">Export</summary>
+                        <div class="export-menu-items">
+                            <a href="#" class="export-menu-item" onclick="exportArchive('{{ archive.dirname }}', 'full'); return false;">Full Data Set</a>
+                            <a href="#" class="export-menu-item" onclick="exportArchive('{{ archive.dirname }}', 'plots-only'); return false;">Plots Only</a>
+                        </div>
+                    </details>
                     <a href="#" class="archive-link" onclick="archiveRun('{{ archive.dirname }}'); return false;" title="Move this run to the archive folder">Archive</a>
                 </div>
             </div>
@@ -3016,6 +3115,8 @@ def export_loading(dirname):
     from flask import request
 
     theme = request.args.get('theme', 'dark')
+    export_mode = normalize_export_mode(request.args.get('export_mode'))
+    export_mode_label = 'Plots Only' if export_mode == EXPORT_MODE_PLOTS_ONLY else 'Full Data Set'
 
     if dirname == 'current':
         title = 'Current Run'
@@ -3256,7 +3357,7 @@ def export_loading(dirname):
     <body>
         <div class="back-link"><a href="/" title="Back to simulation browser">‹</a></div>
         <div class="loading-container">
-            <h1>Exporting Archive - {title}</h1>
+            <h1>Exporting Archive ({export_mode_label}) - {title}</h1>
             <div class="atom-spinner" id="atom-spinner">
                 <div class="nucleus"></div>
                 <div class="orbit orbit-1"><div class="electron"></div></div>
@@ -3273,7 +3374,7 @@ def export_loading(dirname):
             (function() {{
                 const urlParams = new URLSearchParams(window.location.search);
                 const theme = urlParams.get('theme') || localStorage.getItem('theme') || 'dark';
-                const streamUrl = '/export-stream/{dirname}?theme=' + theme;
+                const streamUrl = '/export-stream/{dirname}?theme=' + theme + '&export_mode={export_mode}';
 
                 const statusEl = document.getElementById('status-text');
                 const progressEl = document.getElementById('progress-text');
@@ -3383,6 +3484,7 @@ def export_stream(dirname):
                         headers={'X-Accel-Buffering': 'no', 'Cache-Control': 'no-cache'})
 
     archive_path = ARCHIVE_DIR / dirname
+    export_mode = normalize_export_mode(request.args.get('export_mode'))
 
     @stream_with_context
     def generate():
@@ -3397,19 +3499,27 @@ def export_stream(dirname):
         try:
             yield "data: Starting export build...\n\n"
 
-            file_list = sorted([p for p in archive_path.rglob('*') if p.is_file()])
+            file_list = export_file_list(archive_path, export_mode)
+            placeholder_dirs = export_placeholder_dirs(archive_path, export_mode)
             total_files = len(file_list)
+            mode_label = 'Plots Only' if export_mode == EXPORT_MODE_PLOTS_ONLY else 'Full Data Set'
+            yield f"data: Export mode: {mode_label}\n\n"
             yield f"data: Found {total_files:,} files to export\n\n"
 
             manifest = {
                 'export_version': '1.0',
                 'archive_name': dirname,
+                'export_mode': export_mode,
+                'directories': placeholder_dirs,
                 'export_date': datetime.now().isoformat(),
                 'files': {}
             }
 
             # Use stored mode to reduce CPU/memory pressure on small instances.
             with zipfile.ZipFile(zip_path, 'w', compression=zipfile.ZIP_STORED, allowZip64=True) as zipf:
+                for dir_name in placeholder_dirs:
+                    write_zip_dir_entry(zipf, dir_name)
+
                 for index, file_path in enumerate(file_list, start=1):
                     rel_path = file_path.relative_to(archive_path)
                     file_size = file_path.stat().st_size
@@ -3452,7 +3562,7 @@ def export_stream(dirname):
 
             _export_cache[token] = {
                 'path': zip_path,
-                'filename': f'ember_nanosim_{dirname}{EXPORT_EXTENSION}'
+                'filename': export_filename(dirname, export_mode)
             }
 
             yield "data: Export package complete\n\n"
@@ -3521,6 +3631,7 @@ def export_archive(dirname):
         return "Cannot export current run", 400
     
     archive_path = ARCHIVE_DIR / dirname
+    export_mode = normalize_export_mode(request.args.get('export_mode'))
     if not archive_path.exists():
         return "Archive not found", 404
     
@@ -3530,9 +3641,13 @@ def export_archive(dirname):
     
     try:
         # Create manifest with file hashes for validation
+        placeholder_dirs = export_placeholder_dirs(archive_path, export_mode)
+
         manifest = {
             'export_version': '1.0',
             'archive_name': dirname,
+            'export_mode': export_mode,
+            'directories': placeholder_dirs,
             'export_date': datetime.now().isoformat(),
             'files': {}
         }
@@ -3540,23 +3655,25 @@ def export_archive(dirname):
         # Use stored mode to reduce CPU/memory pressure on small instances.
         # Single-pass write keeps IO predictable for large archives.
         with zipfile.ZipFile(zip_path, 'w', compression=zipfile.ZIP_STORED, allowZip64=True) as zipf:
-            for file_path in archive_path.rglob('*'):
-                if file_path.is_file():
-                    rel_path = file_path.relative_to(archive_path)
-                    file_size = file_path.stat().st_size
-                    
-                    # Calculate SHA256 hash of file
-                    sha256_hash = hashlib.sha256()
-                    with open(file_path, 'rb') as src, zipf.open(str(rel_path), 'w') as dst:
-                        for chunk in iter(lambda: src.read(4 * 1024 * 1024), b''):
-                            sha256_hash.update(chunk)
-                            dst.write(chunk)
-                    
-                    # Store file and hash in manifest
-                    manifest['files'][str(rel_path)] = {
-                        'sha256': sha256_hash.hexdigest(),
-                        'size': file_size
-                    }
+            for dir_name in placeholder_dirs:
+                write_zip_dir_entry(zipf, dir_name)
+
+            for file_path in export_file_list(archive_path, export_mode):
+                rel_path = file_path.relative_to(archive_path)
+                file_size = file_path.stat().st_size
+
+                # Calculate SHA256 hash of file
+                sha256_hash = hashlib.sha256()
+                with open(file_path, 'rb') as src, zipf.open(str(rel_path), 'w') as dst:
+                    for chunk in iter(lambda: src.read(4 * 1024 * 1024), b''):
+                        sha256_hash.update(chunk)
+                        dst.write(chunk)
+
+                # Store file and hash in manifest
+                manifest['files'][str(rel_path)] = {
+                    'sha256': sha256_hash.hexdigest(),
+                    'size': file_size
+                }
             
             # Add manifest to zip
             manifest_json = json.dumps(manifest, indent=2)
@@ -3570,7 +3687,7 @@ def export_archive(dirname):
         return send_file(
             zip_path,
             as_attachment=True,
-            download_name=f'ember_nanosim_{dirname}{EXPORT_EXTENSION}',
+            download_name=export_filename(dirname, export_mode),
             mimetype='application/octet-stream'
         )
     except Exception as e:
@@ -3650,6 +3767,11 @@ def import_archive():
                 
                 # Verify all files match their hashes
                 validation_errors = []
+                for dir_name in manifest.get('directories', []):
+                    dir_path = archive_dir / dir_name
+                    if not dir_path.exists() or not dir_path.is_dir():
+                        validation_errors.append(f"Missing directory: {dir_name}")
+
                 for file_name, file_info in manifest['files'].items():
                     file_path = archive_dir / file_name
                     if not file_path.exists():
@@ -3695,6 +3817,9 @@ def import_archive():
                 
                 # Copy files (excluding MANIFEST.json and SIGNATURE)
                 target_path.mkdir(parents=True, exist_ok=True)
+                for dir_name in manifest.get('directories', []):
+                    (target_path / dir_name).mkdir(parents=True, exist_ok=True)
+
                 for file_name in manifest['files'].keys():
                     src = archive_dir / file_name
                     dst = target_path / file_name
@@ -3775,6 +3900,11 @@ def import_archive():
                 
                 # Verify all files match their hashes
                 validation_errors = []
+                for dir_name in manifest.get('directories', []):
+                    zip_dir_path = subdir_prefix + dir_name.rstrip('/') + '/'
+                    if zip_dir_path not in zip_contents:
+                        validation_errors.append(f"Missing directory: {dir_name}")
+
                 for file_name, file_info in manifest['files'].items():
                     # Construct full path in zip (with subdirectory prefix if present)
                     zip_file_path = subdir_prefix + file_name
@@ -3821,6 +3951,9 @@ def import_archive():
                 
                 # Extract files (excluding MANIFEST.json and SIGNATURE)
                 target_path.mkdir(parents=True, exist_ok=True)
+                for dir_name in manifest.get('directories', []):
+                    (target_path / dir_name).mkdir(parents=True, exist_ok=True)
+
                 for file_name in manifest['files'].keys():
                     zip_file_path = subdir_prefix + file_name
                     file_data = zipf.read(zip_file_path)
@@ -3850,28 +3983,18 @@ def plot_stream(dirname):
     caches the finished plot HTML, then fires event: done so the loading page redirects."""
     import subprocess
     import tempfile
-    import shutil
     import time
 
     theme = request.args.get('theme', 'dark')
     force_replot = request.args.get('force_replot', '0') == '1'
 
-    def cache_paths(data_path: Path, active_theme: str) -> dict[str, Path]:
-        cache_dir = data_path / 'plot_cache'
-        return {
-            'dir': cache_dir,
-            'plot1': cache_dir / f'plot1_{active_theme}.html',
-            'plot2': cache_dir / f'plot2_{active_theme}.html',
-            'meta': cache_dir / f'manifest_{active_theme}.json',
-        }
-
     def load_disk_cache(data_path: Path, active_theme: str) -> dict | None:
-        paths = cache_paths(data_path, active_theme)
+        paths = plot_cache_paths(data_path, active_theme)
         if not paths['dir'].exists():
             return None
 
-        plot1_html = paths['plot1'].read_text() if paths['plot1'].exists() else None
-        plot2_html = paths['plot2'].read_text() if paths['plot2'].exists() else None
+        plot1_exists = paths['plot1'].exists()
+        plot2_exists = paths['plot2'].exists()
         manifest = None
 
         if paths['meta'].exists():
@@ -3880,20 +4003,17 @@ def plot_stream(dirname):
             except Exception:
                 manifest = None
 
-        if plot1_html is None and plot2_html is None:
+        if not plot1_exists and not plot2_exists:
             return None
 
-        cached_in_memory = put_plot_in_memory_cache(
-            dirname,
-            active_theme,
-            plot1_html,
-            plot2_html,
-            manifest,
-        )
-        payload_bytes = plot_payload_total_bytes(plot1_html, plot2_html)
+        payload_bytes = 0
+        if plot1_exists:
+            payload_bytes += paths['plot1'].stat().st_size
+        if plot2_exists:
+            payload_bytes += paths['plot2'].stat().st_size
+
         return {
             'meta': manifest,
-            'cached_in_memory': cached_in_memory,
             'payload_bytes': payload_bytes,
         }
 
@@ -3906,44 +4026,6 @@ def plot_stream(dirname):
             f"built_at={meta.get('built_at', 'unknown')} "
             f"version={meta.get('cache_version', 'unknown')}"
         )
-
-    def write_disk_cache(data_path: Path, active_theme: str, plot1_html: str | None, plot2_html: str | None, source: str) -> None:
-        paths = cache_paths(data_path, active_theme)
-        tmp_root = Path(tempfile.mkdtemp(prefix='plot_cache_tmp_', dir=str(data_path)))
-        tmp_cache_dir = tmp_root / 'plot_cache'
-        tmp_cache_dir.mkdir(parents=True, exist_ok=True)
-
-        if plot1_html is not None:
-            (tmp_cache_dir / paths['plot1'].name).write_text(plot1_html)
-        if plot2_html is not None:
-            (tmp_cache_dir / paths['plot2'].name).write_text(plot2_html)
-
-        manifest = {
-            'cache_version': 1,
-            'theme': active_theme,
-            'source': source,
-            'built_at': datetime.now().isoformat(),
-        }
-        (tmp_cache_dir / paths['meta'].name).write_text(json.dumps(manifest, indent=2))
-
-        paths['dir'].mkdir(parents=True, exist_ok=True)
-        for entry in tmp_cache_dir.iterdir():
-            final_path = paths['dir'] / entry.name
-            shutil.move(str(entry), str(final_path))
-
-        shutil.rmtree(tmp_root, ignore_errors=True)
-
-    # If already cached (e.g. EventSource reconnect), immediately signal done.
-    if not force_replot and (dirname, theme) in _plot_cache:
-        def already_done():
-            cache_meta = _plot_cache.get((dirname, theme), {}).get('meta')
-            app.logger.info("plot_cache event=cache_hit_memory run=%s theme=%s", dirname, theme)
-            yield "data: cache_hit: using in-memory plot cache\n\n"
-            yield f"data: cache_meta: {format_cache_meta(cache_meta)}\n\n"
-            yield "event: done\ndata: ok\n\n"
-        return Response(stream_with_context(already_done()),
-                        mimetype='text/event-stream',
-                        headers={'X-Accel-Buffering': 'no', 'Cache-Control': 'no-cache'})
 
     if dirname == 'current':
         data_path = DATA_DIR
@@ -3972,24 +4054,22 @@ def plot_stream(dirname):
             if disk_cache:
                 elapsed = time.time() - started_at
                 cache_meta = disk_cache.get('meta')
-                cache_mode = 'in-memory+disk' if disk_cache.get('cached_in_memory') else 'disk-only'
                 payload_bytes = int(disk_cache.get('payload_bytes') or 0)
                 app.logger.info(
                     "plot_cache event=cache_hit_disk run=%s theme=%s elapsed=%.3fs cache_mode=%s payload_mb=%.2f",
                     dirname,
                     theme,
                     elapsed,
-                    cache_mode,
+                    'disk-only',
                     to_mb(payload_bytes),
                 )
-                yield f"data: cache_hit: loaded cached plot artifacts from disk ({elapsed:.2f}s, {cache_mode})\n\n"
+                yield f"data: cache_hit: loaded cached plot artifacts from disk ({elapsed:.2f}s, disk-only)\n\n"
                 yield f"data: cache_meta: {format_cache_meta(cache_meta)}\n\n"
                 yield "event: done\ndata: ok\n\n"
                 return
             app.logger.info("plot_cache event=cache_miss run=%s theme=%s", dirname, theme)
             yield "data: cache_miss: no cached plot artifacts found, starting cache build\n\n"
         else:
-            _plot_cache.pop((dirname, theme), None)
             app.logger.info("plot_cache event=force_replot run=%s theme=%s", dirname, theme)
             yield "data: cache_rebuild: force replot requested, rebuilding cache\n\n"
 
@@ -4081,10 +4161,8 @@ def plot_stream(dirname):
                 'built_at': datetime.now().isoformat(),
             }
 
-            put_plot_in_memory_cache(dirname, theme, plot1_html, plot2_html, cache_meta)
-
             try:
-                write_disk_cache(data_path, theme, plot1_html, plot2_html, source='dynamic-build')
+                cache_meta = write_plot_cache_artifacts(data_path, theme, plot1_html, plot2_html, source='dynamic-build')
             except Exception as e:
                 app.logger.error("plot_cache event=cache_build_failed run=%s theme=%s reason=persist_failed error=%s", dirname, theme, str(e))
                 yield f"data: cache_build_failed: unable to persist cache to disk ({e})\n\n"
@@ -4504,29 +4582,20 @@ def plot_data(dirname):
         if not data_path.exists():
             return "Archive not found", 404
 
-    cached = _plot_cache.get((dirname, theme))
-    if not cached:
-        cache_dir = data_path / 'plot_cache'
-        plot1_path = cache_dir / f'plot1_{theme}.html'
-        plot2_path = cache_dir / f'plot2_{theme}.html'
-        meta_path = cache_dir / f'manifest_{theme}.json'
-
-        plot1_html = plot1_path.read_text() if plot1_path.exists() else None
-        plot2_html = plot2_path.read_text() if plot2_path.exists() else None
-        cache_meta = None
-        if meta_path.exists():
-            try:
-                cache_meta = json.loads(meta_path.read_text())
-            except Exception:
-                cache_meta = None
-
-        if plot1_html is not None or plot2_html is not None:
-            put_plot_in_memory_cache(dirname, theme, plot1_html, plot2_html, cache_meta)
-            cached = {
-                'plot1': plot1_html,
-                'plot2': plot2_html,
-                'meta': cache_meta,
-            }
+    cache_dir = data_path / 'plot_cache'
+    plot1_filename = f'plot1_{theme}.html'
+    plot2_filename = f'plot2_{theme}.html'
+    plot1_path = cache_dir / plot1_filename
+    plot2_path = cache_dir / plot2_filename
+    meta_path = cache_dir / f'manifest_{theme}.json'
+    plot1_exists = plot1_path.exists()
+    plot2_exists = plot2_path.exists()
+    cache_meta = None
+    if meta_path.exists():
+        try:
+            cache_meta = json.loads(meta_path.read_text())
+        except Exception:
+            cache_meta = None
 
     if force_replot:
         if not can_run_web_plot_build(request):
@@ -4535,10 +4604,9 @@ def plot_data(dirname):
                 "Run make plot-cache locally and import plot_cache artifacts.",
                 403,
             )
-        _plot_cache.pop((dirname, theme), None)
         return redirect(url_for('plot_loading', dirname=dirname, theme=theme, force_replot='1'))
 
-    if not cached:
+    if not plot1_exists and not plot2_exists:
         # Not yet generated — send to loading page which drives /plot-stream
         return redirect(url_for('plot_loading', dirname=dirname, theme=theme))
     
@@ -4562,11 +4630,15 @@ def plot_data(dirname):
         }
         return status_classes.get(status_value, 'status-unknown')
     
-    # Pull cached plot HTML produced by /plot-stream
-    plot1_html = cached.get('plot1')
-    plot2_html = cached.get('plot2')
-    cache_meta = cached.get('meta') or {}
-    plot_payload_bytes = plot_payload_total_bytes(plot1_html, plot2_html)
+    plot_payload_bytes = 0
+    if plot1_exists:
+        plot_payload_bytes += plot1_path.stat().st_size
+    if plot2_exists:
+        plot_payload_bytes += plot2_path.stat().st_size
+
+    cache_meta = cache_meta or {}
+    plot1_url = plot_cache_public_url(dirname, plot1_filename) if plot1_exists else None
+    plot2_url = plot_cache_public_url(dirname, plot2_filename) if plot2_exists else None
 
     try:
             # Combine plots into a single page
@@ -4817,6 +4889,86 @@ def plot_data(dirname):
                         gap: 15px;
                     }}
                     .plot-container {{ margin: 20px 0; }}
+                    .plot-frame-wrap {{
+                        position: relative;
+                        min-height: 320px;
+                        border: 1px solid var(--border-color);
+                        border-radius: 8px;
+                        overflow: hidden;
+                        background: var(--bg-secondary);
+                    }}
+                    .plot-frame {{
+                        width: 100%;
+                        min-height: 900px;
+                        border: 0;
+                        border-radius: 6px;
+                        background: var(--bg-secondary);
+                        opacity: 0.08;
+                        transition: opacity 0.25s ease;
+                    }}
+                    .plot-frame-wrap.loaded .plot-frame {{
+                        opacity: 1;
+                    }}
+                    .plot-progress-track {{
+                        width: 100%;
+                        height: 8px;
+                        border-radius: 999px;
+                        overflow: hidden;
+                        background: rgba(128, 128, 128, 0.28);
+                        border: 1px solid var(--border-color);
+                    }}
+                    .plot-progress-fill {{
+                        height: 100%;
+                        width: 0%;
+                        border-radius: 999px;
+                        background: linear-gradient(90deg, #00b8d4 0%, #ab63fa 100%);
+                        transition: width 0.6s ease;
+                    }}
+                    .plot-progress-text {{
+                        margin-top: 6px;
+                        font-size: 0.82em;
+                        color: var(--text-secondary);
+                    }}
+                    .page-load-curtain {{
+                        position: fixed;
+                        inset: 0;
+                        z-index: 10000;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        background: rgba(0, 0, 0, 0.62);
+                        backdrop-filter: blur(2px);
+                        -webkit-backdrop-filter: blur(2px);
+                        transition: opacity 0.24s ease;
+                    }}
+                    .page-load-curtain.hidden {{
+                        opacity: 0;
+                        pointer-events: none;
+                    }}
+                    .page-load-card {{
+                        width: min(560px, 92vw);
+                        background: var(--bg-primary);
+                        color: var(--text-primary);
+                        border: 1px solid var(--border-color);
+                        border-radius: 10px;
+                        box-shadow: 0 16px 40px rgba(0,0,0,0.35);
+                        padding: 18px 18px 16px;
+                    }}
+                    .page-load-title {{
+                        font-size: 1.06em;
+                        font-weight: 700;
+                        margin-bottom: 6px;
+                    }}
+                    .page-load-status {{
+                        color: var(--text-secondary);
+                        font-size: 0.93em;
+                        margin-bottom: 10px;
+                    }}
+                    .page-load-hint {{
+                        margin-top: 8px;
+                        font-size: 0.84em;
+                        color: var(--text-secondary);
+                    }}
                     .back-link {{ 
                         margin-bottom: 20px;
                         display: flex;
@@ -4891,6 +5043,41 @@ def plot_data(dirname):
                     .export-btn:hover {{
                         background: #218838;
                         transform: scale(1.05);
+                    }}
+                    .export-menu-inline {{
+                        position: relative;
+                        display: inline-block;
+                    }}
+                    .export-menu-inline summary {{
+                        list-style: none;
+                        cursor: pointer;
+                    }}
+                    .export-menu-inline summary::-webkit-details-marker {{
+                        display: none;
+                    }}
+                    .export-menu-inline-items {{
+                        position: absolute;
+                        right: 0;
+                        top: calc(100% + 6px);
+                        min-width: 170px;
+                        background: var(--bg-secondary);
+                        border: 1px solid var(--border-color);
+                        border-radius: 6px;
+                        box-shadow: 0 4px 10px rgba(0,0,0,0.25);
+                        z-index: 30;
+                        padding: 6px;
+                    }}
+                    .export-menu-inline-item {{
+                        display: block;
+                        padding: 7px 9px;
+                        border-radius: 4px;
+                        color: var(--text-primary);
+                        text-decoration: none;
+                        font-size: 0.9em;
+                    }}
+                    .export-menu-inline-item:hover {{
+                        background: var(--param-bg);
+                        text-decoration: none;
                     }}
                     .replot-btn {{
                         background: var(--msg-warning);
@@ -5092,16 +5279,67 @@ def plot_data(dirname):
                             btn.title = theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode';
                         }}
                     }}
+
+                    function initPlotFrameLoading() {{
+                        const wraps = document.querySelectorAll('.plot-frame-wrap');
+                        const autoWrapsForCurtain = Array.from(document.querySelectorAll('.plot-frame-wrap[data-autoload="1"]'));
+                        const curtainEl = document.getElementById('pageLoadCurtain');
+                        const curtainStatusEl = document.getElementById('pageLoadStatus');
+
+                        function updateCurtainState() {{
+                            if (!curtainEl || autoWrapsForCurtain.length === 0) return;
+
+                            let doneCount = 0;
+                            autoWrapsForCurtain.forEach((wrap) => {{
+                                if (wrap.classList.contains('loaded') || wrap.classList.contains('error')) doneCount += 1;
+                            }});
+
+                            if (curtainStatusEl) {{
+                                if (doneCount < autoWrapsForCurtain.length) {{
+                                    curtainStatusEl.textContent = `Loading plots: ${{doneCount}}/${{autoWrapsForCurtain.length}} complete`;
+                                }} else {{
+                                    const failed = autoWrapsForCurtain.filter(w => w.classList.contains('error')).length;
+                                    curtainStatusEl.textContent = failed > 0
+                                        ? `Loaded with warnings: ${{autoWrapsForCurtain.length - failed}} ok, ${{failed}} failed`
+                                        : 'All plots loaded';
+                                }}
+                            }}
+
+                            if (doneCount === autoWrapsForCurtain.length) {{
+                                setTimeout(() => curtainEl.classList.add('hidden'), 380);
+                            }}
+                        }}
+
+                        wraps.forEach((wrap, index) => {{
+                            const iframe = wrap.querySelector('iframe');
+                            if (!iframe) return;
+
+                            iframe.addEventListener('load', () => {{
+                                wrap.classList.remove('error');
+                                wrap.classList.add('loaded');
+                                updateCurtainState();
+                            }});
+
+                            iframe.addEventListener('error', () => {{
+                                wrap.classList.add('error');
+                                updateCurtainState();
+                            }});
+                        }});
+
+                        updateCurtainState();
+                    }}
                     
                     let originalNotes = '';
                     let isEditMode = false;
                     
                     document.addEventListener('DOMContentLoaded', function() {{
                         initTheme();  // Initialize theme on page load
+                        initPlotFrameLoading();
                         
                         const textarea = document.getElementById('notesTextarea');
                         const saveBtn = document.getElementById('saveNotesBtn');
                         const saveStatus = document.getElementById('saveStatus');
+                        if (!textarea || !saveBtn || !saveStatus) return;
                         originalNotes = textarea.value;
                         
                         // Show save button when content changes
@@ -5192,11 +5430,24 @@ def plot_data(dirname):
                 </script>
             </head>
             <body>
+                <div id="pageLoadCurtain" class="page-load-curtain" aria-live="polite">
+                    <div class="page-load-card">
+                        <div class="page-load-title">Loading plots...</div>
+                        <div id="pageLoadStatus" class="page-load-status">Preparing...</div>
+                        <div class="page-load-hint">Please wait while both plots render. Large data sets can take several minutes to load.</div>
+                    </div>
+                </div>
                 <div class="back-link">
                     <a href="/" title="Back to simulation browser">‹</a>
                     <div class="top-controls">
                         {replot_button_html}
-                        <button class="export-btn" onclick="window.location.href='/export-loading/{dirname}?theme=' + (document.documentElement.getAttribute('data-theme') || localStorage.getItem('theme') || 'dark')" title="Export this simulation archive">Export</button>
+                        <details class="export-menu-inline">
+                            <summary class="export-btn" title="Export this simulation archive">Export</summary>
+                            <div class="export-menu-inline-items">
+                                <a href="#" class="export-menu-inline-item" onclick="window.location.href='/export-loading/{dirname}?theme=' + (document.documentElement.getAttribute('data-theme') || localStorage.getItem('theme') || 'dark') + '&export_mode=full'; return false;">Full Data Set</a>
+                                <a href="#" class="export-menu-inline-item" onclick="window.location.href='/export-loading/{dirname}?theme=' + (document.documentElement.getAttribute('data-theme') || localStorage.getItem('theme') || 'dark') + '&export_mode=plots-only'; return false;">Plots Only</a>
+                            </div>
+                        </details>
                         <button class="refresh-btn" onclick="location.reload()" title="Refresh the page to see latest data">🔄</button>
                     </div>
                 </div>
@@ -5205,11 +5456,25 @@ def plot_data(dirname):
                 {notes_html}
             """
             
-            if plot1_html:
-                html_content += f'<div class="plot-container">{plot1_html}</div>'
+            if plot1_url:
+                html_content += (
+                    '<div class="plot-container">'
+                    '<div class="plot-frame-wrap" data-plot-name="Plot 1" data-autoload="1">'
+                    f'<iframe class="plot-frame" src="{plot1_url}" loading="eager" title="Plot 1" '
+                    'referrerpolicy="same-origin"></iframe>'
+                    '</div>'
+                    '</div>'
+                )
             
-            if plot2_html:
-                html_content += f'<div class="plot-container">{plot2_html}</div>'
+            if plot2_url:
+                html_content += (
+                    '<div class="plot-container">'
+                    '<div class="plot-frame-wrap" data-plot-name="Plot 2" data-autoload="1">'
+                    f'<iframe class="plot-frame" src="{plot2_url}" loading="lazy" title="Plot 2" '
+                    'referrerpolicy="same-origin"></iframe>'
+                    '</div>'
+                    '</div>'
+                )
             
             html_content += """
             </body>
@@ -5237,6 +5502,31 @@ def plot_data(dirname):
     except Exception as e:
         import traceback
         return f"<h1>Error generating plots</h1><pre>{traceback.format_exc()}</pre>", 500
+
+
+@app.route('/plot-cache/<dirname>/plot_cache/<plot_filename>')
+def serve_plot_cache_file(dirname, plot_filename):
+    """Flask fallback for cached plot artifacts.
+
+    In production, nginx should serve this path directly from disk.
+    """
+    allowed_files = {f'plot1_{theme}.html' for theme in PLOT_CACHE_THEMES}
+    allowed_files.update({f'plot2_{theme}.html' for theme in PLOT_CACHE_THEMES})
+
+    if plot_filename not in allowed_files:
+        return "Invalid plot cache file", 400
+
+    data_path = resolve_plot_data_path(dirname)
+    if not data_path.exists():
+        return "Run not found", 404
+
+    file_path = data_path / 'plot_cache' / plot_filename
+    if not file_path.exists() or not file_path.is_file():
+        return "Plot cache file not found", 404
+
+    response = send_file(file_path, mimetype='text/html', conditional=True)
+    response.headers['Cache-Control'] = 'public, max-age=600'
+    return response
 
 if __name__ == '__main__':
     print("\n" + "="*60)
