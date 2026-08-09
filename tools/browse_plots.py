@@ -83,6 +83,13 @@ def can_run_web_plot_build(req) -> bool:
     return is_loopback_host(host) or is_loopback_host(forwarded_host)
 
 
+def can_show_data_transfer_controls(req) -> bool:
+    """Show import/export controls only for localhost sessions."""
+    host = req.host or ''
+    forwarded_host = req.headers.get('X-Forwarded-Host', '')
+    return is_loopback_host(host) or is_loopback_host(forwarded_host)
+
+
 app.logger.info(
     'plot_cache web_build_policy=%s',
     WEB_PLOT_BUILD_POLICY,
@@ -600,13 +607,18 @@ HTML_TEMPLATE = """
             display: inline-block;
         }
 
-        .export-menu summary {
-            list-style: none;
+        .export-menu .export-link {
             cursor: pointer;
+            appearance: none;
+            -webkit-appearance: none;
+            background: transparent;
+            font: inherit;
+            line-height: inherit;
         }
 
-        .export-menu summary::-webkit-details-marker {
-            display: none;
+        .export-menu .export-link:focus-visible {
+            outline: 2px solid #28a745;
+            outline-offset: 2px;
         }
 
         .export-menu-items {
@@ -620,6 +632,11 @@ HTML_TEMPLATE = """
             box-shadow: 0 4px 10px var(--shadow);
             z-index: 30;
             padding: 6px;
+            display: none;
+        }
+
+        .export-menu.open .export-menu-items {
+            display: block;
         }
 
         .export-menu-item {
@@ -1240,6 +1257,7 @@ HTML_TEMPLATE = """
         function openExportModal(dirname, exportMode = 'full') {
             currentExportDirname = dirname;
             currentExportMode = exportMode;
+            closeAllExportMenus();
             const modal = document.getElementById('exportModal');
             document.getElementById('exportStatus').textContent = 'Preparing export (' + exportModeLabel(exportMode) + ')...';
             document.getElementById('exportProgress').textContent = '';
@@ -1258,6 +1276,38 @@ HTML_TEMPLATE = """
             }
             document.getElementById('exportModal').style.display = 'none';
         }
+
+        function closeAllExportMenus(exceptMenu = null) {
+            document.querySelectorAll('.export-menu').forEach((menu) => {
+                if (menu === exceptMenu) return;
+                menu.classList.remove('open');
+                const trigger = menu.querySelector('.export-link');
+                if (trigger) trigger.setAttribute('aria-expanded', 'false');
+            });
+        }
+
+        function toggleExportMenu(event, triggerButton) {
+            event.preventDefault();
+            event.stopPropagation();
+            const menu = triggerButton.closest('.export-menu');
+            if (!menu) return;
+            const isOpen = menu.classList.contains('open');
+            closeAllExportMenus(menu);
+            menu.classList.toggle('open', !isOpen);
+            triggerButton.setAttribute('aria-expanded', String(!isOpen));
+        }
+
+        document.addEventListener('click', function(event) {
+            if (!event.target.closest('.export-menu')) {
+                closeAllExportMenus();
+            }
+        });
+
+        document.addEventListener('keydown', function(event) {
+            if (event.key === 'Escape') {
+                closeAllExportMenus();
+            }
+        });
 
         function appendExportLog(text, isError) {
             const logBox = document.getElementById('exportLog');
@@ -1855,6 +1905,7 @@ HTML_TEMPLATE = """
         </div>
     </div>
     
+    {% if show_data_transfer_controls %}
     <div id="importModal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
@@ -1876,7 +1927,9 @@ HTML_TEMPLATE = """
             </div>
         </div>
     </div>
+    {% endif %}
     
+    {% if show_data_transfer_controls %}
     <div id="combineModal" class="modal">
         <div class="modal-content modal-content-wide">
             <div class="modal-header">
@@ -1938,7 +1991,9 @@ HTML_TEMPLATE = """
             </div>
         </div>
     </div>
+    {% endif %}
 
+    {% if show_data_transfer_controls %}
     <div id="exportModal" class="modal">
         <div class="modal-content modal-content-wide">
             <div class="modal-header">
@@ -1960,12 +2015,15 @@ HTML_TEMPLATE = """
             </div>
         </div>
     </div>
+    {% endif %}
     
     <h1>
         <span>📊 Simulation Browser</span>
         <div class="header-controls">
+            {% if show_data_transfer_controls %}
             <button class="import-btn" onclick="openImportModal()" title="Import a previously exported simulation archive">Import</button>
             <button class="combine-btn" onclick="openCombineModal()" title="Combine reversible and irreversible simulations into one archive">Combine</button>
+            {% endif %}
             <button class="refresh-btn" onclick="window.location.reload()" title="Refresh the page to see latest simulations">🔄</button>
             <button id="themeToggle" class="theme-toggle" onclick="toggleTheme()" title="Switch between dark and light themes">🌙</button>
         </div>
@@ -2055,14 +2113,18 @@ HTML_TEMPLATE = """
                     {% if not archive.notes %}
                     <a href="#" class="notes-link" data-dirname="{{ archive.dirname }}" data-notes="" onclick="openNotesModalFromLink(this); return false;" title="Add notes about this simulation">Add notes</a>
                     {% endif %}
-                    <details class="export-menu">
-                        <summary class="export-link" title="Export this simulation archive">Export</summary>
+                    {% if show_data_transfer_controls %}
+                    <div class="export-menu">
+                        <button type="button" class="export-link" title="Export this simulation archive" aria-haspopup="true" aria-expanded="false" onclick="toggleExportMenu(event, this)">Export</button>
                         <div class="export-menu-items">
                             <a href="#" class="export-menu-item" onclick="exportArchive('{{ archive.dirname }}', 'full'); return false;">Full Data Set</a>
                             <a href="#" class="export-menu-item" onclick="exportArchive('{{ archive.dirname }}', 'plots-only'); return false;">Plots Only</a>
                         </div>
-                    </details>
+                    </div>
+                    {% endif %}
+                    {% if show_data_transfer_controls %}
                     <a href="#" class="archive-link" onclick="archiveRun('{{ archive.dirname }}'); return false;" title="Move this run to the archive folder">Archive</a>
+                    {% endif %}
                 </div>
             </div>
         </div>
@@ -2865,7 +2927,14 @@ def index():
             elif flag in ['i', 'irr', '1', 1]:
                 irr_archives.append(archive_info)
     
-    return render_template_string(HTML_TEMPLATE, archives=archives, rev_archives=rev_archives, irr_archives=irr_archives, favicon_version=FAVICON_VERSION)
+    return render_template_string(
+        HTML_TEMPLATE,
+        archives=archives,
+        rev_archives=rev_archives,
+        irr_archives=irr_archives,
+        favicon_version=FAVICON_VERSION,
+        show_data_transfer_controls=can_show_data_transfer_controls(request),
+    )
 
 @app.route('/notes/<dirname>', methods=['POST'])
 def update_notes(dirname):
@@ -4814,6 +4883,19 @@ def plot_data(dirname):
                 replot_button_html = f"<button class=\"replot-btn\" onclick=\"window.location.href='/plot-loading/{dirname}?theme=' + (document.documentElement.getAttribute('data-theme') || localStorage.getItem('theme') || 'dark') + '&force_replot=1'\" title=\"{replot_title}\">Replot</button>"
             else:
                 replot_button_html = ""
+
+            if can_show_data_transfer_controls(request):
+                export_menu_html = (
+                    '<div class="export-menu-inline">'
+                    '<button type="button" class="export-btn" title="Export this simulation archive" aria-haspopup="true" aria-expanded="false" onclick="toggleExportInlineMenu(event, this)">Export</button>'
+                    '<div class="export-menu-inline-items">'
+                    f'<a href="#" class="export-menu-inline-item" onclick="window.location.href=\'/export-loading/{dirname}?theme=\' + (document.documentElement.getAttribute(\'data-theme\') || localStorage.getItem(\'theme\') || \'dark\') + \'&export_mode=full\'; return false;">Full Data Set</a>'
+                    f'<a href="#" class="export-menu-inline-item" onclick="window.location.href=\'/export-loading/{dirname}?theme=\' + (document.documentElement.getAttribute(\'data-theme\') || localStorage.getItem(\'theme\') || \'dark\') + \'&export_mode=plots-only\'; return false;">Plots Only</a>'
+                    '</div>'
+                    '</div>'
+                )
+            else:
+                export_menu_html = ""
             
             notes_html = f"""
             <div class="notes-panel">
@@ -4975,7 +5057,7 @@ def plot_data(dirname):
                         justify-content: space-between;
                         align-items: center;
                     }}
-                    .back-link a {{ 
+                    .back-link > a {{
                         color: #007bff;
                         font-size: 34px;
                         font-weight: 800;
@@ -4987,7 +5069,7 @@ def plot_data(dirname):
                         justify-content: center;
                         transition: all 0.2s;
                     }}
-                    .back-link a:hover {{ 
+                    .back-link > a:hover {{ 
                         background: #007bff;
                         color: white;
                         text-decoration: none;
@@ -5048,12 +5130,14 @@ def plot_data(dirname):
                         position: relative;
                         display: inline-block;
                     }}
-                    .export-menu-inline summary {{
-                        list-style: none;
+                    .export-menu-inline .export-btn {{
                         cursor: pointer;
+                        appearance: none;
+                        -webkit-appearance: none;
                     }}
-                    .export-menu-inline summary::-webkit-details-marker {{
-                        display: none;
+                    .export-menu-inline .export-btn:focus-visible {{
+                        outline: 2px solid #28a745;
+                        outline-offset: 2px;
                     }}
                     .export-menu-inline-items {{
                         position: absolute;
@@ -5066,6 +5150,10 @@ def plot_data(dirname):
                         box-shadow: 0 4px 10px rgba(0,0,0,0.25);
                         z-index: 30;
                         padding: 6px;
+                        display: none;
+                    }}
+                    .export-menu-inline.open .export-menu-inline-items {{
+                        display: block;
                     }}
                     .export-menu-inline-item {{
                         display: block;
@@ -5074,6 +5162,8 @@ def plot_data(dirname):
                         color: var(--text-primary);
                         text-decoration: none;
                         font-size: 0.9em;
+                        font-weight: 500;
+                        line-height: 1.3;
                     }}
                     .export-menu-inline-item:hover {{
                         background: var(--param-bg);
@@ -5328,6 +5418,26 @@ def plot_data(dirname):
 
                         updateCurtainState();
                     }}
+
+                    function closeAllInlineExportMenus(exceptMenu = null) {{
+                        document.querySelectorAll('.export-menu-inline').forEach((menu) => {{
+                            if (menu === exceptMenu) return;
+                            menu.classList.remove('open');
+                            const trigger = menu.querySelector('.export-btn');
+                            if (trigger) trigger.setAttribute('aria-expanded', 'false');
+                        }});
+                    }}
+
+                    function toggleExportInlineMenu(event, triggerButton) {{
+                        event.preventDefault();
+                        event.stopPropagation();
+                        const menu = triggerButton.closest('.export-menu-inline');
+                        if (!menu) return;
+                        const isOpen = menu.classList.contains('open');
+                        closeAllInlineExportMenus(menu);
+                        menu.classList.toggle('open', !isOpen);
+                        triggerButton.setAttribute('aria-expanded', String(!isOpen));
+                    }}
                     
                     let originalNotes = '';
                     let isEditMode = false;
@@ -5368,6 +5478,18 @@ def plot_data(dirname):
                                 saveNotes();
                             }}
                         }});
+                    }});
+
+                    document.addEventListener('click', function(event) {{
+                        if (!event.target.closest('.export-menu-inline')) {{
+                            closeAllInlineExportMenus();
+                        }}
+                    }});
+
+                    document.addEventListener('keydown', function(event) {{
+                        if (event.key === 'Escape') {{
+                            closeAllInlineExportMenus();
+                        }}
                     }});
                     
                     function toggleEditMode() {{
@@ -5441,13 +5563,7 @@ def plot_data(dirname):
                     <a href="/" title="Back to simulation browser">‹</a>
                     <div class="top-controls">
                         {replot_button_html}
-                        <details class="export-menu-inline">
-                            <summary class="export-btn" title="Export this simulation archive">Export</summary>
-                            <div class="export-menu-inline-items">
-                                <a href="#" class="export-menu-inline-item" onclick="window.location.href='/export-loading/{dirname}?theme=' + (document.documentElement.getAttribute('data-theme') || localStorage.getItem('theme') || 'dark') + '&export_mode=full'; return false;">Full Data Set</a>
-                                <a href="#" class="export-menu-inline-item" onclick="window.location.href='/export-loading/{dirname}?theme=' + (document.documentElement.getAttribute('data-theme') || localStorage.getItem('theme') || 'dark') + '&export_mode=plots-only'; return false;">Plots Only</a>
-                            </div>
-                        </details>
+                        {export_menu_html}
                         <button class="refresh-btn" onclick="location.reload()" title="Refresh the page to see latest data">🔄</button>
                     </div>
                 </div>
