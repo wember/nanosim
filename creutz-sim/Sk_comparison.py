@@ -36,7 +36,93 @@ is_dark_mode = pio.templates.default == "plotly_dark"
 # window size for rolling average
 bin_size = 10
 
-fig = make_subplots(rows=2, cols=2, horizontal_spacing=0.2, vertical_spacing=0.02, row_heights=[0.8, 0.2])
+fig = make_subplots(rows=3, cols=2, horizontal_spacing=0.2, vertical_spacing=0.08,
+                     row_heights=[0.5, 0.2, 0.3],
+                     specs=[[{}, {}], [{}, {}], [{"colspan": 2}, None]])
+
+def log_bin_average(freqs, psd, n_bins=120):
+    """Average PSD values into bins that are evenly spaced in log10(f), so that
+    the plotted curve doesn't get visually 'crowded' at high frequencies just
+    because linearly-spaced FFT/Welch bins pile up when viewed on a log axis.
+    Averaging is done in linear power (not dB) within each bin, which is the
+    physically correct way to average power spectral densities."""
+    logf = np.log10(freqs)
+    edges = np.linspace(logf.min(), logf.max(), n_bins + 1)
+    bin_idx = np.clip(np.digitize(logf, edges) - 1, 0, n_bins - 1)
+
+    binned_f, binned_psd = [], []
+    for i in range(n_bins):
+        sel = bin_idx == i
+        if np.any(sel):
+            binned_f.append(np.mean(freqs[sel]))
+            binned_psd.append(np.mean(psd[sel]))
+    return np.array(binned_f), np.array(binned_psd)
+
+
+def add_psd_trace(fig, list_of_dfs, color, R, is_irreversible, row=3, col=1):
+    """Compute the power spectral density of sqrt(K) (the demon/heat-bath energy),
+    matching the paper's inset in Figure 1 of Chamberlin (2024) as closely as
+    possible:
+
+    - PSD = |FFT(sqrt(K))|^2, taken over the FULL simulation record of each
+      individual run (not a short window), since the paper's x-axis range
+      (10*log10(f) up to ~50, i.e. f up to ~10^5) only makes sense as the raw
+      FFT bin index over their full ~131,072-point records — a short window
+      can't reach anywhere near that range.
+    - "Relative frequency" is therefore the raw FFT bin index k = 1, 2, 3, ...
+      (not k/N), so 10*log10(f) directly means 10*log10(k).
+    - list_of_dfs holds the individual, un-averaged CSV runs for this radius
+      (the _0.csv file is already excluded upstream as "too noisy"). The PSD
+      is computed separately per run, then averaged across runs in linear
+      power — this mirrors the paper averaging over repeated simulations.
+    - The averaged PSD is then bin-averaged in log-frequency space purely for
+      display smoothness (see log_bin_average docstring); this step is a
+      plotting aid, not part of the paper's stated method.
+    """
+    all_psds = []
+    for df in list_of_dfs:
+        df_sorted = df.sort_values('t')
+        K = df_sorted['E_demon'].values
+        if len(K) < 10:
+            continue
+        signal = np.sqrt(np.clip(K, a_min=0, a_max=None))
+
+        fft_vals = np.fft.rfft(signal)
+        psd = np.abs(fft_vals) ** 2
+        k = np.arange(len(psd))  # bin index, 0 = DC
+        # Drop the DC bin: log10(0) is undefined and it's not a "frequency"
+        all_psds.append((k[1:], psd[1:]))
+
+    if not all_psds:
+        return
+
+    # Individual runs may differ slightly in length; align on the shortest
+    # common bin range rather than assuming they all match exactly.
+    min_len = min(len(k) for k, _ in all_psds)
+    k_common = all_psds[0][0][:min_len].astype(float)
+    psd_stack = np.array([psd[:min_len] for _, psd in all_psds])
+    psd_avg = psd_stack.mean(axis=0)  # average across repeated runs, in linear power
+
+    # Smooth out the log-axis crowding artifact (see log_bin_average docstring)
+    freqs, psd = log_bin_average(k_common, psd_avg, n_bins=150)
+    if len(freqs) == 0:
+        return
+
+    # Match the paper's axes: 10*log10(f) on x, PSD in dB on y, both on LINEAR
+    # plotly axes (the dB conversion already does the "log" work).
+    x_db = 10 * np.log10(freqs)
+    y_db = 10 * np.log10(psd)
+
+    label = "Irreversible" if is_irreversible else "Reversible"
+    fig.add_trace(
+        go.Scatter(
+            x=x_db, y=y_db, mode='lines',
+            line=dict(color=color), legendgroup=f"r{R}", showlegend=False,
+            hovertemplate=f'<b>Radius {R} ({label})</b><br>10log(f): %{{x:.2f}}<br>PSD: %{{y:.2f}} dB<extra></extra>'
+        ),
+        row=row, col=col,
+    )
+
 fig2 = make_subplots(rows=1, cols=2, horizontal_spacing=0.2)
 
 colors = ['#5A3A5E',
@@ -240,6 +326,8 @@ for R in irr_radii:
         fig.add_trace(go.Scatter(x=zoom['t'].rolling(window=bin_size).mean(), y=zoom['S/nk'].rolling(window=bin_size).mean(), 
                                  name=f"Radius {R}", line=dict(color=irr_color), legendgroup=f"r{R}", showlegend=False,
                                  hovertemplate=f'<b>Radius {R} (Irreversible)</b><br>Sweep: %{{x:.1f}}<br>S/Nk: %{{y:.4f}}<extra></extra>'),row=2, col=2)
+    add_psd_trace(fig, list_of_dfs, irr_color, R, is_irreversible=True)
+
     irr_avg_Sk = np.append(irr_avg_Sk, np.mean(average_df['S/nk']))
     irr_SEM = np.append(irr_SEM, np.std(average_df['S/nk']/math.sqrt(len(average_df['S/nk']))))
     # Track exact radii that produced points (after file filtering) for fig2 x-axis alignment.
@@ -354,6 +442,8 @@ for R in rev_radii:
         fig.add_trace(go.Scatter(x=zoom['t'].rolling(window=bin_size).mean(), y=zoom['S/nk'].rolling(window=bin_size).mean(), 
                                  name=f"Radius {R}", line=dict(color=rev_color), legendgroup=f"r{R}", showlegend=False,
                                  hovertemplate=f'<b>Radius {R} (Reversible)</b><br>Sweep: %{{x:.1f}}<br>S/Nk: %{{y:.4f}}<extra></extra>'),row=2, col=2)
+    add_psd_trace(fig, list_of_dfs, rev_color, R, is_irreversible=False)
+
     avg_Sk = np.append(avg_Sk, np.mean(average_df['S/nk']))
     SEM = np.append(SEM, np.std(average_df['S/nk']/math.sqrt(len(average_df['S/nk']))))
     # Track exact radii that produced points (after file filtering) for fig2 x-axis alignment.
@@ -364,6 +454,8 @@ for R in rev_radii:
 fig.update_xaxes(title_text="Sweeps", row=1, col=1)
 fig.update_yaxes(title_text="S/Nk", row=1, col=1)
 fig.update_yaxes(title_text="S/Nk", row=1, col=2)
+fig.update_xaxes(title_text="10 log(f)", row=3, col=1)
+fig.update_yaxes(title_text="PSD (dB)", row=3, col=1)
 print("Serializing fig1 to HTML...", flush=True)
 
 # Only add vlines and vrects if we have data
@@ -408,7 +500,7 @@ for trace in fig.data:
 
 fig.update_layout(
     title_text=f"Lattice Size: {n}",
-    height=500,
+    height=850,
     legend=dict(
         orientation="v",
         yanchor="top",
