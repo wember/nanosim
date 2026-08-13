@@ -36,6 +36,15 @@ is_dark_mode = pio.templates.default == "plotly_dark"
 # window size for rolling average
 bin_size = 10
 
+# Target number of block-averaged symbols per trace in the ln(p_n/p_n+1) /
+# kT/J plot (Figure 2D recreation). Each symbol is a genuine average over a
+# block of ~(total rows / this number) consecutive recorded rows, positioned
+# at the block's median 't' - matching the paper's own methodology of
+# averaging over large sweep windows (e.g. 10^4 sweeps) rather than plotting
+# every recorded row or applying a small rolling-window smoothing. Also keeps
+# the HTML payload for that figure a manageable size on long runs.
+RATIO_PLOT_N_POINTS = 15
+
 fig = make_subplots(rows=3, cols=2, horizontal_spacing=0.2, vertical_spacing=0.08,
                      row_heights=[0.5, 0.2, 0.3],
                      specs=[[{}, {}], [{}, {}], [{"colspan": 2}, None]])
@@ -124,6 +133,115 @@ def add_psd_trace(fig, list_of_dfs, color, R, is_irreversible, row=3, col=1):
     )
 
 fig2 = make_subplots(rows=1, cols=2, horizontal_spacing=0.2)
+
+### Figure recreating Chamberlin (2024) Figure 2D: moving averages of
+### ln(p_n / p_(n+1)) vs t (sweeps), for the ratio of occupation probabilities
+### between adjacent demon energy levels n=0,1,2,3. Shown side by side with an
+### equivalent temperature view: since ln(p_n/p_(n+1)) = J/kT for a Boltzmann
+### distribution, kT/J = 1 / ln(p_n/p_(n+1)) is the same information rescaled
+### as an effective temperature, which converges to a single value only when
+### the dynamics is truly thermal.
+fig3 = make_subplots(rows=1, cols=2, horizontal_spacing=0.15,
+                      subplot_titles=("ln(p<sub>n</sub>/p<sub>n+1</sub>) (\u221d 1/T)",
+                                       "kT/J (\u221d T)"))
+
+# Legend-only entries mapping marker shape -> energy level n. These carry no
+# data (x/y are empty) so they don't plot anything on either panel; they
+# exist purely so the shape/level mapping shows up as real, always-visible
+# legend entries instead of only in the caption below the figure.
+_shape_legend_symbols = ['square', 'circle', 'triangle-up', 'triangle-down']
+for _n_level, _symbol in enumerate(_shape_legend_symbols):
+    fig3.add_trace(
+        go.Scatter(
+            x=[], y=[],
+            mode='markers',
+            marker=dict(symbol=_symbol, size=8, color='rgba(80,80,80,0.9)'),
+            name=f"n={_n_level}",
+            legendgroup="shape_legend",
+            legendgrouptitle_text="Marker shape = energy level" if _n_level == 0 else None,
+            showlegend=True,
+        ),
+        row=1, col=1,
+    )
+
+def add_ratio_traces(fig, average_df, color, R, is_irreversible):
+    """
+    Add ln(p_n / p_(n+1)) and kT/J moving-average traces for n = 0..3 to `fig`
+    (col 1 and col 2 respectively), reproducing Figure 2D of Chamberlin (2024)
+    and its equivalent effective-temperature view.
+
+    Symbol shape identifies the energy level n (square/circle/up-triangle/
+    down-triangle for n=0,1,2,3), matching the paper. Unlike the paper (which
+    uses a single black/red color pair for reversible/irreversible), color here
+    follows the same per-radius palette used elsewhere in this script, since
+    this script compares multiple radii at once; dynamics type is instead
+    distinguished via the legend group label and hover text.
+
+    Averaging matches the paper's own methodology (see Appendix A / Figure 2
+    caption): each plotted symbol is the average of the raw ratio over a
+    block of consecutive recorded rows (not a rolling/decimated smoothing),
+    positioned at the median 't' of that block. This also keeps the number of
+    plotted points bounded (see RATIO_PLOT_N_POINTS) so the HTML stays a
+    manageable size for browsers even on very long runs.
+    """
+    if average_df is None or len(average_df) == 0:
+        return
+
+    label = "Irreversible" if is_irreversible else "Reversible"
+    ratio_cols = ['p0/p1', 'p1/p2', 'p2/p3', 'p3/p4']
+    symbols = ['square', 'circle', 'triangle-up', 'triangle-down']
+
+    n_rows = len(average_df)
+    block_size = max(1, n_rows // RATIO_PLOT_N_POINTS)
+    block_id = np.arange(n_rows) // block_size
+
+    t_blocks = average_df['t'].groupby(block_id).median()
+
+    for n_level, (col, symbol) in enumerate(zip(ratio_cols, symbols)):
+        if col not in average_df:
+            continue
+        raw = average_df[col].replace(0, np.nan)
+        ln_ratio = np.log(raw).groupby(block_id).mean()
+
+        fig.add_trace(
+            go.Scatter(
+                x=t_blocks, y=ln_ratio,
+                mode='lines+markers',
+                marker=dict(symbol=symbol, size=6, color=color),
+                line=dict(color=color, width=1.5),
+                name=f"Radius {R} ({label})",
+                legendgroup=f"r{R}_{label}",
+                legendgrouptitle_text=f"Radius {R} ({label})" if n_level == 0 else None,
+                showlegend=(n_level == 0),
+                hovertemplate=(
+                    f'<b>Radius {R} ({label}), n={n_level}</b><br>'
+                    't: %{x}<br>ln(p<sub>n</sub>/p<sub>n+1</sub>): %{y:.4f}<extra></extra>'
+                ),
+            ),
+            row=1, col=1,
+        )
+
+        # kT/J = 1 / ln(p_n/p_(n+1)); replace non-positive or exactly-zero
+        # ratios (which give a negative, undefined, or infinite "temperature")
+        # with NaN rather than plotting an unphysical value or breaking JSON
+        # serialization with an inf.
+        kT_over_J = ln_ratio.where(ln_ratio > 0, np.nan).rdiv(1).replace([np.inf, -np.inf], np.nan)
+        fig.add_trace(
+            go.Scatter(
+                x=t_blocks, y=kT_over_J,
+                mode='lines+markers',
+                marker=dict(symbol=symbol, size=6, color=color),
+                line=dict(color=color, width=1.5),
+                name=f"Radius {R} ({label})",
+                legendgroup=f"r{R}_{label}",
+                showlegend=False,
+                hovertemplate=(
+                    f'<b>Radius {R} ({label}), n={n_level}</b><br>'
+                    't: %{x}<br>kT/J: %{y:.4f}<extra></extra>'
+                ),
+            ),
+            row=1, col=2,
+        )
 
 colors = ['#5A3A5E',
           '#702963',
@@ -327,6 +445,7 @@ for R in irr_radii:
                                  name=f"Radius {R}", line=dict(color=irr_color), legendgroup=f"r{R}", showlegend=False,
                                  hovertemplate=f'<b>Radius {R} (Irreversible)</b><br>Sweep: %{{x:.1f}}<br>S/Nk: %{{y:.4f}}<extra></extra>'),row=2, col=2)
     add_psd_trace(fig, list_of_dfs, irr_color, R, is_irreversible=True)
+    add_ratio_traces(fig3, average_df, irr_color, R, is_irreversible=True)
 
     irr_avg_Sk = np.append(irr_avg_Sk, np.mean(average_df['S/nk']))
     irr_SEM = np.append(irr_SEM, np.std(average_df['S/nk']/math.sqrt(len(average_df['S/nk']))))
@@ -443,6 +562,7 @@ for R in rev_radii:
                                  name=f"Radius {R}", line=dict(color=rev_color), legendgroup=f"r{R}", showlegend=False,
                                  hovertemplate=f'<b>Radius {R} (Reversible)</b><br>Sweep: %{{x:.1f}}<br>S/Nk: %{{y:.4f}}<extra></extra>'),row=2, col=2)
     add_psd_trace(fig, list_of_dfs, rev_color, R, is_irreversible=False)
+    add_ratio_traces(fig3, average_df, rev_color, R, is_irreversible=False)
 
     avg_Sk = np.append(avg_Sk, np.mean(average_df['S/nk']))
     SEM = np.append(SEM, np.std(average_df['S/nk']/math.sqrt(len(average_df['S/nk']))))
@@ -585,12 +705,26 @@ fig2.add_trace(go.Scatter(x=rev_plotted_radii, y=avg_Sk, error_y=dict(type='data
 fig2.add_trace(go.Scatter(x=irr_plotted_radii, y=irr_avg_Sk, error_y=dict(type='data', array=irr_SEM), name="Irreversible", line=dict(color='#00C4C4'),
                           hovertemplate='<b>Irreversible</b><br>Radius: %{x}<br>Avg S/Nk: %{y:.4f}<extra></extra>'),row=1, col=1)
 
-fig2.update_xaxes(title_text="Radius", row=1, col=1)
+fig2.update_xaxes(title_text="Local bath size", range=[0, 100], autorange=False, row=1, col=1)
 fig2.update_yaxes(title_text="Avg S/Nk", row=1, col=1)
 
 ### Power-law fit of irreversible avg S/Nk vs radius (y = A x^B), excluding r=0
 def power_law(x, A, B, C):
     return A * np.power(x, B) + C
+
+def fit_limit_str(A, B, C, C_err):
+    """
+    Describe the x -> infinity limit of y = A*x^B + C, for display in a legend.
+    If B < 0, the power-law term decays to 0 and the curve approaches C.
+    If B >= 0, the power-law term does not vanish (or grows), so there is no
+    finite limit; A's sign determines whether it diverges to +inf or -inf.
+    """
+    if B < 0:
+        return f"lim={C:.5f}\u00b1{C_err:.5f}"
+    elif B == 0:
+        return "lim=undefined (B=0)"
+    else:
+        return "diverges (B>0)"
 
 irr_r_arr_fit = np.array(irr_plotted_radii)
 irr_avg_arr_fit = np.array(irr_avg_Sk)
@@ -608,7 +742,7 @@ if np.sum(fit_mask) >= 3:
         A_fit, B_fit, C_fit = popt
         perr = np.sqrt(np.diag(pcov))
 
-        r_fit_x = np.linspace(irr_r_arr_fit[fit_mask].min(), irr_r_arr_fit[fit_mask].max(), 200)
+        r_fit_x = np.linspace(irr_r_arr_fit[fit_mask].min(), max(irr_r_arr_fit[fit_mask].max(), 100), 200)
         r_fit_y = power_law(r_fit_x, A_fit, B_fit, C_fit)
 
         fig2.add_trace(
@@ -616,7 +750,7 @@ if np.sum(fit_mask) >= 3:
                 x=r_fit_x,
                 y=r_fit_y,
                 mode='lines',
-                name=f"Irr fit: y={A_fit:.4g}x^{B_fit:.4g}+{C_fit:.4g}",
+                name=f"Irr fit: y={A_fit:.4g}x^{B_fit:.4g}+{C_fit:.4g} ({fit_limit_str(A_fit, B_fit, C_fit, perr[2])})",
                 line=dict(color='#00C4C4', dash='dash'),
                 hovertemplate='<b>Irreversible Fit</b><br>Radius: %{x:.2f}<br>S/Nk: %{y:.6f}<extra></extra>',
             ),
@@ -625,7 +759,8 @@ if np.sum(fit_mask) >= 3:
 
         print(
             f"Irreversible power-law fit (r>0): A={A_fit:.6g} (+/-{perr[0]:.2g}), "
-            f"B={B_fit:.6g} (+/-{perr[1]:.2g}), C={C_fit:.6g} (+/-{perr[2]:.2g})",
+            f"B={B_fit:.6g} (+/-{perr[1]:.2g}), C={C_fit:.6g} (+/-{perr[2]:.2g}), "
+            f"{fit_limit_str(A_fit, B_fit, C_fit, perr[2])}",
             flush=True,
         )
     except RuntimeError as e:
@@ -650,7 +785,7 @@ if np.sum(rev_fit_mask) >= 3:
         A_fit_rev, B_fit_rev, C_fit_rev = popt_rev
         perr_rev = np.sqrt(np.diag(pcov_rev))
 
-        r_fit_x_rev = np.linspace(rev_r_arr_fit[rev_fit_mask].min(), rev_r_arr_fit[rev_fit_mask].max(), 200)
+        r_fit_x_rev = np.linspace(rev_r_arr_fit[rev_fit_mask].min(), max(rev_r_arr_fit[rev_fit_mask].max(), 100), 200)
         r_fit_y_rev = power_law(r_fit_x_rev, A_fit_rev, B_fit_rev, C_fit_rev)
 
         fig2.add_trace(
@@ -658,7 +793,7 @@ if np.sum(rev_fit_mask) >= 3:
                 x=r_fit_x_rev,
                 y=r_fit_y_rev,
                 mode='lines',
-                name=f"Rev fit: y={A_fit_rev:.4g}x^{B_fit_rev:.4g}+{C_fit_rev:.4g}",
+                name=f"Rev fit: y={A_fit_rev:.4g}x^{B_fit_rev:.4g}+{C_fit_rev:.4g} ({fit_limit_str(A_fit_rev, B_fit_rev, C_fit_rev, perr_rev[2])})",
                 line=dict(color='purple', dash='dash'),
                 hovertemplate='<b>Reversible Fit</b><br>Radius: %{x:.2f}<br>S/Nk: %{y:.6f}<extra></extra>',
             ),
@@ -667,7 +802,8 @@ if np.sum(rev_fit_mask) >= 3:
 
         print(
             f"Reversible power-law fit (r>0): A={A_fit_rev:.6g} (+/-{perr_rev[0]:.2g}), "
-            f"B={B_fit_rev:.6g} (+/-{perr_rev[1]:.2g}), C={C_fit_rev:.6g} (+/-{perr_rev[2]:.2g})",
+            f"B={B_fit_rev:.6g} (+/-{perr_rev[1]:.2g}), C={C_fit_rev:.6g} (+/-{perr_rev[2]:.2g}), "
+            f"{fit_limit_str(A_fit_rev, B_fit_rev, C_fit_rev, perr_rev[2])}",
             flush=True,
         )
     except RuntimeError as e:
@@ -714,7 +850,7 @@ if len(common_radii) > 0:
     # Zero-reference line so the sign of the gap is obvious
     fig2.add_hline(y=0, line_width=1, line_dash="dot", line_color="gray", row=1, col=2)
 
-fig2.update_xaxes(title_text="Radius", row=1, col=2)
+fig2.update_xaxes(title_text="Local bath size", row=1, col=2)
 fig2.update_yaxes(title_text="(S<sub>irr</sub>−S<sub>rev</sub>)/Nk [ppm]", row=1, col=2)
 
 fig2.update_layout(title_text=f"Lattice Size: {n}")
@@ -760,3 +896,22 @@ fig2.add_annotation(
 
 print("Serializing fig2 to HTML...", flush=True)
 fig2.show()
+
+### Figure 2D recreation: ln(p_n/p_(n+1)) and equivalent kT/J moving averages vs sweeps
+fig3.update_xaxes(title_text="t (sweeps)", row=1, col=1)
+fig3.update_xaxes(title_text="t (sweeps)", row=1, col=2)
+fig3.update_yaxes(title_text="ln(p<sub>n</sub> / p<sub>n+1</sub>)", row=1, col=1)
+fig3.update_yaxes(title_text="kT/J", row=1, col=2)
+fig3.update_layout(
+    title_text=f"Lattice Size: {n} — Ratio of Adjacent Demon-Level Occupation Probabilities (cf. Chamberlin 2024, Fig. 2D)",
+)
+fig3.add_annotation(
+    text="Color: radius/dynamics (see legend) &nbsp;|&nbsp; Right panel: kT/J = 1/ln(p<sub>n</sub>/p<sub>n+1</sub>) \u2014 same data as an effective temperature",
+    xref="paper", yref="paper",
+    x=0.5, y=-0.15,
+    xanchor="center", yanchor="top",
+    showarrow=False,
+    font=dict(size=11, color="rgba(100,100,100,0.8)" if is_dark_mode else "rgba(120,120,120,0.9)"),
+)
+print("Serializing fig3 to HTML...", flush=True)
+fig3.show()
