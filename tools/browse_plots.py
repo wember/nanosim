@@ -2438,8 +2438,10 @@ HTML_TEMPLATE = """
                     <div class="plot-actions-scope" data-theme-scope="{{ scope_theme }}">
                         {% if archive.has_plot_cache_by_theme[scope_theme] %}
                         <a href="/plot/{{ archive.dirname }}" class="plot-link" data-base-url="/plot/{{ archive.dirname }}" onclick="this.href = this.dataset.baseUrl; addThemeToUrl(event, this); return true;" title="Open the cached plot if available, or build it on demand">View plots</a>
+                        {% if show_web_plot_build_controls %}
                         <button type="button" class="replot-link" onclick="openReplotModal('{{ archive.dirname }}', this); return false;" title="Rebuild the plot cache from the source data using the selected panels">Replot</button>
-                        {% else %}
+                        {% endif %}
+                        {% elif show_web_plot_build_controls %}
                         <button type="button" class="replot-link" onclick="openReplotModal('{{ archive.dirname }}', this); return false;" title="Build the plot cache from the source data using the selected panels">Plot</button>
                         {% endif %}
                     </div>
@@ -3275,6 +3277,7 @@ def index():
         irr_archives=irr_archives,
         favicon_version=FAVICON_VERSION,
         show_data_transfer_controls=can_show_data_transfer_controls(request),
+        show_web_plot_build_controls=can_run_web_plot_build(request),
     )
 
 @app.route('/notes/<dirname>', methods=['POST'])

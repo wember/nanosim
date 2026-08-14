@@ -797,7 +797,7 @@ if include_summary:
     fig2.update_yaxes(title_text="(S<sub>irr</sub>−S<sub>rev</sub>)/Nk [ppm]", row=1, col=2)
 
     # Fixed height (not scaled like fig1) since fig2 always has exactly one row.
-    fig2.update_layout(title_text=f"Lattice Size: {n}", height=900)
+    fig2.update_layout(title_text=f"Lattice Size: {n}", height=600)
 
 # --- Stats box: total average entropy for r>0, irr vs rev, and their difference ---
 # Filter to r>0 entries only (index 0 in the plotted_radii lists corresponds to r=0 if present)
