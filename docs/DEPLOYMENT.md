@@ -171,7 +171,7 @@ cd /var/www/nanosim
 python3 -m venv venv
 
 # Activate and install dependencies
-source venv/bin/python
+source venv/bin/activate
 pip install --upgrade pip
 pip install flask plotly numpy pandas scipy
 ```
@@ -347,7 +347,8 @@ server {
     listen 80;
     server_name plots.yourdomain.com;
 
-    client_max_body_size 100M;
+   # Large archive import/export support (.nanosim/.zip)
+   client_max_body_size 2G;
 
     # Gzip compression for faster page loads
     gzip on;
@@ -356,14 +357,28 @@ server {
     gzip_comp_level 6;
     gzip_types text/plain text/css text/xml text/javascript application/json application/javascript application/xml+rss;
 
+   # Serve pre-rendered plot cache files directly from disk.
+   # This avoids loading 100MB+ HTML payloads into Gunicorn workers.
+   location /plot-cache/ {
+      alias /var/www/nanosim/data/;
+
+      # Cached plot pages are immutable per run/theme.
+      expires 7d;
+      add_header Cache-Control "public, max-age=604800, immutable";
+   }
+
     location / {
         proxy_pass http://127.0.0.1:8000;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_read_timeout 300s;
+        proxy_read_timeout 900s;
         proxy_connect_timeout 75s;
+        proxy_send_timeout 900s;
+
+        # Large upload handling
+        proxy_request_buffering off;
 
         # Prevent request buffer overflow
         proxy_buffering on;
@@ -623,6 +638,17 @@ cd /var/www/nanosim
 git lfs pull
 ```
 
+### Required: Normalize Data Permissions for Nginx
+
+If any run directories are not world-executable/readable, nginx may return 404 for
+valid /plot-cache URLs due to permission-denied filesystem checks.
+
+```bash
+# On server
+sudo find /var/www/nanosim/data -type d -exec chmod 755 {} +
+sudo find /var/www/nanosim/data -type f -exec chmod 644 {} +
+```
+
 ## Step 13: Verify Deployment
 
 1. **Visit**: `https://plots.yourdomain.com`
@@ -634,8 +660,8 @@ git lfs pull
    tail -f /var/log/nanosim/error.log
 
    # Nginx logs
-   sudo tail -f /var/nginx/access.log
-   sudo tail -f /var/nginx/error.log
+   sudo tail -f /var/log/nginx/access.log
+   sudo tail -f /var/log/nginx/error.log
    ```
 
 3. **Verify all optimizations**:
