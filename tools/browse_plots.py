@@ -118,6 +118,18 @@ def normalize_export_mode(mode_value: str | None) -> str:
     return EXPORT_MODE_FULL
 
 
+def normalize_theme(raw_theme: str | None) -> str:
+    """Normalize theme values from URLs and avoid duplicate '?theme=' fragments."""
+    theme = (raw_theme or 'dark').strip()
+    if not theme:
+        return 'dark'
+    if '?theme=' in theme:
+        theme = theme.split('?theme=', 1)[0]
+    if theme.endswith('?'):
+        theme = theme[:-1]
+    return theme if theme in {'dark', 'light'} else 'dark'
+
+
 def export_file_list(archive_path: Path, export_mode: str) -> list[Path]:
     """Return the files to include for the selected export mode."""
     all_files = sorted([p for p in archive_path.rglob('*') if p.is_file()])
@@ -172,17 +184,31 @@ def resolve_plot_data_path(dirname: str) -> Path:
     return ARCHIVE_DIR / dirname
 
 
-def plot_cache_paths(data_path: Path, theme: str) -> dict[str, Path]:
+def plot_cache_paths(data_path: Path, theme: str, plot_options: dict[str, bool] | None = None) -> dict[str, Path]:
+    safe_theme = normalize_theme(theme)
     cache_dir = data_path / 'plot_cache'
     return {
         'dir': cache_dir,
-        'plot1': cache_dir / f'plot1_{theme}.html',
-        'plot2': cache_dir / f'plot2_{theme}.html',
-        'meta': cache_dir / f'manifest_{theme}.json',
+        'plot1': cache_dir / f'plot1_{safe_theme}.html',
+        'plot2': cache_dir / f'plot2_{safe_theme}.html',
+        'meta': cache_dir / f'manifest_{safe_theme}.json',
     }
 
 
-def plot_cache_public_url(dirname: str, filename: str) -> str:
+def plot_options_match_manifest(manifest: dict | None, plot_options: dict[str, bool] | None = None) -> bool:
+    if not isinstance(manifest, dict):
+        return False
+    stored = manifest.get('plot_options')
+    if not isinstance(stored, dict):
+        return False
+    expected = parse_plot_options(fallback=plot_options)
+    for key in default_plot_options():
+        if stored.get(key, True) != expected.get(key, True):
+            return False
+    return True
+
+
+def plot_cache_public_url(dirname: str, filename: str, cache_bust: int | None = None) -> str:
     """Return the public URL for a cached plot artifact.
 
     In production, nginx should serve this path directly from disk.
@@ -190,11 +216,94 @@ def plot_cache_public_url(dirname: str, filename: str) -> str:
     """
     safe_dir = quote(dirname, safe='')
     safe_file = quote(filename, safe='')
-    return f"{PLOT_CACHE_STATIC_PREFIX}/{safe_dir}/plot_cache/{safe_file}"
+    if cache_bust is None:
+        cache_bust = int((resolve_plot_data_path(dirname) / 'plot_cache' / filename).stat().st_mtime_ns) if (resolve_plot_data_path(dirname) / 'plot_cache' / filename).exists() else 0
+    return f"{PLOT_CACHE_STATIC_PREFIX}/{safe_dir}/plot_cache/{safe_file}?v={cache_bust}"
 
 
-def write_plot_cache_artifacts(data_path: Path, theme: str, plot1_html: str | None, plot2_html: str | None, source: str) -> dict:
-    paths = plot_cache_paths(data_path, theme)
+def default_plot_options() -> dict[str, bool]:
+    return {
+        'include_entropy': True,
+        'include_zoom': True,
+        'include_psd': True,
+        'include_summary': True,
+    }
+
+
+def parse_plot_options(request_args=None, fallback: dict[str, bool] | None = None) -> dict[str, bool]:
+    options = dict(fallback or default_plot_options())
+    if request_args is None:
+        return options
+
+    for key, default_value in default_plot_options().items():
+        raw_value = request_args.get(key)
+        if raw_value is None:
+            options[key] = default_value
+            continue
+        if raw_value in ('0', 'false', 'False', 'no', 'No'):
+            options[key] = False
+        elif raw_value in ('1', 'true', 'True', 'yes', 'Yes'):
+            options[key] = True
+        else:
+            options[key] = bool(raw_value) if raw_value not in ('', 'None') else default_value
+    return options
+
+
+def plot_options_query_string(options: dict[str, bool] | None = None) -> str:
+    opts = parse_plot_options(fallback=options)
+    return '&'.join(f"{key}={'1' if value else '0'}" for key, value in (
+        ('include_entropy', opts.get('include_entropy', True)),
+        ('include_zoom', opts.get('include_zoom', True)),
+        ('include_psd', opts.get('include_psd', True)),
+        ('include_summary', opts.get('include_summary', True)),
+    ))
+
+
+def plot_options_checkbox_html(options: dict[str, bool] | None = None) -> str:
+    opts = parse_plot_options(fallback=options)
+    label_map = {
+        'include_entropy': 'Entropy',
+        'include_zoom': 'Zoom',
+        'include_psd': 'PSD',
+        'include_summary': 'Summary',
+    }
+    checkbox_html = []
+    for key, label in label_map.items():
+        checked = 'checked' if opts.get(key, True) else ''
+        checkbox_html.append(
+            f'<label class="plot-option-picker"><input type="checkbox" data-key="{key}" {checked}> {label}</label>'
+        )
+    return '<div class="plot-option-set">' + ' '.join(checkbox_html) + '</div>'
+
+
+def plot_options_status_html(options: dict[str, bool] | None = None) -> str:
+    opts = parse_plot_options(fallback=options)
+    label_map = {
+        'include_entropy': 'Entropy',
+        'include_zoom': 'Zoom',
+        'include_psd': 'PSD',
+        'include_summary': 'Summary',
+    }
+    chips = []
+    for key, label in label_map.items():
+        included = opts.get(key, True)
+        chip_class = 'included' if included else 'hidden'
+        chips.append(
+            f'<span class="plot-option-chip {chip_class}" data-key="{key}">{label}</span>'
+        )
+    return '<div class="plot-option-set plot-option-readout">' + ' '.join(chips) + '</div>'
+
+
+def write_plot_cache_artifacts(
+    data_path: Path,
+    theme: str,
+    plot1_html: str | None,
+    plot2_html: str | None,
+    source: str,
+    plot_options: dict[str, bool] | None = None,
+) -> dict:
+    options = parse_plot_options(fallback=plot_options)
+    paths = plot_cache_paths(data_path, theme, options)
     tmp_root = Path(tempfile.mkdtemp(prefix='plot_cache_tmp_', dir=str(data_path)))
     tmp_cache_dir = tmp_root / 'plot_cache'
     tmp_cache_dir.mkdir(parents=True, exist_ok=True)
@@ -209,10 +318,22 @@ def write_plot_cache_artifacts(data_path: Path, theme: str, plot1_html: str | No
         'theme': theme,
         'source': source,
         'built_at': datetime.now().isoformat(),
+        'plot_options': options,
     }
     (tmp_cache_dir / paths['meta'].name).write_text(json.dumps(manifest, indent=2))
 
     paths['dir'].mkdir(parents=True, exist_ok=True)
+
+    for stale_path in paths['dir'].glob(f'plot1_{normalize_theme(theme)}*.html'):
+        if stale_path.name != paths['plot1'].name:
+            stale_path.unlink(missing_ok=True)
+    for stale_path in paths['dir'].glob(f'plot2_{normalize_theme(theme)}*.html'):
+        if stale_path.name != paths['plot2'].name:
+            stale_path.unlink(missing_ok=True)
+    for stale_path in paths['dir'].glob(f'manifest_{normalize_theme(theme)}*.json'):
+        if stale_path.name != paths['meta'].name:
+            stale_path.unlink(missing_ok=True)
+
     for entry in tmp_cache_dir.iterdir():
         shutil.move(str(entry), str(paths['dir'] / entry.name))
 
@@ -220,7 +341,9 @@ def write_plot_cache_artifacts(data_path: Path, theme: str, plot1_html: str | No
     return manifest
 
 
-def build_plot_cache(dirname: str, theme: str, source: str = 'local-precompute', log_fn=None) -> tuple[dict, float]:
+def build_plot_cache(dirname: str, theme: str, source: str = 'local-precompute', log_fn=None,
+                    include_entropy: bool = True, include_zoom: bool = True,
+                    include_psd: bool = True, include_summary: bool = True) -> tuple[dict, float]:
     import subprocess
     import time
 
@@ -243,18 +366,27 @@ def build_plot_cache(dirname: str, theme: str, source: str = 'local-precompute',
     with tempfile.TemporaryDirectory() as tmpdir:
         tmpdir_path = Path(tmpdir)
         script_content = plot_script.read_text()
+        cli_args = [
+            '--data-dir', str(data_path),
+            '--include-entropy' if include_entropy else '--no-entropy',
+            '--include-zoom' if include_zoom else '--no-zoom',
+            '--include-psd' if include_psd else '--no-psd',
+            '--include-summary' if include_summary else '--no-summary',
+        ]
         modified_script = script_content.replace(
             "args = parser.parse_args()",
-            f"args = parser.parse_args(['--data-dir', r'{data_path}'])"
+            f"args = parser.parse_args({cli_args!r})"
         ).replace(
             'pio.templates.default = "plotly_white"',
             f'pio.templates.default = "{plotly_template}"'
         ).replace(
-            "fig.show()",
-            f"fig.write_html(r'{tmpdir_path}/plot1.html')"
+            'show_plotly_figure(fig, "fig1")',
+            f'fig.write_html(r\'{tmpdir_path}/plot1.html\')\n'
+            'print("[web-build] wrote plot1.html", flush=True)'
         ).replace(
-            "fig2.show()",
-            f"fig2.write_html(r'{tmpdir_path}/plot2.html')"
+            'show_plotly_figure(fig2, "fig2")',
+            f'fig2.write_html(r\'{tmpdir_path}/plot2.html\')\n'
+            'print("[web-build] wrote plot2.html", flush=True)'
         )
 
         temp_script = tmpdir_path / 'plot_script.py'
@@ -287,7 +419,19 @@ def build_plot_cache(dirname: str, theme: str, source: str = 'local-precompute',
         emit(f"cache_build_write: writing cache artifacts for {theme}")
         plot1_html = plot1.read_text() if plot1.exists() else None
         plot2_html = plot2.read_text() if plot2.exists() else None
-        cache_meta = write_plot_cache_artifacts(data_path, theme, plot1_html, plot2_html, source)
+        cache_meta = write_plot_cache_artifacts(
+            data_path,
+            theme,
+            plot1_html,
+            plot2_html,
+            source,
+            plot_options={
+                'include_entropy': include_entropy,
+                'include_zoom': include_zoom,
+                'include_psd': include_psd,
+                'include_summary': include_summary,
+            },
+        )
 
     elapsed = time.time() - started_at
     emit(f"cache_build_done: {theme} cache ready in {elapsed:.2f}s")
@@ -568,6 +712,33 @@ HTML_TEMPLATE = """
             color: white;
             text-decoration: none;
         }
+        .replot-link {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 2px 8px;
+            border: 2px solid #f0b400;
+            border-radius: 3px;
+            font-size: 1em;
+            line-height: 1.1;
+            color: #b88400;
+            background: rgba(240, 180, 0, 0.08);
+            transition: all 0.2s;
+            min-width: 80px;
+            height: 28px;
+            text-align: center;
+            vertical-align: middle;
+            appearance: none;
+            -webkit-appearance: none;
+            cursor: pointer;
+            font: inherit;
+            box-sizing: border-box;
+        }
+        .replot-link:hover {
+            background: #f0b400;
+            color: white;
+            text-decoration: none;
+        }
         .archive-link {
             display: inline-block;
             padding: 2px 8px;
@@ -785,6 +956,84 @@ HTML_TEMPLATE = """
             max-height: 80vh;
             overflow-y: auto;
         }
+        #replotModal {
+            display: none;
+            position: fixed;
+            z-index: 1200;
+            width: min(260px, calc(100vw - 24px));
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            box-shadow: 0 6px 18px rgba(0, 0, 0, 0.16);
+            padding: 8px 8px 6px;
+            max-height: none;
+            height: auto;
+        }
+        #replotModal::before {
+            content: "";
+            position: absolute;
+            left: 18px;
+            top: -8px;
+            width: 12px;
+            height: 12px;
+            background: var(--bg-secondary);
+            border-left: 1px solid var(--border-color);
+            border-top: 1px solid var(--border-color);
+            transform: rotate(45deg);
+        }
+        #replotModal .modal-content {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            max-width: none;
+            max-height: none;
+            overflow: visible;
+            border: none;
+            background: transparent;
+        }
+        #replotModal .modal-header {
+            margin-bottom: 8px;
+            padding-bottom: 6px;
+            border-bottom: 1px solid var(--border-color);
+        }
+        #replotModal .modal-header h2 {
+            font-size: 0.95rem;
+            font-weight: 600;
+        }
+        #replotModal .close-btn {
+            font-size: 20px;
+            line-height: 1;
+        }
+        #replotOptionsForm {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            margin: 0 0 8px;
+            padding: 0;
+        }
+        #replotOptionsForm .plot-option-picker {
+            justify-content: flex-start;
+            padding: 5px 7px;
+            border-radius: 4px;
+            font-size: 12px;
+            background: var(--bg-primary);
+            border-color: var(--border-color);
+        }
+        #replotModal .modal-footer {
+            gap: 6px;
+            margin-top: 8px;
+            justify-content: flex-end;
+        }
+        #replotModal .modal-footer .btn {
+            padding: 5px 10px;
+            font-size: 12px;
+        }
+        .replot-link::after {
+            content: '▾';
+            margin-left: 6px;
+            font-size: 0.8em;
+            opacity: 0.8;
+        }
         .modal-header {
             display: flex;
             justify-content: space-between;
@@ -1000,6 +1249,16 @@ HTML_TEMPLATE = """
             align-items: center;
             gap: 10px;
         }
+        .plot-actions-scope {
+            display: none;
+        }
+        html[data-theme="dark"] .plot-actions-scope[data-theme-scope="dark"],
+        html[data-theme="light"] .plot-actions-scope[data-theme-scope="light"] {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
         .export-status {
             font-size: 1.05em;
             color: var(--text-secondary);
@@ -1190,6 +1449,7 @@ HTML_TEMPLATE = """
             .view-link,
             .notes-link,
             .plot-link,
+            .replot-link,
             .archive-link,
             .export-link {
                 font-size: 0.8em;
@@ -1230,8 +1490,10 @@ HTML_TEMPLATE = """
         
         function addThemeToUrl(event, link) {
             event.preventDefault();
-            const theme = document.documentElement.getAttribute('data-theme');
-            window.location.href = link.href + '?theme=' + theme;
+            const theme = document.documentElement.getAttribute('data-theme') || localStorage.getItem('theme') || 'dark';
+            const url = new URL(link.href, window.location.origin);
+            url.searchParams.set('theme', theme);
+            window.location.href = url.toString();
         }
         
         function openNotesModal(dirname, currentNotes) {
@@ -1248,6 +1510,46 @@ HTML_TEMPLATE = """
         
         function closeNotesModal() {
             document.getElementById('notesModal').style.display = 'none';
+        }
+
+        function openReplotModal(dirname, buttonEl) {
+            const modal = document.getElementById('replotModal');
+            const form = document.getElementById('replotOptionsForm');
+            if (modal.style.display === 'block' && modal.dataset.dirname === dirname) {
+                closeReplotModal();
+                return;
+            }
+            modal.dataset.dirname = dirname;
+            form.querySelectorAll('input[type="checkbox"]').forEach(function(cb) {
+                cb.checked = true;
+            });
+            const rect = buttonEl.getBoundingClientRect();
+            const modalWidth = Math.min(260, window.innerWidth - 24);
+            const left = Math.min(Math.max(8, rect.left), window.innerWidth - modalWidth - 8);
+            const fitsBelow = (rect.bottom + 220) <= window.innerHeight - 12;
+            const top = fitsBelow ? rect.bottom + 8 : rect.top - 8 - 220;
+            modal.style.left = left + 'px';
+            modal.style.top = Math.max(8, top) + 'px';
+            modal.style.display = 'block';
+            modal.style.height = 'auto';
+        }
+
+        function closeReplotModal() {
+            document.getElementById('replotModal').style.display = 'none';
+        }
+
+        function startReplot() {
+            const modal = document.getElementById('replotModal');
+            const dirname = modal.dataset.dirname;
+            const form = document.getElementById('replotOptionsForm');
+            const query = [];
+            form.querySelectorAll('input[type="checkbox"]').forEach(function(cb) {
+                query.push(cb.dataset.key + '=' + (cb.checked ? '1' : '0'));
+            });
+            const theme = (document.documentElement.getAttribute('data-theme') || localStorage.getItem('theme') || 'dark');
+            const url = '/plot-loading/' + dirname + '?theme=' + theme + '&' + query.join('&') + '&force_replot=1';
+            closeReplotModal();
+            window.location.href = url;
         }
 
         function exportModeLabel(exportMode) {
@@ -1727,10 +2029,15 @@ HTML_TEMPLATE = """
         // Close modal when clicking outside
         window.onclick = function(event) {
             const notesModal = document.getElementById('notesModal');
+            const replotModal = document.getElementById('replotModal');
             const importModal = document.getElementById('importModal');
             const combineModal = document.getElementById('combineModal');
             const exportModal = document.getElementById('exportModal');
             if (event.target == notesModal) closeNotesModal();
+            if (event.target == replotModal) closeReplotModal();
+            if (replotModal && replotModal.style.display !== 'none' && !event.target.closest('#replotModal') && !event.target.closest('.replot-link')) {
+                closeReplotModal();
+            }
             if (event.target == importModal) closeImportModal();
             if (event.target == combineModal) closeCombineModal();
             if (event.target == exportModal) closeExportModal();
@@ -1901,6 +2208,25 @@ HTML_TEMPLATE = """
             <div class="modal-footer">
                 <button class="btn btn-secondary" onclick="closeNotesModal()">Cancel</button>
                 <button class="btn btn-primary" onclick="saveNotes()">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="replotModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Replot Options</h2>
+                <button class="close-btn" onclick="closeReplotModal()">&times;</button>
+            </div>
+            <div id="replotOptionsForm" class="plot-option-set" style="display:flex; justify-content:flex-start; margin:0 0 16px;">
+                <label class="plot-option-picker"><input type="checkbox" data-key="include_entropy" checked> Entropy</label>
+                <label class="plot-option-picker"><input type="checkbox" data-key="include_zoom" checked> Zoom</label>
+                <label class="plot-option-picker"><input type="checkbox" data-key="include_psd" checked> PSD</label>
+                <label class="plot-option-picker"><input type="checkbox" data-key="include_summary" checked> Summary</label>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeReplotModal()">Cancel</button>
+                <button class="btn btn-primary" onclick="startReplot()">Start</button>
             </div>
         </div>
     </div>
@@ -2108,7 +2434,16 @@ HTML_TEMPLATE = """
                 </script>
                 {% endif %}
                 <div class="action-buttons">
-                    <a href="/plot-loading/{{ archive.dirname }}" class="plot-link" onclick="addThemeToUrl(event, this)" title="View interactive plots and analysis">Plot data</a>
+                    {% for scope_theme in ['dark', 'light'] %}
+                    <div class="plot-actions-scope" data-theme-scope="{{ scope_theme }}">
+                        {% if archive.has_plot_cache_by_theme[scope_theme] %}
+                        <a href="/plot/{{ archive.dirname }}" class="plot-link" data-base-url="/plot/{{ archive.dirname }}" onclick="this.href = this.dataset.baseUrl; addThemeToUrl(event, this); return true;" title="Open the cached plot if available, or build it on demand">View plots</a>
+                        <button type="button" class="replot-link" onclick="openReplotModal('{{ archive.dirname }}', this); return false;" title="Rebuild the plot cache from the source data using the selected panels">Replot</button>
+                        {% else %}
+                        <button type="button" class="replot-link" onclick="openReplotModal('{{ archive.dirname }}', this); return false;" title="Build the plot cache from the source data using the selected panels">Plot</button>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
                     <a href="/view/{{ archive.dirname }}" class="view-link" title="Browse all files in this archive">View files</a>
                     {% if not archive.notes %}
                     <a href="#" class="notes-link" data-dirname="{{ archive.dirname }}" data-notes="" onclick="openNotesModalFromLink(this); return false;" title="Add notes about this simulation">Add notes</a>
@@ -2860,6 +3195,11 @@ def index():
             
             # Get notes
             notes = read_notes(archive_dir)
+            plot_cache_dir = archive_dir / 'plot_cache'
+            has_plot_cache_by_theme = {
+                theme: (plot_cache_dir / f'plot1_{theme}.html').exists() or (plot_cache_dir / f'plot2_{theme}.html').exists()
+                for theme in PLOT_CACHE_THEMES
+            }
             
             archives.append({
                 'dirname': dirname,
@@ -2873,7 +3213,8 @@ def index():
                 'is_combined': is_combined,
                 'rev_params': rev_params,
                 'irr_params': irr_params,
-                'params_mismatch': params_mismatch if is_combined else False
+                'params_mismatch': params_mismatch if is_combined else False,
+                'has_plot_cache_by_theme': has_plot_cache_by_theme,
             })
     
     # Collect completed rev and irr archives for combine dialog
@@ -3183,7 +3524,7 @@ def export_loading(dirname):
     """Show loading page while an export zip is prepared."""
     from flask import request
 
-    theme = request.args.get('theme', 'dark')
+    theme = normalize_theme(request.args.get('theme'))
     export_mode = normalize_export_mode(request.args.get('export_mode'))
     export_mode_label = 'Plots Only' if export_mode == EXPORT_MODE_PLOTS_ONLY else 'Full Data Set'
 
@@ -3209,6 +3550,21 @@ def export_loading(dirname):
                 const savedTheme = urlTheme || localStorage.getItem('theme') || 'dark';
                 document.documentElement.setAttribute('data-theme', savedTheme);
             }})();
+
+            function buildPlotQueryString() {{
+                const urlParams = new URLSearchParams(window.location.search);
+                const keys = ['include_entropy', 'include_zoom', 'include_psd', 'include_summary'];
+                const queryParts = [];
+                for (const key of keys) {{
+                    const value = urlParams.get(key);
+                    if (value !== null) {{
+                        queryParts.push(key + '=' + value);
+                    }} else {{
+                        queryParts.push(key + '=1');
+                    }}
+                }}
+                return queryParts.join('&');
+            }}
         </script>
         <style>
             :root {{
@@ -4054,11 +4410,11 @@ def plot_stream(dirname):
     import tempfile
     import time
 
-    theme = request.args.get('theme', 'dark')
+    theme = normalize_theme(request.args.get('theme'))
     force_replot = request.args.get('force_replot', '0') == '1'
 
-    def load_disk_cache(data_path: Path, active_theme: str) -> dict | None:
-        paths = plot_cache_paths(data_path, active_theme)
+    def load_disk_cache(data_path: Path, active_theme: str, plot_options: dict[str, bool]) -> dict | None:
+        paths = plot_cache_paths(data_path, active_theme, plot_options)
         if not paths['dir'].exists():
             return None
 
@@ -4073,6 +4429,8 @@ def plot_stream(dirname):
                 manifest = None
 
         if not plot1_exists and not plot2_exists:
+            return None
+        if not plot_options_match_manifest(manifest, plot_options):
             return None
 
         payload_bytes = 0
@@ -4095,6 +4453,8 @@ def plot_stream(dirname):
             f"built_at={meta.get('built_at', 'unknown')} "
             f"version={meta.get('cache_version', 'unknown')}"
         )
+
+    plot_options = parse_plot_options(request.args)
 
     if dirname == 'current':
         data_path = DATA_DIR
@@ -4119,15 +4479,16 @@ def plot_stream(dirname):
             return
 
         if not force_replot:
-            disk_cache = load_disk_cache(data_path, theme)
+            disk_cache = load_disk_cache(data_path, theme, plot_options)
             if disk_cache:
                 elapsed = time.time() - started_at
                 cache_meta = disk_cache.get('meta')
                 payload_bytes = int(disk_cache.get('payload_bytes') or 0)
                 app.logger.info(
-                    "plot_cache event=cache_hit_disk run=%s theme=%s elapsed=%.3fs cache_mode=%s payload_mb=%.2f",
+                    "plot_cache event=cache_hit_disk run=%s theme=%s options=%s elapsed=%.3fs cache_mode=%s payload_mb=%.2f",
                     dirname,
                     theme,
+                    plot_options,
                     elapsed,
                     'disk-only',
                     to_mb(payload_bytes),
@@ -4136,8 +4497,8 @@ def plot_stream(dirname):
                 yield f"data: cache_meta: {format_cache_meta(cache_meta)}\n\n"
                 yield "event: done\ndata: ok\n\n"
                 return
-            app.logger.info("plot_cache event=cache_miss run=%s theme=%s", dirname, theme)
-            yield "data: cache_miss: no cached plot artifacts found, starting cache build\n\n"
+            app.logger.info("plot_cache event=cache_miss run=%s theme=%s options=%s", dirname, theme, plot_options)
+            yield "data: cache_miss: no cached plot artifacts found for the selected panels, starting cache build\n\n"
         else:
             app.logger.info("plot_cache event=force_replot run=%s theme=%s", dirname, theme)
             yield "data: cache_rebuild: force replot requested, rebuilding cache\n\n"
@@ -4168,18 +4529,27 @@ def plot_stream(dirname):
 
             # Inject the actual data path via args so no copytree is needed.
             # Pass an absolute path so Path(repo_root) / abs_path resolves to abs_path.
+            plot_cli = [
+                '--data-dir', str(data_path),
+                '--include-entropy' if plot_options['include_entropy'] else '--no-entropy',
+                '--include-zoom' if plot_options['include_zoom'] else '--no-zoom',
+                '--include-psd' if plot_options['include_psd'] else '--no-psd',
+                '--include-summary' if plot_options['include_summary'] else '--no-summary',
+            ]
             modified_script = script_content.replace(
                 "args = parser.parse_args()",
-                f"args = parser.parse_args(['--data-dir', r'{data_path}'])"
+                f"args = parser.parse_args({plot_cli!r})"
             ).replace(
                 'pio.templates.default = "plotly_white"',
                 f'pio.templates.default = "{plotly_template}"'
             ).replace(
-                "fig.show()",
-                f"fig.write_html(r'{tmpdir_path}/plot1.html')"
+                'show_plotly_figure(fig, "fig1")',
+                f'fig.write_html(r\'{tmpdir_path}/plot1.html\')\n'
+                'print("[web-build] wrote plot1.html", flush=True)'
             ).replace(
-                "fig2.show()",
-                f"fig2.write_html(r'{tmpdir_path}/plot2.html')"
+                'show_plotly_figure(fig2, "fig2")',
+                f'fig2.write_html(r\'{tmpdir_path}/plot2.html\')\n'
+                'print("[web-build] wrote plot2.html", flush=True)'
             )
 
             temp_script = tmpdir_path / 'plot_script.py'
@@ -4228,10 +4598,18 @@ def plot_stream(dirname):
                 'theme': theme,
                 'source': 'dynamic-build',
                 'built_at': datetime.now().isoformat(),
+                'plot_options': plot_options,
             }
 
             try:
-                cache_meta = write_plot_cache_artifacts(data_path, theme, plot1_html, plot2_html, source='dynamic-build')
+                cache_meta = write_plot_cache_artifacts(
+                    data_path,
+                    theme,
+                    plot1_html,
+                    plot2_html,
+                    source='dynamic-build',
+                    plot_options=plot_options,
+                )
             except Exception as e:
                 app.logger.error("plot_cache event=cache_build_failed run=%s theme=%s reason=persist_failed error=%s", dirname, theme, str(e))
                 yield f"data: cache_build_failed: unable to persist cache to disk ({e})\n\n"
@@ -4260,7 +4638,9 @@ def plot_loading(dirname):
     from flask import request
 
     # Get theme from query parameter, default to dark
-    theme = request.args.get('theme', 'dark')
+    theme = normalize_theme(request.args.get('theme'))
+    plot_options = parse_plot_options(request.args)
+    plot_options_bar = plot_options_status_html(plot_options)
     
     # Determine run type for spinner color
     if dirname == 'current':
@@ -4341,6 +4721,21 @@ def plot_loading(dirname):
                 const savedTheme = urlTheme || localStorage.getItem('theme') || 'dark';
                 document.documentElement.setAttribute('data-theme', savedTheme);
             }})();
+
+            function buildPlotQueryString() {{
+                const urlParams = new URLSearchParams(window.location.search);
+                const keys = ['include_entropy', 'include_zoom', 'include_psd', 'include_summary'];
+                const queryParts = [];
+                for (const key of keys) {{
+                    const value = urlParams.get(key);
+                    if (value !== null) {{
+                        queryParts.push(key + '=' + value);
+                    }} else {{
+                        queryParts.push(key + '=1');
+                    }}
+                }}
+                return queryParts.join('&');
+            }}
         </script>
         <style>
             :root {{
@@ -4486,6 +4881,52 @@ def plot_loading(dirname):
                 margin-top: 20px;
             }}
             
+            .plot-option-set {{
+                display: flex;
+                flex-wrap: wrap;
+                justify-content: center;
+                gap: 8px 12px;
+                margin: 18px auto 0;
+                font-size: 0.9em;
+                color: var(--text-secondary);
+            }}
+            .plot-option-chip {{
+                display: inline-flex;
+                align-items: center;
+                gap: 6px;
+                padding: 6px 10px;
+                border-radius: 999px;
+                border: 1px solid var(--border-color);
+                background: var(--bg-secondary);
+                color: var(--text-primary);
+                font-size: 0.85em;
+                font-weight: 600;
+                letter-spacing: 0.01em;
+                user-select: none;
+            }}
+            .plot-option-chip.included {{
+                border-color: rgba(171, 99, 250, 0.65);
+                background: rgba(171, 99, 250, 0.12);
+                color: var(--text-primary);
+            }}
+            .plot-option-chip.hidden {{
+                opacity: 0.75;
+                color: var(--text-secondary);
+            }}
+            .plot-option-picker {{
+                display: inline-flex;
+                align-items: center;
+                gap: 6px;
+                padding: 6px 10px;
+                border-radius: 999px;
+                border: 1px solid var(--border-color);
+                background: var(--bg-secondary);
+                cursor: pointer;
+            }}
+            .plot-option-picker input {{
+                accent-color: #ab63fa;
+            }}
+            
             .back-link {{
                 position: absolute;
                 top: 20px;
@@ -4551,6 +4992,7 @@ def plot_loading(dirname):
                 </div>
             </div>
             <div class="status" id="status-text">Connecting...</div>
+            {plot_options_bar}
             <div id="log-box"></div>
             <p class="loading-help">This may take a moment for larger datasets.</p>
         </div>
@@ -4559,8 +5001,9 @@ def plot_loading(dirname):
                 const urlParams = new URLSearchParams(window.location.search);
                 const theme = urlParams.get('theme') || localStorage.getItem('theme') || 'dark';
                 const forceReplot = urlParams.get('force_replot') === '1';
-                const streamUrl = '/plot-stream/{dirname}?theme=' + theme + (forceReplot ? '&force_replot=1' : '');
-                const destUrl   = '/plot/{dirname}?theme=' + theme;
+                const baseQuery = buildPlotQueryString();
+                const streamUrl = '/plot-stream/{dirname}?theme=' + theme + (baseQuery ? '&' + baseQuery : '') + (forceReplot ? '&force_replot=1' : '');
+                const destUrl   = '/plot/{dirname}?theme=' + theme + (baseQuery ? '&' + baseQuery : '');
 
                 const statusEl = document.getElementById('status-text');
                 const logBox   = document.getElementById('log-box');
@@ -4639,8 +5082,9 @@ def plot_data(dirname):
     import time
 
     started_at = time.time()
-    theme = request.args.get('theme', 'dark')
+    theme = normalize_theme(request.args.get('theme'))
     force_replot = request.args.get('force_replot', '0') == '1'
+    plot_options = parse_plot_options(request.args)
 
     if dirname == 'current':
         data_path = DATA_DIR
@@ -4652,11 +5096,12 @@ def plot_data(dirname):
             return "Archive not found", 404
 
     cache_dir = data_path / 'plot_cache'
-    plot1_filename = f'plot1_{theme}.html'
-    plot2_filename = f'plot2_{theme}.html'
-    plot1_path = cache_dir / plot1_filename
-    plot2_path = cache_dir / plot2_filename
-    meta_path = cache_dir / f'manifest_{theme}.json'
+    plot_paths = plot_cache_paths(data_path, theme, plot_options)
+    plot1_filename = plot_paths['plot1'].name
+    plot2_filename = plot_paths['plot2'].name
+    plot1_path = plot_paths['plot1']
+    plot2_path = plot_paths['plot2']
+    meta_path = plot_paths['meta']
     plot1_exists = plot1_path.exists()
     plot2_exists = plot2_path.exists()
     cache_meta = None
@@ -4673,11 +5118,11 @@ def plot_data(dirname):
                 "Run make plot-cache locally and import plot_cache artifacts.",
                 403,
             )
-        return redirect(url_for('plot_loading', dirname=dirname, theme=theme, force_replot='1'))
+        return redirect(url_for('plot_loading', dirname=dirname, theme=theme, force_replot='1', **plot_options))
 
     if not plot1_exists and not plot2_exists:
         # Not yet generated — send to loading page which drives /plot-stream
-        return redirect(url_for('plot_loading', dirname=dirname, theme=theme))
+        return redirect(url_for('plot_loading', dirname=dirname, theme=theme, **plot_options))
     
     # Helper function to format numbers with commas
     def format_param(value):
@@ -4706,8 +5151,8 @@ def plot_data(dirname):
         plot_payload_bytes += plot2_path.stat().st_size
 
     cache_meta = cache_meta or {}
-    plot1_url = plot_cache_public_url(dirname, plot1_filename) if plot1_exists else None
-    plot2_url = plot_cache_public_url(dirname, plot2_filename) if plot2_exists else None
+    plot1_url = plot_cache_public_url(dirname, plot1_filename, int(plot1_path.stat().st_mtime_ns) if plot1_exists else None) if plot1_exists else None
+    plot2_url = plot_cache_public_url(dirname, plot2_filename, int(plot2_path.stat().st_mtime_ns) if plot2_exists else None) if plot2_exists else None
 
     try:
             # Combine plots into a single page
@@ -4878,11 +5323,8 @@ def plot_data(dirname):
                 f" | Theme: {cache_theme}"
                 f" | v{cache_version}"
             )
-            replot_enabled = can_run_web_plot_build(request)
-            if replot_enabled:
-                replot_button_html = f"<button class=\"replot-btn\" onclick=\"window.location.href='/plot-loading/{dirname}?theme=' + (document.documentElement.getAttribute('data-theme') || localStorage.getItem('theme') || 'dark') + '&force_replot=1'\" title=\"{replot_title}\">Replot</button>"
-            else:
-                replot_button_html = ""
+            # Replot is handled from the archive cards, not the plot page itself.
+            replot_button_html = ""
 
             if can_show_data_transfer_controls(request):
                 export_menu_html = (
@@ -4981,12 +5423,12 @@ def plot_data(dirname):
                     }}
                     .plot-frame {{
                         width: 100%;
-                        min-height: 900px;
+                        min-height: 320px;
                         border: 0;
                         border-radius: 6px;
                         background: var(--bg-secondary);
                         opacity: 0.08;
-                        transition: opacity 0.25s ease;
+                        transition: opacity 0.25s ease, height 0.2s ease;
                     }}
                     .plot-frame-wrap.loaded .plot-frame {{
                         opacity: 1;
@@ -5404,9 +5846,22 @@ def plot_data(dirname):
                             const iframe = wrap.querySelector('iframe');
                             if (!iframe) return;
 
+                            function resizeToContent() {{
+                                try {{
+                                    const doc = iframe.contentWindow && iframe.contentWindow.document;
+                                    const contentHeight = doc && (doc.body ? doc.body.scrollHeight : 0);
+                                    if (contentHeight) {{
+                                        iframe.style.height = contentHeight + 'px';
+                                    }}
+                                }} catch (e) {{
+                                    // Cross-origin or not-yet-ready iframe content; keep the CSS fallback height.
+                                }}
+                            }}
+
                             iframe.addEventListener('load', () => {{
                                 wrap.classList.remove('error');
                                 wrap.classList.add('loaded');
+                                resizeToContent();
                                 updateCurtainState();
                             }});
 
@@ -5641,7 +6096,9 @@ def serve_plot_cache_file(dirname, plot_filename):
         return "Plot cache file not found", 404
 
     response = send_file(file_path, mimetype='text/html', conditional=True)
-    response.headers['Cache-Control'] = 'public, max-age=600'
+    response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '0'
     return response
 
 if __name__ == '__main__':

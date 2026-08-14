@@ -24,6 +24,31 @@ def parse_args() -> argparse.Namespace:
         default="local-precompute",
         help="Source label stored in cache manifest (default: local-precompute)",
     )
+    parser.add_argument(
+        "--no-entropy",
+        dest="include_entropy",
+        action="store_false",
+        help="Skip the main entropy-vs-sweep panel in the cached HTML",
+    )
+    parser.add_argument(
+        "--no-zoom",
+        dest="include_zoom",
+        action="store_false",
+        help="Skip the zoomed-in entropy panel in the cached HTML",
+    )
+    parser.add_argument(
+        "--no-psd",
+        dest="include_psd",
+        action="store_false",
+        help="Skip the PSD/frequency panel in the cached HTML",
+    )
+    parser.add_argument(
+        "--no-summary",
+        dest="include_summary",
+        action="store_false",
+        help="Skip the summary/radius plots in the cached HTML",
+    )
+    parser.set_defaults(include_entropy=True, include_zoom=True, include_psd=True, include_summary=True)
     return parser.parse_args()
 
 
@@ -52,6 +77,10 @@ def main() -> int:
                 theme=theme,
                 source=args.source,
                 log_fn=log_line,
+                include_entropy=args.include_entropy,
+                include_zoom=args.include_zoom,
+                include_psd=args.include_psd,
+                include_summary=args.include_summary,
             )
         except Exception as exc:
             print(f"ERROR: failed to build cache for theme {theme}: {exc}")

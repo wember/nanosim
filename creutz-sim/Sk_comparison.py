@@ -16,6 +16,7 @@ def Su0(N, N0, Nx):
     return logg(N+1) + (N0+1) * np.log(2) - (logg(N-N0-Nx+1) + logg(N0+1) + logg(Nx+1))
 
 import math
+import sys
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import plotly.io as pio
@@ -26,9 +27,47 @@ import argparse
 parser = argparse.ArgumentParser(description='Generate simulation comparison plots')
 parser.add_argument('--data-dir', type=str, default='data',
                     help='Directory containing simulation data (default: data)')
+parser.add_argument('--include-entropy', dest='include_entropy', action='store_true', default=True,
+                    help='Include the main entropy-vs-sweep traces (default: enabled)')
+parser.add_argument('--no-entropy', dest='include_entropy', action='store_false',
+                    help='Disable the main entropy-vs-sweep panel')
+parser.add_argument('--include-zoom', dest='include_zoom', action='store_true', default=True,
+                    help='Include the zoomed-in trace panel (default: enabled)')
+parser.add_argument('--no-zoom', dest='include_zoom', action='store_false',
+                    help='Disable the zoomed-in trace panel')
+parser.add_argument('--include-psd', dest='include_psd', action='store_true', default=True,
+                    help='Include the PSD/frequency panel (default: enabled)')
+parser.add_argument('--no-psd', dest='include_psd', action='store_false',
+                    help='Disable the PSD/frequency panel')
+parser.add_argument('--include-summary', dest='include_summary', action='store_true', default=True,
+                    help='Include the summary/radius plots (default: enabled)')
+parser.add_argument('--no-summary', dest='include_summary', action='store_false',
+                    help='Disable the radius/summary figure')
 args = parser.parse_args()
 
+include_entropy = args.include_entropy
+include_zoom = args.include_zoom
+include_psd = args.include_psd
+include_summary = args.include_summary
+
 pio.templates.default = "plotly_white"
+
+def show_plotly_figure(fig, label: str = "figure"):
+    """Only open a browser when the process is interactive; otherwise no-op."""
+    try:
+        is_interactive = sys.stdin is not None and sys.stdin.isatty() and os.environ.get('DISPLAY') is not None
+    except Exception:
+        is_interactive = False
+
+    if not is_interactive:
+        print(f"[plot] skipping browser launch for {label} (non-interactive environment)", flush=True)
+        return
+
+    try:
+        fig.show()
+    except Exception as exc:
+        print(f"[plot] browser launch skipped for {label}: {exc}", flush=True)
+
 
 # Detect theme from template
 is_dark_mode = pio.templates.default == "plotly_dark"
@@ -36,9 +75,40 @@ is_dark_mode = pio.templates.default == "plotly_dark"
 # window size for rolling average
 bin_size = 10
 
-fig = make_subplots(rows=3, cols=2, horizontal_spacing=0.2, vertical_spacing=0.08,
-                     row_heights=[0.5, 0.2, 0.3],
-                     specs=[[{}, {}], [{}, {}], [{"colspan": 2}, None]])
+# Build the subplot grid using only the panels the user actually enabled, so
+# unchecked panels don't leave behind empty rows of vertical whitespace.
+# Pixel weights preserve the original 0.5/0.2/0.3 row proportions within an
+# 850px figure (720px of plot area + 130px margin for title/legend/controls),
+# so enabling every panel reproduces the original total height exactly.
+PANEL_HEIGHTS_PX = {'entropy': 360, 'zoom': 144, 'psd': 216}
+FIGURE_MARGIN_PX = 130
+
+active_panels = []
+if include_entropy:
+    active_panels.append('entropy')
+if include_entropy and include_zoom:
+    active_panels.append('zoom')
+if include_psd:
+    active_panels.append('psd')
+if not active_panels:
+    active_panels = ['entropy']
+
+specs_by_panel = {
+    'entropy': [{}, {}],
+    'zoom': [{}, {}],
+    'psd': [{"colspan": 2}, None],
+}
+row_heights_px = [PANEL_HEIGHTS_PX[p] for p in active_panels]
+row_heights = [h / sum(row_heights_px) for h in row_heights_px]
+fig_height = sum(row_heights_px) + FIGURE_MARGIN_PX
+
+ROW_ENTROPY = active_panels.index('entropy') + 1 if 'entropy' in active_panels else None
+ROW_ZOOM = active_panels.index('zoom') + 1 if 'zoom' in active_panels else None
+ROW_PSD = active_panels.index('psd') + 1 if 'psd' in active_panels else None
+
+fig = make_subplots(rows=len(active_panels), cols=2, horizontal_spacing=0.2, vertical_spacing=0.08,
+                     row_heights=row_heights,
+                     specs=[specs_by_panel[p] for p in active_panels])
 
 def log_bin_average(freqs, psd, n_bins=120):
     """Average PSD values into bins that are evenly spaced in log10(f), so that
@@ -59,7 +129,7 @@ def log_bin_average(freqs, psd, n_bins=120):
     return np.array(binned_f), np.array(binned_psd)
 
 
-def add_psd_trace(fig, list_of_dfs, color, R, is_irreversible, row=3, col=1):
+def add_psd_trace(fig, list_of_dfs, color, R, is_irreversible, row, col=1):
     """Compute the power spectral density of sqrt(K) (the demon/heat-bath energy),
     matching the paper's inset in Figure 1 of Chamberlin (2024) as closely as
     possible:
@@ -278,55 +348,58 @@ for R in irr_radii:
         irr_legend_shown.add(R)
     
     # For single runs, show "Radius X"; for combined runs, show empty string (group title shows radius)
-    if is_combined:
-        trace_name = ""
-        fig.add_trace(go.Scatter(x=average_df['t'], y=average_df['S/nk'], name=trace_name, 
-                                 line=dict(color=irr_color), legendgroup=f"r{R}", legendgrouptitle_text=f"Radius {R}", 
-                                 legendrank=R*2+1, showlegend=show_legend,
-                                 hovertemplate=f'<b>Radius {R} (Irreversible)</b><br>Sweep: %{{x}}<br>S/Nk: %{{y:.4f}}<extra></extra>'),row=1, col=1)
-    else:
-        fig.add_trace(go.Scatter(x=average_df['t'], y=average_df['S/nk'], name=f"Radius {R}", 
-                                 line=dict(color=irr_color), legendgroup=f"r{R}", showlegend=show_legend,
-                                 hovertemplate=f'<b>Radius {R} (Irreversible)</b><br>Sweep: %{{x}}<br>S/Nk: %{{y:.4f}}<extra></extra>'),row=1, col=1)
-    if is_combined:
-        fig.add_trace(go.Scatter(x=average_df['t'].rolling(window=bin_size).mean(), y=average_df['S/nk'].rolling(window=bin_size).mean(), 
-                                 name=trace_name, line=dict(color=irr_color), legendgroup=f"r{R}", 
-                                 legendrank=R*2+1, showlegend=False,
-                                 hovertemplate=f'<b>Radius {R} (Irreversible)</b><br>Sweep: %{{x:.1f}}<br>S/Nk: %{{y:.4f}}<extra></extra>'),row=1, col=2)
-    else:
-        fig.add_trace(go.Scatter(x=average_df['t'].rolling(window=bin_size).mean(), y=average_df['S/nk'].rolling(window=bin_size).mean(), 
-                                 name=f"Radius {R}", line=dict(color=irr_color), legendgroup=f"r{R}", showlegend=False,
-                                 hovertemplate=f'<b>Radius {R} (Irreversible)</b><br>Sweep: %{{x:.1f}}<br>S/Nk: %{{y:.4f}}<extra></extra>'),row=1, col=2)
+    if include_entropy:
+        if is_combined:
+            trace_name = ""
+            fig.add_trace(go.Scatter(x=average_df['t'], y=average_df['S/nk'], name=trace_name, 
+                                     line=dict(color=irr_color), legendgroup=f"r{R}", legendgrouptitle_text=f"Radius {R}", 
+                                     legendrank=R*2+1, showlegend=show_legend,
+                                     hovertemplate=f'<b>Radius {R} (Irreversible)</b><br>Sweep: %{{x}}<br>S/Nk: %{{y:.4f}}<extra></extra>'),row=ROW_ENTROPY, col=1)
+        else:
+            fig.add_trace(go.Scatter(x=average_df['t'], y=average_df['S/nk'], name=f"Radius {R}", 
+                                     line=dict(color=irr_color), legendgroup=f"r{R}", showlegend=show_legend,
+                                     hovertemplate=f'<b>Radius {R} (Irreversible)</b><br>Sweep: %{{x}}<br>S/Nk: %{{y:.4f}}<extra></extra>'),row=ROW_ENTROPY, col=1)
+        if include_zoom and is_combined:
+            fig.add_trace(go.Scatter(x=average_df['t'].rolling(window=bin_size).mean(), y=average_df['S/nk'].rolling(window=bin_size).mean(), 
+                                     name=trace_name, line=dict(color=irr_color), legendgroup=f"r{R}", 
+                                     legendrank=R*2+1, showlegend=False,
+                                     hovertemplate=f'<b>Radius {R} (Irreversible)</b><br>Sweep: %{{x:.1f}}<br>S/Nk: %{{y:.4f}}<extra></extra>'),row=ROW_ENTROPY, col=2)
+        elif include_zoom:
+            fig.add_trace(go.Scatter(x=average_df['t'].rolling(window=bin_size).mean(), y=average_df['S/nk'].rolling(window=bin_size).mean(), 
+                                     name=f"Radius {R}", line=dict(color=irr_color), legendgroup=f"r{R}", showlegend=False,
+                                     hovertemplate=f'<b>Radius {R} (Irreversible)</b><br>Sweep: %{{x:.1f}}<br>S/Nk: %{{y:.4f}}<extra></extra>'),row=ROW_ENTROPY, col=2)
 
-    # Zoomed in portion about center of dataframe
-    num_elements = len(average_df['t']) // 4
+        if include_zoom:
+            # Zoomed in portion about center of dataframe
+            num_elements = len(average_df['t']) // 4
 
-    # Calculate the middle index
-    middle_index = len(average_df['t']) // 2
+            # Calculate the middle index
+            middle_index = len(average_df['t']) // 2
 
-    # Calculate the start and end indices for the middle elements
-    start_index = middle_index - (num_elements // 2)
-    end_index = start_index + num_elements
+            # Calculate the start and end indices for the middle elements
+            start_index = middle_index - (num_elements // 2)
+            end_index = start_index + num_elements
 
-    # Extract the middle elements
-    zoom = average_df.iloc[start_index:end_index]
-    if is_combined:
-        fig.add_trace(go.Scatter(x=zoom['t'], y=zoom['S/nk'], name="", 
-                                 line=dict(color=irr_color), legendgroup=f"r{R}", 
-                                 legendrank=R*2+1, showlegend=False,
-                                 hovertemplate=f'<b>Radius {R} (Irreversible)</b><br>Sweep: %{{x}}<br>S/Nk: %{{y:.4f}}<extra></extra>'),row=2, col=1)
-        fig.add_trace(go.Scatter(x=zoom['t'].rolling(window=bin_size).mean(), y=zoom['S/nk'].rolling(window=bin_size).mean(), 
-                                 name="", line=dict(color=irr_color), legendgroup=f"r{R}", 
-                                 legendrank=R*2+1, showlegend=False,
-                                 hovertemplate=f'<b>Radius {R} (Irreversible)</b><br>Sweep: %{{x:.1f}}<br>S/Nk: %{{y:.4f}}<extra></extra>'),row=2, col=2)
-    else:
-        fig.add_trace(go.Scatter(x=zoom['t'], y=zoom['S/nk'], name=f"Radius {R}", 
-                                 line=dict(color=irr_color), legendgroup=f"r{R}", showlegend=False,
-                                 hovertemplate=f'<b>Radius {R} (Irreversible)</b><br>Sweep: %{{x}}<br>S/Nk: %{{y:.4f}}<extra></extra>'),row=2, col=1)
-        fig.add_trace(go.Scatter(x=zoom['t'].rolling(window=bin_size).mean(), y=zoom['S/nk'].rolling(window=bin_size).mean(), 
-                                 name=f"Radius {R}", line=dict(color=irr_color), legendgroup=f"r{R}", showlegend=False,
-                                 hovertemplate=f'<b>Radius {R} (Irreversible)</b><br>Sweep: %{{x:.1f}}<br>S/Nk: %{{y:.4f}}<extra></extra>'),row=2, col=2)
-    add_psd_trace(fig, list_of_dfs, irr_color, R, is_irreversible=True)
+            # Extract the middle elements
+            zoom = average_df.iloc[start_index:end_index]
+            if is_combined:
+                fig.add_trace(go.Scatter(x=zoom['t'], y=zoom['S/nk'], name="", 
+                                         line=dict(color=irr_color), legendgroup=f"r{R}", 
+                                         legendrank=R*2+1, showlegend=False,
+                                         hovertemplate=f'<b>Radius {R} (Irreversible)</b><br>Sweep: %{{x}}<br>S/Nk: %{{y:.4f}}<extra></extra>'),row=ROW_ZOOM, col=1)
+                fig.add_trace(go.Scatter(x=zoom['t'].rolling(window=bin_size).mean(), y=zoom['S/nk'].rolling(window=bin_size).mean(), 
+                                         name="", line=dict(color=irr_color), legendgroup=f"r{R}", 
+                                         legendrank=R*2+1, showlegend=False,
+                                         hovertemplate=f'<b>Radius {R} (Irreversible)</b><br>Sweep: %{{x:.1f}}<br>S/Nk: %{{y:.4f}}<extra></extra>'),row=ROW_ZOOM, col=2)
+            else:
+                fig.add_trace(go.Scatter(x=zoom['t'], y=zoom['S/nk'], name=f"Radius {R}", 
+                                         line=dict(color=irr_color), legendgroup=f"r{R}", showlegend=False,
+                                         hovertemplate=f'<b>Radius {R} (Irreversible)</b><br>Sweep: %{{x}}<br>S/Nk: %{{y:.4f}}<extra></extra>'),row=ROW_ZOOM, col=1)
+                fig.add_trace(go.Scatter(x=zoom['t'].rolling(window=bin_size).mean(), y=zoom['S/nk'].rolling(window=bin_size).mean(), 
+                                         name=f"Radius {R}", line=dict(color=irr_color), legendgroup=f"r{R}", showlegend=False,
+                                         hovertemplate=f'<b>Radius {R} (Irreversible)</b><br>Sweep: %{{x:.1f}}<br>S/Nk: %{{y:.4f}}<extra></extra>'),row=ROW_ZOOM, col=2)
+    if include_psd:
+        add_psd_trace(fig, list_of_dfs, irr_color, R, is_irreversible=True, row=ROW_PSD)
 
     irr_avg_Sk = np.append(irr_avg_Sk, np.mean(average_df['S/nk']))
     irr_SEM = np.append(irr_SEM, np.std(average_df['S/nk']/math.sqrt(len(average_df['S/nk']))))
@@ -394,55 +467,58 @@ for R in rev_radii:
         rev_legend_shown.add(R)
     
     # For single runs, show "Radius X"; for combined runs, show empty string (group title shows radius)
-    if is_combined:
-        trace_name = ""
-        fig.add_trace(go.Scatter(x=average_df['t'], y=average_df['S/nk'], name=trace_name, 
-                                 line=dict(color=rev_color), legendgroup=f"r{R}", legendgrouptitle_text=f"Radius {R}", 
-                                 legendrank=R*2, showlegend=show_legend,
-                                 hovertemplate=f'<b>Radius {R} (Reversible)</b><br>Sweep: %{{x}}<br>S/Nk: %{{y:.4f}}<extra></extra>'),row=1, col=1)
-    else:
-        fig.add_trace(go.Scatter(x=average_df['t'], y=average_df['S/nk'], name=f"Radius {R}", 
-                                 line=dict(color=rev_color), legendgroup=f"r{R}", showlegend=show_legend,
-                                 hovertemplate=f'<b>Radius {R} (Reversible)</b><br>Sweep: %{{x}}<br>S/Nk: %{{y:.4f}}<extra></extra>'),row=1, col=1)
-    if is_combined:
-        fig.add_trace(go.Scatter(x=average_df['t'].rolling(window=bin_size).mean(), y=average_df['S/nk'].rolling(window=bin_size).mean(), 
-                                 name=trace_name, line=dict(color=rev_color), legendgroup=f"r{R}", 
-                                 legendrank=R*2, showlegend=False,
-                                 hovertemplate=f'<b>Radius {R} (Reversible)</b><br>Sweep: %{{x:.1f}}<br>S/Nk: %{{y:.4f}}<extra></extra>'),row=1, col=2)
-    else:
-        fig.add_trace(go.Scatter(x=average_df['t'].rolling(window=bin_size).mean(), y=average_df['S/nk'].rolling(window=bin_size).mean(), 
-                                 name=f"Radius {R}", line=dict(color=rev_color), legendgroup=f"r{R}", showlegend=False,
-                                 hovertemplate=f'<b>Radius {R} (Reversible)</b><br>Sweep: %{{x:.1f}}<br>S/Nk: %{{y:.4f}}<extra></extra>'),row=1, col=2)
+    if include_entropy:
+        if is_combined:
+            trace_name = ""
+            fig.add_trace(go.Scatter(x=average_df['t'], y=average_df['S/nk'], name=trace_name, 
+                                     line=dict(color=rev_color), legendgroup=f"r{R}", legendgrouptitle_text=f"Radius {R}", 
+                                     legendrank=R*2, showlegend=show_legend,
+                                     hovertemplate=f'<b>Radius {R} (Reversible)</b><br>Sweep: %{{x}}<br>S/Nk: %{{y:.4f}}<extra></extra>'),row=ROW_ENTROPY, col=1)
+        else:
+            fig.add_trace(go.Scatter(x=average_df['t'], y=average_df['S/nk'], name=f"Radius {R}", 
+                                     line=dict(color=rev_color), legendgroup=f"r{R}", showlegend=show_legend,
+                                     hovertemplate=f'<b>Radius {R} (Reversible)</b><br>Sweep: %{{x}}<br>S/Nk: %{{y:.4f}}<extra></extra>'),row=ROW_ENTROPY, col=1)
+        if include_zoom and is_combined:
+            fig.add_trace(go.Scatter(x=average_df['t'].rolling(window=bin_size).mean(), y=average_df['S/nk'].rolling(window=bin_size).mean(), 
+                                     name=trace_name, line=dict(color=rev_color), legendgroup=f"r{R}", 
+                                     legendrank=R*2, showlegend=False,
+                                     hovertemplate=f'<b>Radius {R} (Reversible)</b><br>Sweep: %{{x:.1f}}<br>S/Nk: %{{y:.4f}}<extra></extra>'),row=ROW_ENTROPY, col=2)
+        elif include_zoom:
+            fig.add_trace(go.Scatter(x=average_df['t'].rolling(window=bin_size).mean(), y=average_df['S/nk'].rolling(window=bin_size).mean(), 
+                                     name=f"Radius {R}", line=dict(color=rev_color), legendgroup=f"r{R}", showlegend=False,
+                                     hovertemplate=f'<b>Radius {R} (Reversible)</b><br>Sweep: %{{x:.1f}}<br>S/Nk: %{{y:.4f}}<extra></extra>'),row=ROW_ENTROPY, col=2)
 
-    # Zoomed in portion about center of dataframe
-    num_elements = len(average_df['t']) // 4
+        if include_zoom:
+            # Zoomed in portion about center of dataframe
+            num_elements = len(average_df['t']) // 4
 
-    # Calculate the middle index
-    middle_index = len(average_df['t']) // 2
+            # Calculate the middle index
+            middle_index = len(average_df['t']) // 2
 
-    # Calculate the start and end indices for the middle elements
-    start_index = middle_index - (num_elements // 2)
-    end_index = middle_index + (num_elements // 2)
+            # Calculate the start and end indices for the middle elements
+            start_index = middle_index - (num_elements // 2)
+            end_index = middle_index + (num_elements // 2)
 
-    # Extract the middle elements
-    zoom = average_df.iloc[start_index:end_index]
-    if is_combined:
-        fig.add_trace(go.Scatter(x=zoom['t'], y=zoom['S/nk'], name="", 
-                                 line=dict(color=rev_color), legendgroup=f"r{R}", 
-                                 legendrank=R*2, showlegend=False,
-                                 hovertemplate=f'<b>Radius {R} (Reversible)</b><br>Sweep: %{{x}}<br>S/Nk: %{{y:.4f}}<extra></extra>'),row=2, col=1)
-        fig.add_trace(go.Scatter(x=zoom['t'].rolling(window=bin_size).mean(), y=zoom['S/nk'].rolling(window=bin_size).mean(), 
-                                 name="", line=dict(color=rev_color), legendgroup=f"r{R}", 
-                                 legendrank=R*2, showlegend=False,
-                                 hovertemplate=f'<b>Radius {R} (Reversible)</b><br>Sweep: %{{x:.1f}}<br>S/Nk: %{{y:.4f}}<extra></extra>'),row=2, col=2)
-    else:
-        fig.add_trace(go.Scatter(x=zoom['t'], y=zoom['S/nk'], name=f"Radius {R}", 
-                                 line=dict(color=rev_color), legendgroup=f"r{R}", showlegend=False,
-                                 hovertemplate=f'<b>Radius {R} (Reversible)</b><br>Sweep: %{{x}}<br>S/Nk: %{{y:.4f}}<extra></extra>'),row=2, col=1)
-        fig.add_trace(go.Scatter(x=zoom['t'].rolling(window=bin_size).mean(), y=zoom['S/nk'].rolling(window=bin_size).mean(), 
-                                 name=f"Radius {R}", line=dict(color=rev_color), legendgroup=f"r{R}", showlegend=False,
-                                 hovertemplate=f'<b>Radius {R} (Reversible)</b><br>Sweep: %{{x:.1f}}<br>S/Nk: %{{y:.4f}}<extra></extra>'),row=2, col=2)
-    add_psd_trace(fig, list_of_dfs, rev_color, R, is_irreversible=False)
+            # Extract the middle elements
+            zoom = average_df.iloc[start_index:end_index]
+            if is_combined:
+                fig.add_trace(go.Scatter(x=zoom['t'], y=zoom['S/nk'], name="", 
+                                         line=dict(color=rev_color), legendgroup=f"r{R}", 
+                                         legendrank=R*2, showlegend=False,
+                                         hovertemplate=f'<b>Radius {R} (Reversible)</b><br>Sweep: %{{x}}<br>S/Nk: %{{y:.4f}}<extra></extra>'),row=ROW_ZOOM, col=1)
+                fig.add_trace(go.Scatter(x=zoom['t'].rolling(window=bin_size).mean(), y=zoom['S/nk'].rolling(window=bin_size).mean(), 
+                                         name="", line=dict(color=rev_color), legendgroup=f"r{R}", 
+                                         legendrank=R*2, showlegend=False,
+                                         hovertemplate=f'<b>Radius {R} (Reversible)</b><br>Sweep: %{{x:.1f}}<br>S/Nk: %{{y:.4f}}<extra></extra>'),row=ROW_ZOOM, col=2)
+            else:
+                fig.add_trace(go.Scatter(x=zoom['t'], y=zoom['S/nk'], name=f"Radius {R}", 
+                                         line=dict(color=rev_color), legendgroup=f"r{R}", showlegend=False,
+                                         hovertemplate=f'<b>Radius {R} (Reversible)</b><br>Sweep: %{{x}}<br>S/Nk: %{{y:.4f}}<extra></extra>'),row=ROW_ZOOM, col=1)
+                fig.add_trace(go.Scatter(x=zoom['t'].rolling(window=bin_size).mean(), y=zoom['S/nk'].rolling(window=bin_size).mean(), 
+                                         name=f"Radius {R}", line=dict(color=rev_color), legendgroup=f"r{R}", showlegend=False,
+                                         hovertemplate=f'<b>Radius {R} (Reversible)</b><br>Sweep: %{{x:.1f}}<br>S/Nk: %{{y:.4f}}<extra></extra>'),row=ROW_ZOOM, col=2)
+    if include_psd:
+        add_psd_trace(fig, list_of_dfs, rev_color, R, is_irreversible=False, row=ROW_PSD)
 
     avg_Sk = np.append(avg_Sk, np.mean(average_df['S/nk']))
     SEM = np.append(SEM, np.std(average_df['S/nk']/math.sqrt(len(average_df['S/nk']))))
@@ -451,24 +527,26 @@ for R in rev_radii:
     print(f"[rev] R={R}: done ({len(average_df):,} rows)", flush=True)
     # fig.add_trace(go.Histogram(x=average_df['S/nk'], nbinsx=1),row=1, col=2)
 
-fig.update_xaxes(title_text="Sweeps", row=1, col=1)
-fig.update_yaxes(title_text="S/Nk", row=1, col=1)
-fig.update_yaxes(title_text="S/Nk", row=1, col=2)
-fig.update_xaxes(title_text="10 log(f)", row=3, col=1)
-fig.update_yaxes(title_text="PSD (dB)", row=3, col=1)
+if include_entropy:
+    fig.update_xaxes(title_text="Sweeps", row=ROW_ENTROPY, col=1)
+    fig.update_yaxes(title_text="S/Nk", row=ROW_ENTROPY, col=1)
+    fig.update_yaxes(title_text="S/Nk", row=ROW_ENTROPY, col=2)
+if include_psd:
+    fig.update_xaxes(title_text="10 log(f)", row=ROW_PSD, col=1)
+    fig.update_yaxes(title_text="PSD (dB)", row=ROW_PSD, col=1)
 print("Serializing fig1 to HTML...", flush=True)
 
 # Only add vlines and vrects if we have data
-if average_df is not None:
+if average_df is not None and include_entropy and include_zoom:
     t_values = average_df['t'].values
     mid_t = t_values[len(t_values) // 2]
     t_start = t_values[start_index]
     t_end = t_values[end_index - 1]
 
-    fig.add_vline(x=mid_t, line_width=1, line_dash="dash", line_color="Red", row=1, col=1)
-    fig.add_vline(x=mid_t, line_width=1, line_dash="dash", line_color="Red", row=1, col=2)
-    fig.add_vrect(x0=t_start, x1=t_end, line_width=0, fillcolor="blue", opacity=0.1, row=1, col=1)
-    fig.add_vrect(x0=t_start, x1=t_end, line_width=0, fillcolor="blue", opacity=0.1, row=1, col=2)
+    fig.add_vline(x=mid_t, line_width=1, line_dash="dash", line_color="Red", row=ROW_ENTROPY, col=1)
+    fig.add_vline(x=mid_t, line_width=1, line_dash="dash", line_color="Red", row=ROW_ENTROPY, col=2)
+    fig.add_vrect(x0=t_start, x1=t_end, line_width=0, fillcolor="blue", opacity=0.1, row=ROW_ENTROPY, col=1)
+    fig.add_vrect(x0=t_start, x1=t_end, line_width=0, fillcolor="blue", opacity=0.1, row=ROW_ENTROPY, col=2)
 
 # Add toggle buttons to show/hide reversible and irreversible traces
 num_traces = len(fig.data)
@@ -500,7 +578,7 @@ for trace in fig.data:
 
 fig.update_layout(
     title_text=f"Lattice Size: {n}",
-    height=850,
+    height=fig_height,
     legend=dict(
         orientation="v",
         yanchor="top",
@@ -573,151 +651,153 @@ fig.update_layout(
         )
     ]
 )
-fig.show()
+show_plotly_figure(fig, "fig1")
 
 ####################################################################################
 ###################### Avg Entropy v Radius & Entropy difference ###################
 ####################################################################################
 
-### Avg Entropy v Radius
-fig2.add_trace(go.Scatter(x=rev_plotted_radii, y=avg_Sk, error_y=dict(type='data', array=SEM), name="Reversible", line=dict(color='purple'),
-                          hovertemplate='<b>Reversible</b><br>Radius: %{x}<br>Avg S/Nk: %{y:.4f}<extra></extra>'),row=1, col=1)
-fig2.add_trace(go.Scatter(x=irr_plotted_radii, y=irr_avg_Sk, error_y=dict(type='data', array=irr_SEM), name="Irreversible", line=dict(color='#00C4C4'),
-                          hovertemplate='<b>Irreversible</b><br>Radius: %{x}<br>Avg S/Nk: %{y:.4f}<extra></extra>'),row=1, col=1)
+if include_summary:
+    ### Avg Entropy v Radius
+    fig2.add_trace(go.Scatter(x=rev_plotted_radii, y=avg_Sk, error_y=dict(type='data', array=SEM), name="Reversible", line=dict(color='purple'),
+                              hovertemplate='<b>Reversible</b><br>Radius: %{x}<br>Avg S/Nk: %{y:.4f}<extra></extra>'),row=1, col=1)
+    fig2.add_trace(go.Scatter(x=irr_plotted_radii, y=irr_avg_Sk, error_y=dict(type='data', array=irr_SEM), name="Irreversible", line=dict(color='#00C4C4'),
+                              hovertemplate='<b>Irreversible</b><br>Radius: %{x}<br>Avg S/Nk: %{y:.4f}<extra></extra>'),row=1, col=1)
 
-fig2.update_xaxes(title_text="Radius", row=1, col=1)
-fig2.update_yaxes(title_text="Avg S/Nk", row=1, col=1)
+    fig2.update_xaxes(title_text="Radius", row=1, col=1)
+    fig2.update_yaxes(title_text="Avg S/Nk", row=1, col=1)
 
-### Power-law fit of irreversible avg S/Nk vs radius (y = A x^B), excluding r=0
-def power_law(x, A, B, C):
-    return A * np.power(x, B) + C
+    ### Power-law fit of irreversible avg S/Nk vs radius (y = A x^B), excluding r=0
+    def power_law(x, A, B, C):
+        return A * np.power(x, B) + C
 
-irr_r_arr_fit = np.array(irr_plotted_radii)
-irr_avg_arr_fit = np.array(irr_avg_Sk)
-fit_mask = irr_r_arr_fit > 0
+    irr_r_arr_fit = np.array(irr_plotted_radii)
+    irr_avg_arr_fit = np.array(irr_avg_Sk)
+    fit_mask = irr_r_arr_fit > 0
 
-if np.sum(fit_mask) >= 3:
-    try:
-        popt, pcov = curve_fit(
-            power_law,
-            irr_r_arr_fit[fit_mask],
-            irr_avg_arr_fit[fit_mask],
-            p0=[1.0, -1.0, float(np.mean(irr_avg_arr_fit[fit_mask]))],
-            maxfev=10000,
-        )
-        A_fit, B_fit, C_fit = popt
-        perr = np.sqrt(np.diag(pcov))
+    if np.sum(fit_mask) >= 3:
+        try:
+            popt, pcov = curve_fit(
+                power_law,
+                irr_r_arr_fit[fit_mask],
+                irr_avg_arr_fit[fit_mask],
+                p0=[1.0, -1.0, float(np.mean(irr_avg_arr_fit[fit_mask]))],
+                maxfev=10000,
+            )
+            A_fit, B_fit, C_fit = popt
+            perr = np.sqrt(np.diag(pcov))
 
-        r_fit_x = np.linspace(irr_r_arr_fit[fit_mask].min(), irr_r_arr_fit[fit_mask].max(), 200)
-        r_fit_y = power_law(r_fit_x, A_fit, B_fit, C_fit)
+            r_fit_x = np.linspace(irr_r_arr_fit[fit_mask].min(), irr_r_arr_fit[fit_mask].max(), 200)
+            r_fit_y = power_law(r_fit_x, A_fit, B_fit, C_fit)
+
+            fig2.add_trace(
+                go.Scatter(
+                    x=r_fit_x,
+                    y=r_fit_y,
+                    mode='lines',
+                    name=f"Irr fit: y={A_fit:.4g}x^{B_fit:.4g}+{C_fit:.4g}",
+                    line=dict(color='#00C4C4', dash='dash'),
+                    hovertemplate='<b>Irreversible Fit</b><br>Radius: %{x:.2f}<br>S/Nk: %{y:.6f}<extra></extra>',
+                ),
+                row=1, col=1,
+            )
+
+            print(
+                f"Irreversible power-law fit (r>0): A={A_fit:.6g} (+/-{perr[0]:.2g}), "
+                f"B={B_fit:.6g} (+/-{perr[1]:.2g}), C={C_fit:.6g} (+/-{perr[2]:.2g})",
+                flush=True,
+            )
+        except RuntimeError as e:
+            print(f"Warning: power-law fit to irreversible data failed to converge: {e}", flush=True)
+    else:
+        print("Warning: not enough irreversible r>0 points to fit y=Ax^B+C (need at least 3).", flush=True)
+
+    ### Power-law fit of reversible avg S/Nk vs radius (y = A x^B), excluding r=0
+    rev_r_arr_fit = np.array(rev_plotted_radii)
+    rev_avg_arr_fit = np.array(avg_Sk)
+    rev_fit_mask = rev_r_arr_fit > 0
+
+    if np.sum(rev_fit_mask) >= 3:
+        try:
+            popt_rev, pcov_rev = curve_fit(
+                power_law,
+                rev_r_arr_fit[rev_fit_mask],
+                rev_avg_arr_fit[rev_fit_mask],
+                p0=[1.0, -1.0, float(np.mean(rev_avg_arr_fit[rev_fit_mask]))],
+                maxfev=10000,
+            )
+            A_fit_rev, B_fit_rev, C_fit_rev = popt_rev
+            perr_rev = np.sqrt(np.diag(pcov_rev))
+
+            r_fit_x_rev = np.linspace(rev_r_arr_fit[rev_fit_mask].min(), rev_r_arr_fit[rev_fit_mask].max(), 200)
+            r_fit_y_rev = power_law(r_fit_x_rev, A_fit_rev, B_fit_rev, C_fit_rev)
+
+            fig2.add_trace(
+                go.Scatter(
+                    x=r_fit_x_rev,
+                    y=r_fit_y_rev,
+                    mode='lines',
+                    name=f"Rev fit: y={A_fit_rev:.4g}x^{B_fit_rev:.4g}+{C_fit_rev:.4g}",
+                    line=dict(color='purple', dash='dash'),
+                    hovertemplate='<b>Reversible Fit</b><br>Radius: %{x:.2f}<br>S/Nk: %{y:.6f}<extra></extra>',
+                ),
+                row=1, col=1,
+            )
+
+            print(
+                f"Reversible power-law fit (r>0): A={A_fit_rev:.6g} (+/-{perr_rev[0]:.2g}), "
+                f"B={B_fit_rev:.6g} (+/-{perr_rev[1]:.2g}), C={C_fit_rev:.6g} (+/-{perr_rev[2]:.2g})",
+                flush=True,
+            )
+        except RuntimeError as e:
+            print(f"Warning: power-law fit to reversible data failed to converge: {e}", flush=True)
+    else:
+        print("Warning: not enough reversible r>0 points to fit y=Ax^B+C (need at least 3).", flush=True)
+
+    ### Entropy Difference (ppm) vs Radius
+    # Align the two series on common radii, then express the gap in parts per million.
+    rev_r_arr = np.array(rev_plotted_radii)
+    irr_r_arr = np.array(irr_plotted_radii)
+    common_radii = np.intersect1d(rev_r_arr, irr_r_arr)
+
+    if len(common_radii) > 0:
+        rev_idx = np.searchsorted(rev_r_arr, common_radii)
+        irr_idx = np.searchsorted(irr_r_arr, common_radii)
+
+        rev_vals  = avg_Sk[rev_idx]
+        irr_vals  = irr_avg_Sk[irr_idx]
+        rev_sems  = SEM[rev_idx]
+        irr_sems  = irr_SEM[irr_idx]
+
+        diff_ppm     = (irr_vals - rev_vals) * 1e6
+        diff_sem_ppm = np.sqrt(irr_sems**2 + rev_sems**2) * 1e6
 
         fig2.add_trace(
             go.Scatter(
-                x=r_fit_x,
-                y=r_fit_y,
-                mode='lines',
-                name=f"Irr fit: y={A_fit:.4g}x^{B_fit:.4g}+{C_fit:.4g}",
-                line=dict(color='#00C4C4', dash='dash'),
-                hovertemplate='<b>Irreversible Fit</b><br>Radius: %{x:.2f}<br>S/Nk: %{y:.6f}<extra></extra>',
+                x=common_radii,
+                y=diff_ppm,
+                error_y=dict(type='data', array=diff_sem_ppm),
+                name="Irr − Rev",
+                mode='lines+markers',
+                line=dict(color='#E23CB1'),
+                marker=dict(size=6),
+                hovertemplate=(
+                    '<b>Irr − Rev</b><br>'
+                    'Radius: %{x}<br>'
+                    'Δ S/Nk: %{y:.2f} ppm<extra></extra>'
+                ),
             ),
-            row=1, col=1,
+            row=1, col=2,
         )
 
-        print(
-            f"Irreversible power-law fit (r>0): A={A_fit:.6g} (+/-{perr[0]:.2g}), "
-            f"B={B_fit:.6g} (+/-{perr[1]:.2g}), C={C_fit:.6g} (+/-{perr[2]:.2g})",
-            flush=True,
-        )
-    except RuntimeError as e:
-        print(f"Warning: power-law fit to irreversible data failed to converge: {e}", flush=True)
-else:
-    print("Warning: not enough irreversible r>0 points to fit y=Ax^B+C (need at least 3).", flush=True)
+        # Zero-reference line so the sign of the gap is obvious
+        fig2.add_hline(y=0, line_width=1, line_dash="dot", line_color="gray", row=1, col=2)
 
-### Power-law fit of reversible avg S/Nk vs radius (y = A x^B), excluding r=0
-rev_r_arr_fit = np.array(rev_plotted_radii)
-rev_avg_arr_fit = np.array(avg_Sk)
-rev_fit_mask = rev_r_arr_fit > 0
+    fig2.update_xaxes(title_text="Radius", row=1, col=2)
+    fig2.update_yaxes(title_text="(S<sub>irr</sub>−S<sub>rev</sub>)/Nk [ppm]", row=1, col=2)
 
-if np.sum(rev_fit_mask) >= 3:
-    try:
-        popt_rev, pcov_rev = curve_fit(
-            power_law,
-            rev_r_arr_fit[rev_fit_mask],
-            rev_avg_arr_fit[rev_fit_mask],
-            p0=[1.0, -1.0, float(np.mean(rev_avg_arr_fit[rev_fit_mask]))],
-            maxfev=10000,
-        )
-        A_fit_rev, B_fit_rev, C_fit_rev = popt_rev
-        perr_rev = np.sqrt(np.diag(pcov_rev))
-
-        r_fit_x_rev = np.linspace(rev_r_arr_fit[rev_fit_mask].min(), rev_r_arr_fit[rev_fit_mask].max(), 200)
-        r_fit_y_rev = power_law(r_fit_x_rev, A_fit_rev, B_fit_rev, C_fit_rev)
-
-        fig2.add_trace(
-            go.Scatter(
-                x=r_fit_x_rev,
-                y=r_fit_y_rev,
-                mode='lines',
-                name=f"Rev fit: y={A_fit_rev:.4g}x^{B_fit_rev:.4g}+{C_fit_rev:.4g}",
-                line=dict(color='purple', dash='dash'),
-                hovertemplate='<b>Reversible Fit</b><br>Radius: %{x:.2f}<br>S/Nk: %{y:.6f}<extra></extra>',
-            ),
-            row=1, col=1,
-        )
-
-        print(
-            f"Reversible power-law fit (r>0): A={A_fit_rev:.6g} (+/-{perr_rev[0]:.2g}), "
-            f"B={B_fit_rev:.6g} (+/-{perr_rev[1]:.2g}), C={C_fit_rev:.6g} (+/-{perr_rev[2]:.2g})",
-            flush=True,
-        )
-    except RuntimeError as e:
-        print(f"Warning: power-law fit to reversible data failed to converge: {e}", flush=True)
-else:
-    print("Warning: not enough reversible r>0 points to fit y=Ax^B+C (need at least 3).", flush=True)
-
-### Entropy Difference (ppm) vs Radius
-# Align the two series on common radii, then express the gap in parts per million.
-rev_r_arr = np.array(rev_plotted_radii)
-irr_r_arr = np.array(irr_plotted_radii)
-common_radii = np.intersect1d(rev_r_arr, irr_r_arr)
-
-if len(common_radii) > 0:
-    rev_idx = np.searchsorted(rev_r_arr, common_radii)
-    irr_idx = np.searchsorted(irr_r_arr, common_radii)
-
-    rev_vals  = avg_Sk[rev_idx]
-    irr_vals  = irr_avg_Sk[irr_idx]
-    rev_sems  = SEM[rev_idx]
-    irr_sems  = irr_SEM[irr_idx]
-
-    diff_ppm     = (irr_vals - rev_vals) * 1e6
-    diff_sem_ppm = np.sqrt(irr_sems**2 + rev_sems**2) * 1e6
-
-    fig2.add_trace(
-        go.Scatter(
-            x=common_radii,
-            y=diff_ppm,
-            error_y=dict(type='data', array=diff_sem_ppm),
-            name="Irr − Rev",
-            mode='lines+markers',
-            line=dict(color='#E23CB1'),
-            marker=dict(size=6),
-            hovertemplate=(
-                '<b>Irr − Rev</b><br>'
-                'Radius: %{x}<br>'
-                'Δ S/Nk: %{y:.2f} ppm<extra></extra>'
-            ),
-        ),
-        row=1, col=2,
-    )
-
-    # Zero-reference line so the sign of the gap is obvious
-    fig2.add_hline(y=0, line_width=1, line_dash="dot", line_color="gray", row=1, col=2)
-
-fig2.update_xaxes(title_text="Radius", row=1, col=2)
-fig2.update_yaxes(title_text="(S<sub>irr</sub>−S<sub>rev</sub>)/Nk [ppm]", row=1, col=2)
-
-fig2.update_layout(title_text=f"Lattice Size: {n}")
+    # Fixed height (not scaled like fig1) since fig2 always has exactly one row.
+    fig2.update_layout(title_text=f"Lattice Size: {n}", height=900)
 
 # --- Stats box: total average entropy for r>0, irr vs rev, and their difference ---
 # Filter to r>0 entries only (index 0 in the plotted_radii lists corresponds to r=0 if present)
@@ -759,4 +839,4 @@ fig2.add_annotation(
 )
 
 print("Serializing fig2 to HTML...", flush=True)
-fig2.show()
+show_plotly_figure(fig2, "fig2")
