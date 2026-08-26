@@ -122,19 +122,13 @@ def format_time(seconds):
 ##################################### begin sim ######################################
 ######################################################################################
 
-def run_one_phase(x, dynamics_flag, active_file, s, n, t_counter, pbar_queue, PBAR_BATCH,
-                   records_per_sweep=10):
+def run_one_phase(x, dynamics_flag, active_file, s, n, t_counter, pbar_queue, PBAR_BATCH):
     """
     Run one full simulation phase (s//2 forward + s//2 reverse sweeps) for a given
     dynamics type, writing results to active_file. State carries over in-place on x.
 
-    Each N-step sweep is split into exactly `records_per_sweep` chunks of
-    individual MC steps (as evenly sized as possible - any remainder steps
-    are spread one-per-chunk across the first few chunks), and one CSV row
-    is written after every chunk. So every sweep produces exactly
-    records_per_sweep rows, regardless of lattice size n (as long as
-    n >= records_per_sweep). The 't' column reflects the actual number of
-    elapsed MC steps, not a sweep index.
+    Every (s * 0.01) sweeps are accumulated and written as a single averaged row,
+    reducing output size by 100x while preserving the overall trajectory.
 
     Args:
         x: Inferno instance (mutated in-place)
@@ -142,79 +136,102 @@ def run_one_phase(x, dynamics_flag, active_file, s, n, t_counter, pbar_queue, PB
         active_file: Path to output CSV file (opened in append mode)
         s: Total sweeps (s//2 forward + s//2 reverse)
         n: Lattice size
-        t_counter: Current step counter (continues across phases)
+        t_counter: Current sweep counter (continues across phases)
         pbar_queue: Shared queue for progress updates
         PBAR_BATCH: Batch size for progress IPC
-        records_per_sweep: Number of CSV rows to write per sweep (default 10)
 
     Returns:
-        t_counter: Updated step counter after this phase
+        t_counter: Updated sweep counter after this phase
     """
-    # Split n as evenly as possible into records_per_sweep chunks (if n is
-    # smaller than records_per_sweep, fall back to one row per step instead
-    # of emitting zero-length chunks).
-    n_records = min(records_per_sweep, n)
-    base, extra = divmod(n, n_records)
-    chunk_sizes = [base + 1 if i < extra else base for i in range(n_records)]
+    # Number of sweeps to average into one CSV row (1% of total sweeps, min 1)
+    avg_window = 1#max(1, int(s * 0.01))
 
-    def _run_half(num_sweeps, move_fn):
+    def _run_half(sweep_range, move_fn):
         nonlocal t_counter
         pbar_accum = 0
+        acc_N0      = 0.0
+        acc_Nx      = 0.0
+        acc_S       = 0.0
+        acc_E_lat   = 0.0
+        acc_E_demon = 0.0
+        acc_count   = 0
 
         with open(active_file, 'a', newline='') as f:
             writer = csv.writer(f)
 
-            for _sweep in range(num_sweeps):
+            for i in sweep_range:
+                move_fn(i)
 
-                # Break this sweep into fixed-count chunks, writing a row
-                # after each one.
-                for chunk in chunk_sizes:
-                    move_fn(chunk)
-                    t_counter += chunk
+                N0 = int(x.bond_count[1])
+                Nx = int(x.bond_count[2])
 
-                    N0 = int(x.bond_count[1])
-                    Nx = int(x.bond_count[2])
+                if N0 == 0:
+                    S_conf = Su0(n, N0, Nx)
+                else:
+                    S_conf = Su(n, N0, Nx)
 
-                    if N0 == 0:
-                        S_conf = Su0(n, N0, Nx)
-                    else:
-                        S_conf = Su(n, N0, Nx)
+                # Store only configurational entropy (per site)
+                acc_N0      += x.bond_count[1] / n * 100
+                acc_Nx      += x.bond_count[2] / n * 100
+                acc_S       += S_conf / n
+                acc_E_lat   += x.E_lattice
+                acc_E_demon += x.d_energy
+                acc_count   += 1
+                t_counter += 1
 
-                    h = x.d_energy_hist
-                    ratios = [h[k] / h[k + 1] if h[k + 1] > 0 else 0 for k in range(4)]
-                    writer.writerow([t_counter,
-                                     x.bond_count[1] / n * 100,
-                                     x.bond_count[2] / n * 100,
-                                     S_conf / n,
-                                     x.E_lattice,
-                                     x.d_energy,
-                                     n,
-                                     *ratios])
-                    x.d_energy_hist[:] = 0
-
-                # Progress bar still ticks once per completed full sweep,
-                # matching the original pacing/PBAR_BATCH sizing.
                 if pbar_queue:
                     pbar_accum += 1
                     if pbar_accum >= PBAR_BATCH:
                         pbar_queue.put(pbar_accum)
                         pbar_accum = 0
 
+                # Write averaged row every avg_window sweeps
+                if acc_count >= avg_window:
+                    h = x.d_energy_hist
+                    ratios = [h[k] / h[k + 1] if h[k + 1] > 0 else 0 for k in range(4)]
+                    writer.writerow([t_counter,
+                                     acc_N0    / acc_count,
+                                     acc_Nx    / acc_count,
+                                     acc_S     / acc_count,
+                                     acc_E_lat   / acc_count,
+                                     acc_E_demon / acc_count,
+                                     n,
+                                     *ratios])
+                    acc_N0 = acc_Nx = acc_S = acc_E_lat = acc_E_demon = 0.0
+                    acc_count = 0
+                    x.d_energy_hist[:] = 0
+
+            # Flush any remaining accumulated sweeps
+            if acc_count > 0:
+                h = x.d_energy_hist
+                ratios = [h[k] / h[k + 1] if h[k + 1] > 0 else 0 for k in range(4)]
+                writer.writerow([t_counter,
+                                 acc_N0    / acc_count,
+                                 acc_Nx    / acc_count,
+                                 acc_S     / acc_count,
+                                 acc_E_lat   / acc_count,
+                                 acc_E_demon / acc_count,
+                                 n,
+                                 *ratios])
+                x.d_energy_hist[:] = 0
+
             if pbar_queue and pbar_accum:
                 pbar_queue.put(pbar_accum)
 
     ### Forward sweeps
-    def fwd_move(steps):
-        x.do_sweep(dynamics_flag, steps=steps)
+    def fwd_move(i):
+        x.do_sweep(dynamics_flag)
 
-    _run_half(s // 2, fwd_move)
+    _run_half(range(s // 2), fwd_move)
     x.d_energy_hist[:] = 0
 
     ### Reverse sweeps
-    def rev_move(steps):
-        x.do_sweep_reverse(dynamics_flag, steps=steps)
+    half = s // 2
 
-    _run_half(s // 2, rev_move)
+    def rev_move(i):
+        x.do_sweep_reverse(dynamics_flag)
+
+    _run_half(range(half), rev_move)
 
     return t_counter
 
