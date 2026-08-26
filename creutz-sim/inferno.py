@@ -145,30 +145,26 @@ def count_bonds_jit(bonds):
 @njit
 def run_sweep_fwd_jit(lattice, bonds, E_demon, d_order, order, order_type,
                       E_lattice, d_energy, sweep_row, order_idx,
-                      N, n_demon_rows, flag, d_energy_hist, steps):
+                      N, n_demon_rows, flag, d_energy_hist):
     """
-    Run `steps` forward Monte Carlo steps inside a single JIT frame
-    (steps == N for one complete sweep, or a smaller number for a
-    partial sweep, e.g. to record state more often than once per sweep).
+    Run one complete forward sweep (N steps) inside a single JIT frame.
 
     Eliminates the per-step Python→Numba boundary crossing and moves
-    count_bonds to once per call instead of once per step.
+    count_bonds to once per sweep instead of once per step.
     """
-    for _ in range(steps):
+    for _ in range(N):
         if flag == 0:                               # reversible
             a          = order[order_idx]
             row1       = sweep_row
-            row2       = (row1 + 1) % n_demon_rows
             b1         = d_order[row1][order_idx]
-            b2         = d_order[row2][order_idx]
+            b2         = b1                          # same demon for both moves
             spin_first = (order_type[order_idx] == 0)
         else:                                       # irreversible
             rand_idx   = np.random.randint(0, N)
             a          = order[rand_idx]
             loc1       = np.random.randint(0, n_demon_rows)
-            loc2       = (loc1 + 1) % n_demon_rows
             b1         = d_order[loc1][rand_idx]
-            b2         = d_order[loc2][rand_idx]
+            b2         = b1                          # same demon for both moves
             spin_first = np.random.randint(0, 2) == 0
 
         if spin_first:
@@ -198,13 +194,11 @@ def run_sweep_fwd_jit(lattice, bonds, E_demon, d_order, order, order_type,
 @njit
 def run_sweep_rev_jit(lattice, bonds, E_demon, d_order, order, order_type,
                       E_lattice, d_energy, sweep_row, order_idx,
-                      N, n_demon_rows, flag, d_energy_hist, steps):
+                      N, n_demon_rows, flag, d_energy_hist):
     """
-    Run `steps` reverse Monte Carlo steps inside a single JIT frame
-    (steps == N for one complete reverse sweep, or a smaller number
-    for a partial reverse sweep).
+    Run one complete reverse sweep (N steps) inside a single JIT frame.
     """
-    for _ in range(steps):
+    for _ in range(N):
         if flag == 0:                               # reversible: undo one forward step
             if order_idx == 0:
                 sweep_row = (sweep_row - 1) % n_demon_rows
@@ -212,9 +206,8 @@ def run_sweep_rev_jit(lattice, bonds, E_demon, d_order, order, order_type,
 
             a          = order[order_idx]
             row1       = sweep_row
-            row2       = (row1 + 1) % n_demon_rows
             b1         = d_order[row1][order_idx]
-            b2         = d_order[row2][order_idx]
+            b2         = b1                          # same demon for both moves
             spin_first = (order_type[order_idx] == 0)
 
             if spin_first:                          # undo in opposite sub-order
@@ -231,9 +224,8 @@ def run_sweep_rev_jit(lattice, bonds, E_demon, d_order, order, order_type,
             rand_idx   = np.random.randint(0, N)
             a          = order[rand_idx]
             loc1       = np.random.randint(0, n_demon_rows)
-            loc2       = (loc1 + 1) % n_demon_rows
             b1         = d_order[loc1][rand_idx]
-            b2         = d_order[loc2][rand_idx]
+            b2         = b1                          # same demon for both moves
             spin_first = np.random.randint(0, 2) == 0
 
             if spin_first:
@@ -367,60 +359,52 @@ class Inferno:
         """
         self.bond_count = count_bonds_jit(self.bonds)
 
-    def do_sweep(self, flag, steps=None):
+    def do_sweep(self, flag):
         """
-        Run `steps` forward Monte Carlo steps in a single JIT call
-        (steps defaults to N, i.e. one full sweep, if not given; pass a
-        smaller value to advance only part of a sweep, e.g. for more
-        frequent data recording). count_bonds is called once at the end.
+        Run one full forward sweep (N steps) in a single JIT call.
+        count_bonds is called once at the end of the sweep, not per step.
         """
-        if steps is None:
-            steps = self.N
         (self.E_lattice, self.d_energy, self.sweep_row, self.order_idx,
          self.bond_count, self.E_total) = run_sweep_fwd_jit(
             self.lattice, self.bonds, self.E_demon,
             self.d_order, self.order, self.order_type,
             self.E_lattice, self.d_energy, self.sweep_row, self.order_idx,
-            self.N, self.n_demon_rows, flag, self.d_energy_hist, steps
+            self.N, self.n_demon_rows, flag, self.d_energy_hist
         )
 
-    def do_sweep_reverse(self, flag, steps=None):
+    def do_sweep_reverse(self, flag):
         """
-        Run `steps` reverse Monte Carlo steps in a single JIT call
-        (steps defaults to N, i.e. one full reverse sweep, if not given).
-        count_bonds is called once at the end.
+        Run one full reverse sweep (N steps) in a single JIT call.
+        count_bonds is called once at the end of the sweep, not per step.
         """
-        if steps is None:
-            steps = self.N
         (self.E_lattice, self.d_energy, self.sweep_row, self.order_idx,
          self.bond_count, self.E_total) = run_sweep_rev_jit(
             self.lattice, self.bonds, self.E_demon,
             self.d_order, self.order, self.order_type,
             self.E_lattice, self.d_energy, self.sweep_row, self.order_idx,
-            self.N, self.n_demon_rows, flag, self.d_energy_hist, steps
+            self.N, self.n_demon_rows, flag, self.d_energy_hist
         )
 
     def _choose_rev_pair(self):
         a = self.order[self.order_idx]
         row1 = self.sweep_row
-        row2 = (row1 + 1) % self.n_demon_rows
         b1 = self.d_order[row1][self.order_idx]
-        b2 = self.d_order[row2][self.order_idx]
+        b2 = b1  # same demon services both the spin flip and bond change
         return a, b1, b2
 
 
     def _choose_irr_pair(self):
         """
-        Random irreversible site and two independently sampled demon indices.
-        Returns (a, b1, b2) where b1 is used for spin flip and b2 for bond change.
+        Random irreversible site and a single sampled demon index that
+        services both the spin flip and bond change attempts this step.
+        Returns (a, b1, b2) with b1 == b2.
         """
         rand_idx = np.random.randint(0, self.N)
         a = self.order[rand_idx]
 
         local_idx1 = np.random.randint(0, self.radius + 1)
-        local_idx2 = (local_idx1 + 1) % self.n_demon_rows
         b1 = self.d_order[local_idx1][rand_idx]
-        b2 = self.d_order[local_idx2][rand_idx]
+        b2 = b1  # same demon services both moves
 
         return a, b1, b2
 
@@ -440,14 +424,16 @@ class Inferno:
         One forward step.
 
         Reversible:
-        - choose one deterministic (site, spin_demon, bond_demon) triple
+        - choose one deterministic (site, demon) pair; the same demon
+          services both the spin flip and bond change attempts
         - use the stored order_type at this step:
             0 -> spin then bond
             1 -> bond then spin
         - then advance indices once
 
         Irreversible:
-        - choose one random (site, spin_demon, bond_demon) triple
+        - choose one random (site, demon) pair; the same demon
+          services both the spin flip and bond change attempts
         - choose spin-first or bond-first randomly each step
         """
         if flag == 0:
